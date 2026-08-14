@@ -49,7 +49,10 @@ export function createFetchConnectionRpc(fetcher: typeof fetch): ClientConnectio
   }
 }
 
-/** Create the browser-backed generic RPC caller. */
+/**
+ * Create the browser-backed generic RPC caller.
+ * @returns caller bound to the ambient `fetch` of the browser context.
+ */
 export function createWebConnectionRpc(): ClientConnectionRpc {
   return createFetchConnectionRpc((input, init) => globalThis.fetch(input, init))
 }

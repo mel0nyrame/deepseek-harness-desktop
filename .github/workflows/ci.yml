@@ -492,6 +492,45 @@ jobs:
   # standby remains active. Each enabled host executes the complete, unsharded
   # primary Node aggregate with one gate worker, giving reviewers a simple
   # cross-platform oracle for completeness and timing.
+
+  # Packaged desktop gate: builds the macOS application bundle and runs the
+  # keyless packaged-app smoke on the installed artifact. macOS-only because
+  # the tracer bullet packages a .app; the runtime-closure contract and the
+  # native-module placement are exercised nowhere else in the host matrix.
+  desktop-packaged:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    name: desktop packaged smoke
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      - name: Package the desktop application
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build
+
+      # The smoke refuses to self-skip: a packaging regression that drops the
+      # bundle or the native addon must fail the lane, not go green by skip.
+      - name: Run the keyless packaged-app smoke
+        env:
+          DSH_DESKTOP_SMOKE_REQUIRED: '1'
+        run: pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts
+
   serial-linux:
     if: false
     name: serial / linux
@@ -925,7 +964,7 @@ jobs:
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
           || 'ubuntu-latest' }}
-    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows]
+    needs: [node-24, node-24-coverage, node-24-consumers, node-compat, python-sdk, python-runtime, windows, desktop-packaged]
     if: always() && github.event_name == 'pull_request'
     steps:
       - name: Fail if any needed job did not succeed

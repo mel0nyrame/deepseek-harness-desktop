@@ -12,7 +12,7 @@ Web 产品组合之上的 Electron 桌面 overlay。[`cordis.patch.yml`](cordis.
 
 #### 模型看到什么
 
-什么都看不到。该 overlay 只改变现有 API gateway 与事件流由哪种传输承载；不新增任何 prompt 段落、工具、shell 变量或模型可见事件。
+什么都看不到。该 overlay 只改变现有 API gateway 与事件流由哪种传输承载；不新增任何 prompt 段落、工具、shell 变量或模型可见事件。录制好的 `bash` 工具回合仍按相同顺序流式输出 `tool/result` 事件及其中的 `TERMINAL_OK` 标记，与 HTTP 承载时完全一致。
 
 #### Token 影响
 

@@ -140,6 +140,7 @@
     "mock:llm": "node --import tsx packages/test-support/llm-mock-server/src/bin.ts",
     "dev:web": "tsx scripts/dev-web.ts --poll",
     "dev:desktop": "pnpm run build && pnpm --filter @deepseek-ai/dsh-desktop run start",
+    "package:desktop": "pnpm --filter @deepseek-ai/dsh-desktop run package",
     "postinstall": "node scripts/install-lefthook.mjs"
   },
   "devDependencies": {

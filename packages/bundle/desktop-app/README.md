@@ -12,7 +12,7 @@ The plugin runs inside the dedicated DSH child process that the Electron shell (
 
 #### What the model sees
 
-Nothing. The overlay changes which transport carries the existing API gateway and event streams; it adds no prompt sections, tools, shell variables, or model-visible events.
+Nothing. The overlay changes which transport carries the existing API gateway and event streams; it adds no prompt sections, tools, shell variables, or model-visible events. A recorded `bash` tool turn still streams the same ordered `tool/result` event under the `TERMINAL_OK` marker as it does over HTTP.
 
 #### Token effect
 

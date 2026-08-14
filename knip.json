@@ -794,15 +794,15 @@
       "entry": [
         "src/main.ts",
         "src/preload.ts",
-        "tests/**/*.e2e.ts"
+        "tests/**/*.e2e.ts",
+        "scripts/**/*.ts"
       ],
       "project": [
         "src/**/*.ts",
         "tests/**/*.ts"
       ],
       "ignoreDependencies": [
-        "@deepseek-ai/dsh",
-        "@deepseek-ai/dsh-web-frontend"
+        "^@deepseek-ai/"
       ]
     }
   }

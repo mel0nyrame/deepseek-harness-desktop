@@ -1,0 +1,34 @@
+appId: ai.deepseek.dsh-desktop
+productName: DSH Desktop
+# Matches the pinned Electron devDependency of this package; the packaging
+# script passes the installed electronDist so the bundle and the rebuild
+# always use the same binary.
+electronVersion: 43.4.0
+asar: true
+# The runtime closure is rebuilt and staged by scripts/package.ts; the
+# builder must not run its own install/rebuild passes over the staged
+# manifest (its dependencies still carry workspace: specs).
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+# The asar carries only the Electron shell: the bundled main entry and the
+# sandboxed preload. Everything else ships as real files under
+# Contents/Resources/runtime (see extraResources), because the DSH child
+# process, native modules, and the node-pty spawn helper need filesystem
+# paths no archive can provide.
+files:
+  - lib/**
+  - package.json
+extraResources:
+  - from: node_modules
+    to: runtime/node_modules
+mac:
+  # The tracer bullet ships unsigned; release-grade signing and notarization
+  # are out of scope until the artifact ticket.
+  identity: null
+  category: public.app-category.developer-tools
+  target:
+    - dir
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  extendInfo:
+    NSHighResolutionCapable: true

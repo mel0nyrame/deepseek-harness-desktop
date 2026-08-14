@@ -135,9 +135,16 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 
 问题 #1 与 #2 已通过开发路径交付第一个垂直切片：
 
-- 可复用的 Client Connection 载体契约（[`carrier-contract.client.ts`](../../../packages/client/connection/tests/carrier-contract.client.ts)）锁定了 unary、反向响应、mux 流和 host 流语义，以及就绪、顺序、取消、畸形消息、断连和订阅生命周期行为；HTTP/WebSocket 载体和新的 Electron 载体均原样通过该契约。
-- 开发版 tracer bullet 通过 `pnpm run dev:desktop` 运行：Electron shell（[`apps/desktop`](../../../apps/desktop)）监督一个专属 DSH 子进程（`--profile desktop`，即内置的 `base + web-app + desktop-app` overlay）。该 overlay（[`packages/bundle/desktop-app`](../../../packages/bundle/desktop-app)）禁用全部浏览器传输行（`web-startup`、`webserver`、`web-runtime`、`client-hmr`），固定原生目录选择器，并挂载子进程运行时，通过单一 IPC channel 提供现有 API gateway 和事件流——路径中不参与任何 loopback HTTP 监听。
-- renderer 只能通过沙箱化、context-isolated 的 preload 桥访问 DSH；[`DesktopApiClient`](../../../packages/client/connection/src/client/desktop-api-client.ts) 在其上实现现有 `IApiClient` 接口。Host 侧 Connection 与 client-modules 插件仅在存在 WebServer 时才挂载 Web 传输，因此 Web 开发工作流保持不变。
-- 一个 keyless 真实组合 e2e（[`apps/desktop/tests/real-composition.e2e.ts`](../../../apps/desktop/tests/real-composition.e2e.ts)）fork 真实的 desktop profile，创建 Session，重放一段已录制的 `bash` 工具回合，断言 mux 流中按序流式到达的 `TERMINAL_OK` 结果，并验证 terminate-and-join 退出后没有残留后代进程。
+- 可复用的 Client Connection 载体契约（[`carrier-contract.client.ts`](../../../../packages/client/connection/tests/carrier-contract.client.ts)）锁定了 unary、反向响应、mux 流和 host 流语义，以及就绪、顺序、取消、畸形消息、断连和订阅生命周期行为；HTTP/WebSocket 载体和新的 Electron 载体均原样通过该契约。
+- 开发版 tracer bullet 通过 `pnpm run dev:desktop` 运行：Electron shell（[`apps/desktop`](../../../../apps/desktop)）监督一个专属 DSH 子进程（`--profile desktop`，即内置的 `base + web-app + desktop-app` overlay）。该 overlay（[`packages/bundle/desktop-app`](../../../../packages/bundle/desktop-app)）禁用全部浏览器传输行（`web-startup`、`webserver`、`web-runtime`、`client-hmr`），固定原生目录选择器，并挂载子进程运行时，通过单一 IPC channel 提供现有 API gateway 和事件流——路径中不参与任何 loopback HTTP 监听。
+- renderer 只能通过沙箱化、context-isolated 的 preload 桥访问 DSH；[`DesktopApiClient`](../../../../packages/client/connection/src/client/desktop-api-client.ts) 在其上实现现有 `IApiClient` 接口。Host 侧 Connection 与 client-modules 插件仅在存在 WebServer 时才挂载 Web 传输，因此 Web 开发工作流保持不变。
+- 一个 keyless 真实组合 e2e（[`apps/desktop/tests/real-composition.e2e.ts`](../../../../apps/desktop/tests/real-composition.e2e.ts)）fork 真实的 desktop profile，创建 Session，重放一段已录制的 `bash` 工具回合，断言 mux 流中按序流式到达的 `TERMINAL_OK` 结果，并验证 terminate-and-join 退出后没有残留后代进程。
 
-问题 #3（打包）、#4（原生 macOS 窗口体验）和 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。
+问题 #3 已交付打包应用切片：
+
+- `pnpm --filter @deepseek-ai/dsh-desktop run package` 通过四个阶段（[`scripts/package.ts`](../../../../apps/desktop/scripts/package.ts)）产出主机架构的无签名 macOS 应用包：闭包校验（`verify-runtime-closure` 现在同时检查两个部署清单）、将生产运行时闭包 pnpm legacy deploy 到无符号链接的暂存目录、按 Electron ABI 重建 node-pty 并在 Electron 二进制内加载验证、以及 electron-builder 组装（[`electron-builder.yml`](../../../../apps/desktop/electron-builder.yml)）。
+- 安装布局把 shell 放在 asar 内，整个运行时闭包以真实文件放在 `Contents/Resources/runtime/` 下；Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从该闭包解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程（[`packaged-runtime.ts`](../../../../apps/desktop/src/packaged-runtime.ts) 定义该契约）。全程不依赖系统 Node.js 或 DSH CLI。
+- keyless 打包应用冒烟测试（`apps/desktop/tests/packaged-smoke.e2e.ts`）以 `--smoke` 启动安装后的应用包，在捆绑运行时上重跑 tracer bullet，断言零退出码与自有进程树的静默；失败路径用例给它一个缺失的 replay 文件，断言场景以非零退出码判负时同样静默。macOS CI 任务先打包，并把应用包缺失变成硬失败。
+- 桌面包清单兼任部署根清单：其依赖列表即打包运行时闭包，由 `verify-runtime-closure` 强制校验。
+
+问题 #4（原生 macOS 窗口体验）和 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。#3 打包切片中发布级的签名、公证与跨架构产物延后到后续工单。

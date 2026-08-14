@@ -51,7 +51,11 @@ function requestBody(init: RequestInit | undefined): string | undefined {
   return init.body
 }
 
-/** Build a fetch-shaped unary leg over the preload bridge. */
+/**
+ * Build a fetch-shaped unary leg over the preload bridge.
+ * @param bridge - sandboxed, context-isolated preload bridge selected by the desktop carrier.
+ * @returns fetch-compatible unary transport forwarding requests through the bridge.
+ */
 export function createDesktopFetch(bridge: DesktopBridge): typeof fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const inputRequest = input instanceof Request ? input : undefined

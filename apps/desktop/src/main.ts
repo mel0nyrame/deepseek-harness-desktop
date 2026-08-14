@@ -1,6 +1,7 @@
-/** Electron desktop development entry. */
+/** Electron desktop entry: development shell and packaged application. */
 
 import { fork } from 'node:child_process'
+import { mkdirSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -9,6 +10,13 @@ import {
   type IpcMainEvent, type IpcMainInvokeEvent,
 } from 'electron'
 import { DshSupervisor } from './supervisor.ts'
+import {
+  PACKAGED_CHILD_EXEC_ARGV,
+  packagedChildEnv,
+  packagedRuntimeLayout,
+  parseSmokeInvocation,
+} from './packaged-runtime.ts'
+import { prepareSmokeProfile, runSmokeScenario } from './smoke.ts'
 import {
   isDesktopAppUrl,
   parseRendererId,
@@ -35,6 +43,15 @@ interface DesktopBoot {
     readonly inject?: string[]
     readonly immediately?: boolean
   }>
+}
+
+/** Spawn inputs shared by the development and packaged layouts. */
+interface DshChildOptions {
+  readonly cliEntry: string
+  readonly cwd: string
+  readonly execPath: string
+  readonly execArgv: readonly string[]
+  readonly env: NodeJS.ProcessEnv
 }
 
 function packageDir(specifier: string): string {
@@ -88,12 +105,12 @@ function registerAssetProtocol(webDist: string, bundles: ReadonlyMap<string, str
   })
 }
 
-function spawnDshChild(): DshSupervisor {
-  const cli = resolve(packageDir('@deepseek-ai/dsh'), 'lib', 'bin.js')
-  const child = fork(cli, ['--profile', 'desktop'], {
-    cwd: resolve(fileURLToPath(new URL('../../..', import.meta.url))),
-    execPath: process.env.DSH_NODE_EXECUTABLE ?? 'node',
-    env: process.env,
+function spawnDshChild(options: DshChildOptions): { supervisor: DshSupervisor; childPid: number | undefined } {
+  const child = fork(options.cliEntry, ['--profile', 'desktop'], {
+    cwd: options.cwd,
+    execPath: options.execPath,
+    execArgv: [...options.execArgv],
+    env: options.env,
     // JSON serialization: the desktop protocol validates JSON-shaped messages
     // at the boundary, and `advanced` (v8) serialization fails when Electron's
     // embedded V8 and the DSH child's Node differ in serialization version.
@@ -102,7 +119,40 @@ function spawnDshChild(): DshSupervisor {
   })
   child.stdout?.on('data', (chunk: Buffer) => { process.stdout.write(chunk) })
   child.stderr?.on('data', (chunk: Buffer) => { process.stderr.write(chunk) })
-  return new DshSupervisor(child)
+  return { supervisor: new DshSupervisor(child), childPid: child.pid }
+}
+
+/** Development layout: the child runs from the source tree like `dsh --profile desktop`. */
+function developmentChildOptions(): DshChildOptions {
+  const cli = resolve(packageDir('@deepseek-ai/dsh'), 'lib', 'bin.js')
+  return {
+    cliEntry: cli,
+    cwd: resolve(fileURLToPath(new URL('../../..', import.meta.url))),
+    execPath: process.env.DSH_NODE_EXECUTABLE ?? 'node',
+    execArgv: [],
+    env: process.env,
+  }
+}
+
+/**
+ * Packaged layout: the application binary itself is the child's Node runtime
+ * (`ELECTRON_RUN_AS_NODE`), and the runtime closure ships as real files under
+ * `Contents/Resources/runtime` so native modules and the PTY helper load from
+ * filesystem paths. No system Node.js or DSH CLI participates.
+ */
+function packagedChildOptions(smoke: boolean): DshChildOptions {
+  const layout = packagedRuntimeLayout(process.resourcesPath, app.getPath('userData'))
+  mkdirSync(layout.childCwd, { recursive: true })
+  const env = packagedChildEnv(process.env, layout.ptySpawnHelper)
+  return {
+    cliEntry: layout.cliEntry,
+    cwd: layout.childCwd,
+    execPath: process.execPath,
+    execArgv: PACKAGED_CHILD_EXEC_ARGV,
+    env: smoke && env['DSH_TELEMETRY_DISABLED'] === undefined
+      ? { ...env, DSH_TELEMETRY_DISABLED: '1' }
+      : env,
+  }
 }
 
 function senderIs(window: BrowserWindow, event: IpcMainEvent | IpcMainInvokeEvent): boolean {
@@ -157,8 +207,8 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
 
 let quitting: Promise<void> | undefined
 
-async function boot(): Promise<void> {
-  const supervisor = spawnDshChild()
+/** Boot the desktop window over a started supervisor. */
+async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<void> {
   const ready = await supervisor.start()
   const bundlePaths = new Map(ready.bundles.map(bundle => [tokenFor(bundle.id), bundle.path]))
   const boot: DesktopBoot = {
@@ -168,7 +218,6 @@ async function boot(): Promise<void> {
       url: `${APP_ORIGIN}/bundle/${tokenFor(entry.id)}.js?rev=${entry.rev}`,
     })),
   }
-  const webDist = resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
   registerAssetProtocol(webDist, bundlePaths)
 
   const window = new BrowserWindow({
@@ -208,11 +257,59 @@ async function boot(): Promise<void> {
   app.on('window-all-closed', () => { app.quit() })
 }
 
+/**
+ * Keyless smoke mode: run the Session → terminal command → streamed output →
+ * quit-cleanup tracer bullet without a window and exit with the scenario's
+ * verdict. The packaged-app smoke test launches the installed application
+ * binary with `--smoke --smoke-replay <file>`.
+ */
+async function bootSmoke(supervisor: DshSupervisor, childPid: number | undefined): Promise<number> {
+  try {
+    await runSmokeScenario(supervisor, childPid ?? process.pid)
+    console.log('SMOKE_PASS')
+    return 0
+  } catch (error) {
+    console.error(`desktop smoke failed: ${error instanceof Error ? error.message : String(error)}`)
+    // A stop failure is secondary to the scenario verdict already in hand, so
+    // report it by name instead of masking the original error.
+    await supervisor.stop().catch((stopError: unknown) => {
+      console.error(`desktop smoke: stopping the child also failed: ${String(stopError)}`)
+    })
+    return 1
+  }
+}
+
 // Electron does not emit `ready` while an ESM main module is still
 // evaluating, so a top-level `await app.whenReady()` deadlocks boot: the
 // promise below lets module evaluation finish first, then runs the app.
 void app.whenReady().then(() => {
-  void boot().catch((error: unknown) => {
+  void (async () => {
+    const smoke = parseSmokeInvocation(process.argv)
+    const options = app.isPackaged ? packagedChildOptions(smoke !== undefined) : developmentChildOptions()
+    if (smoke !== undefined) {
+      const replayFile = smoke.replayFile
+      if (replayFile === undefined) {
+        console.error('desktop smoke requires --smoke-replay <file>')
+        app.exit(1)
+        return
+      }
+      // The child reads its profile at boot, so the smoke profile (bundles +
+      // keyless replay patch + the fallback link to the replay provider) must
+      // exist before the child spawns.
+      const replayProvider = app.isPackaged
+        ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
+        : packageDir('@deepseek-ai/dsh-llm-replay')
+      prepareSmokeProfile(replayFile, replayProvider)
+      const { supervisor, childPid } = spawnDshChild(options)
+      app.exit(await bootSmoke(supervisor, childPid))
+      return
+    }
+    const webDist = app.isPackaged
+      ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
+      : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
+    const { supervisor } = spawnDshChild(options)
+    await bootWindow(supervisor, webDist)
+  })().catch((error: unknown) => {
     console.error(`desktop app failed to start: ${String(error)}`)
     app.exit(1)
   })
