@@ -64,7 +64,7 @@ renderer 从打包文件加载现有生产客户端，并通过现有客户端�
 
 主要验收 seam 是已安装的桌面应用。一个无密钥测试启动打包后的 Electron 应用，等待真实内置 DSH 子进程就绪，通过 renderer 创建 Session，运行由终端支持的场景，在 conversation 中观察流式输出，退出应用，并验证 DSH 进程、PTY 和后代进程树均已退出。这是现有最高产品 seam，能够覆盖新 shell，又不会用 mock 替代 DSH 行为。
 
-支撑性约定测试使用 Electron adapter 运行现有客户端 carrier 行为。它们覆盖一元成功与失败 envelope、服务端到客户端的请求与响应、流顺序、就绪、取消、畸形消息、断线和订阅清理。测试跨越 React 调用方所使用的同一连接接口，不断言 Electron IPC 实现细节。
+支撑性测试把可复用的 Client Connection 载体约定（`packages/client/connection/tests/carrier-contract.client.ts`）应用于 Electron 适配器。传输无关的 harness 控制逻辑流投递、断线和存活订阅计数，不导入浏览器或 Electron primitive。它通过 React 调用方所使用的同一 `IApiClient` 接口覆盖一元成功与失败信封、Client 对 Host 请求的响应、有序 mux 与 Host 流、就绪、取消、畸形消息、断线、有界订阅生命周期及清理；Electron 专属测试另行覆盖 IPC 机制。
 
 supervisor 测试覆盖成功启动、启动超时、配置失败、子进程意外退出、一次受控重启、启动期间退出应用，以及先终止再等待退出的清理。对于 mock 无法证明的生命周期声明，进程树断言在 macOS 上使用真实子进程。
 
