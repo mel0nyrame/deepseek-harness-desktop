@@ -148,4 +148,11 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 - 桌面包清单兼任部署根清单：其依赖列表即打包运行时闭包，由 `verify-runtime-closure` 强制校验。
 - CI 触发 PR 暴露了两个分支级缺陷并在此修复：Connection 与 client-modules 的可选 WebServer 挂载改用捕获的 `ctx.get()` 值传递（Node 22 下直接属性访问会在 fiber 边界抛出 "cannot get property webServer without inject"）；`electron` 加入 `allowBuilds`，并新增打包恢复步骤，保证全新安装始终携带管线所校验的固定版本发行物。
 
-问题 #4（原生 macOS 窗口体验）和 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。#3 打包切片中发布级的签名、公证与跨架构产物延后到后续工单。
+问题 #4 已交付 macOS 原生窗口切片：
+
+- 真实 `BrowserWindow` 使用 `hiddenInset` chrome、固定内嵌位置的 traffic lights、透明客户端表面，以及 Electron 基于 AppKit 的 `under-window` vibrancy，并将 `visualEffectState` 设为 `followWindow`。
+- 独立的 44 像素标题区域可拖动，链接、控件、可编辑内容与浮层保持为 no-drag 区域。Electron `nativeTheme` 更新系统外观与“降低透明度”状态；无障碍 fallback 使用接近不透明的明色或暗色表面，并保留清晰的键盘焦点。
+- 打包验收通过 `--inspect-native-window` 启动真实 `BrowserWindow`，检查配置选项、实际原生背景与焦点状态、计算后的拖动区域，以及全部 renderer 外观／透明度组合。本地真实应用 GIF 记录打包窗口的启动、键盘焦点与明暗外观；同一验收套件中的打包冒烟测试另行证明 tracer-bullet 工作流。
+- Electron 支持的接口已满足所需布局，因此未加入原生视觉效果 addon。
+
+问题 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。#3 打包切片中发布级的签名、公证与跨架构产物延后到后续工单。

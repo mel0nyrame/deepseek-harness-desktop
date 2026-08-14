@@ -20,12 +20,15 @@ Electron desktop application shell for the bundled DeepSeek Harness runtime. Ele
 
 The installed application starts without a system Node.js or DSH CLI: Electron main forks the application binary itself as the DSH child (`ELECTRON_RUN_AS_NODE`), resolves the CLI, Web dist, and PTY helper from `Contents/Resources/runtime`, and hands the child its user-data directory as the working directory ([`src/packaged-runtime.ts`](src/packaged-runtime.ts) owns this layout). Native modules and the PTY helper therefore never sit inside an archive. The harness home stays the shared `~/.dsh`, so the packaged app and the CLI see the same sessions, profiles, and configuration.
 
-## Packaged smoke
+## Native macOS window
 
-`apps/desktop/tests/packaged-smoke.e2e.ts` launches the installed bundle with `--smoke --smoke-replay <file>` and asserts the full keyless tracer bullet — Session creation, a terminal-backed `echo TERMINAL_OK` tool turn with ordered streamed events, no TCP listener, and quiescent quit — plus the absence of surviving owned processes. A failure-path case feeds it a missing replay file and asserts the same quiescence on a non-zero scenario verdict. It self-skips when the bundle is absent; the macOS CI job packages first and sets `DSH_DESKTOP_SMOKE_REQUIRED=1`, which turns absence into a hard failure.
+The macOS `BrowserWindow` uses `hiddenInset` title-bar chrome, fixed inset traffic lights, a transparent client surface, and Electron's AppKit-backed `under-window` vibrancy with `visualEffectState: followWindow`. A dedicated 44-pixel title strip is draggable; links, form controls, buttons, editable content, and overlays remain interactive no-drag regions. System light/dark changes flow through Electron's `nativeTheme`, and macOS Reduce Transparency switches the client to a near-opaque light or dark surface while retaining visible keyboard focus. Supported Electron APIs satisfy the layout, so the application includes no custom native visual-effect addon.
+
+## Packaged acceptance
+
+`apps/desktop/tests/packaged-smoke.e2e.ts` launches the installed bundle in two modes. `--inspect-native-window` creates a real `BrowserWindow` and reports the configured title-bar, traffic-light, transparency, vibrancy, focus, drag-region, appearance, and reduced-transparency state for automated assertions. `--smoke --smoke-replay <file>` asserts the full keyless tracer bullet — Session creation, a terminal-backed `echo TERMINAL_OK` tool turn with ordered streamed events, no TCP listener, and quiescent quit — plus the absence of surviving owned processes. The suite self-skips when the bundle is absent; the macOS CI job packages first and sets `DSH_DESKTOP_SMOKE_REQUIRED=1`, which turns absence into a hard failure.
 
 ## Limitations
 
 - The tracer bullet ships unsigned and un-notarized; release-grade signed, notarized, cross-arch (x64) artifacts are a later ticket.
-- The smoke launch is headless; GUI acceptance against the real window belongs to the window-experience issue.
 - `--smoke` refuses to run without an explicit `DSH_HOME`, so it can never touch the machine owner's real `~/.dsh`.

@@ -148,4 +148,11 @@ Issue #3 shipped the packaged application slice:
 - The desktop package manifest doubles as the deploy-root manifest: its dependency list is the packaged runtime closure, enforced by `verify-runtime-closure`.
 - The CI-trigger PR exposed two branch-level defects, fixed in this slice: the Connection and client-modules optional-WebServer mounts now travel by captured `ctx.get()` service values (direct property access threw "cannot get property webServer without inject" behind a fiber boundary on Node 22), and `electron` joins `allowBuilds` with a packaging restore step so fresh installs always carry the pinned distribution the pipeline validates.
 
-Issues #4 (native macOS window experience) and #5 (carrier hardening: bounded backpressure and renderer-lifecycle closure) remain open; their acceptance criteria still apply. Release-grade signed, notarized, cross-arch artifacts from issue #3's packaging slice are deferred to a later ticket.
+Issue #4 shipped the native macOS window slice:
+
+- The real `BrowserWindow` uses `hiddenInset` chrome, fixed inset traffic lights, a transparent client surface, and Electron's AppKit-backed `under-window` vibrancy with `visualEffectState: followWindow`.
+- A dedicated 44-pixel title strip is draggable while links, controls, editable content, and overlays remain no-drag regions. Electron `nativeTheme` updates system appearance and Reduce Transparency state; the accessibility fallback uses near-opaque light or dark surfaces and preserves visible keyboard focus.
+- Packaged acceptance launches `--inspect-native-window` to inspect a real `BrowserWindow`'s configured options, actual native background/focus state, computed drag regions, and all renderer appearance/transparency combinations. A local real-app GIF records the packaged window's launch, keyboard focus, and light/dark appearance; the packaged smoke in the same acceptance suite separately proves the tracer-bullet workflow.
+- Supported Electron APIs satisfy the required layout, so no native visual-effect addon is present.
+
+Issue #5 (carrier hardening: bounded backpressure and renderer-lifecycle closure) remains open, and its acceptance criteria still apply. Release-grade signed, notarized, cross-arch artifacts from issue #3's packaging slice are deferred to a later ticket.

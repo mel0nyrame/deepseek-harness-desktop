@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { dirname, extname, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
-  app, BrowserWindow, ipcMain, net, protocol,
+  app, BrowserWindow, ipcMain, nativeTheme, net, protocol,
   type IpcMainEvent, type IpcMainInvokeEvent,
 } from 'electron'
 import { DshSupervisor } from './supervisor.ts'
@@ -17,6 +17,7 @@ import {
   parseSmokeInvocation,
 } from './packaged-runtime.ts'
 import { prepareSmokeProfile, runSmokeScenario } from './smoke.ts'
+import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
 import {
   isDesktopAppUrl,
   parseRendererId,
@@ -225,9 +226,7 @@ async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<v
     height: 840,
     minWidth: 900,
     minHeight: 640,
-    // Plain window chrome for the tracer bullet: inset traffic lights,
-    // vibrancy, and transparent surfaces are the native window experience of
-    // issue #4, which owns their acceptance and fallback behavior.
+    ...desktopWindowOptions(process.platform),
     webPreferences: {
       preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
       contextIsolation: true,
@@ -241,7 +240,24 @@ async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<v
   })
   const removeIpc = installIpc(window, supervisor, boot)
   await window.loadURL(`${APP_ORIGIN}/index.html`)
-
+  await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+  const applySurfaceState = (): void => {
+    const state = rendererSurfaceState(
+      nativeTheme.shouldUseDarkColors,
+      nativeTheme.prefersReducedTransparency,
+    )
+    void window.webContents.executeJavaScript(`
+      document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
+      document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
+    `).catch((error: unknown) => {
+      console.error(`desktop appearance update failed: ${String(error)}`)
+    })
+  }
+  applySurfaceState()
+  nativeTheme.on('updated', applySurfaceState)
+  window.once('closed', () => {
+    nativeTheme.off('updated', applySurfaceState)
+  })
   app.on('before-quit', (event) => {
     if (quitting !== undefined) return
     event.preventDefault()
@@ -255,6 +271,58 @@ async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<v
   })
 
   app.on('window-all-closed', () => { app.quit() })
+}
+
+/** Print native and renderer state from a real BrowserWindow for automated acceptance. */
+async function inspectNativeWindow(): Promise<void> {
+  const options = desktopWindowOptions(process.platform)
+  const window = new BrowserWindow({
+    width: 960,
+    height: 700,
+    show: false,
+    ...options,
+    webPreferences: {
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  try {
+    await window.loadURL('data:text/html,<button id="control">Control</button><textarea id="editor"></textarea>')
+    await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+    const state = rendererSurfaceState(nativeTheme.shouldUseDarkColors, nativeTheme.prefersReducedTransparency)
+    const renderer = await window.webContents.executeJavaScript(`
+      const inspectSurface = (appearance, transparency) => {
+        document.body.toggleAttribute('data-ds-dark-theme', appearance === 'dark');
+        document.body.dataset.dshAppearance = appearance;
+        document.body.dataset.dshTransparency = transparency;
+        return getComputedStyle(document.body).backgroundColor;
+      };
+      document.querySelector('#control').focus();
+      ({
+        activeElement: document.activeElement?.id,
+        systemState: ${JSON.stringify(state)},
+        surfaces: {
+          lightEnabled: inspectSurface('light', 'enabled'),
+          darkEnabled: inspectSurface('dark', 'enabled'),
+          lightReduced: inspectSurface('light', 'reduced'),
+          darkReduced: inspectSurface('dark', 'reduced'),
+        },
+        controlRegion: getComputedStyle(document.querySelector('#control')).webkitAppRegion,
+        dragRegion: getComputedStyle(document.body, '::before').webkitAppRegion,
+      })
+    `) as unknown
+    console.log(`NATIVE_WINDOW_STATE ${JSON.stringify({
+      options,
+      actual: {
+        backgroundColor: window.getBackgroundColor(),
+        focusable: window.isFocusable(),
+      },
+      renderer,
+    })}`)
+  } finally {
+    window.destroy()
+  }
 }
 
 /**
@@ -284,6 +352,11 @@ async function bootSmoke(supervisor: DshSupervisor, childPid: number | undefined
 // promise below lets module evaluation finish first, then runs the app.
 void app.whenReady().then(() => {
   void (async () => {
+    if (process.argv.includes('--inspect-native-window')) {
+      await inspectNativeWindow()
+      app.exit(0)
+      return
+    }
     const smoke = parseSmokeInvocation(process.argv)
     const options = app.isPackaged ? packagedChildOptions(smoke !== undefined) : developmentChildOptions()
     if (smoke !== undefined) {

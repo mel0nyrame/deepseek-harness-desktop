@@ -102,6 +102,53 @@ describe('packaged desktop application', () => {
   })
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'reports configured native state from a real installed BrowserWindow',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-window-'))
+      const { exitCode, captured } = await launchInstalledApp(home, ['--inspect-native-window'])
+
+      expect(exitCode, `native inspection exited ${String(exitCode)}; output:\n${captured.slice(0, 4000)}`).toBe(0)
+      const line = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_STATE '))
+      expect(line).toBeDefined()
+      const state = JSON.parse(line!.slice('NATIVE_WINDOW_STATE '.length)) as {
+        options: Record<string, unknown>
+        actual: { backgroundColor: string; focusable: boolean }
+        renderer: {
+          activeElement: string
+          systemState: { appearance: string; transparency: string }
+          surfaces: {
+            lightEnabled: string
+            darkEnabled: string
+            lightReduced: string
+            darkReduced: string
+          }
+          controlRegion: string
+          dragRegion: string
+        }
+      }
+      expect(state.options).toMatchObject({
+        titleBarStyle: 'hiddenInset',
+        trafficLightPosition: { x: 16, y: 14 },
+        transparent: true,
+        vibrancy: 'under-window',
+        visualEffectState: 'followWindow',
+      })
+      expect(state.actual).toEqual({ backgroundColor: '#000000', focusable: true })
+      expect(state.renderer.activeElement).toBe('control')
+      expect(state.renderer.systemState.appearance).toMatch(/^(light|dark)$/)
+      expect(state.renderer.systemState.transparency).toMatch(/^(enabled|reduced)$/)
+      expect(state.renderer.surfaces.lightEnabled).toBe('rgba(0, 0, 0, 0)')
+      expect(state.renderer.surfaces.darkEnabled).toBe('rgba(0, 0, 0, 0)')
+      expect(state.renderer.surfaces.lightReduced).toBe('rgba(249, 250, 251, 0.98)')
+      expect(state.renderer.surfaces.darkReduced).toBe('rgba(15, 17, 21, 0.98)')
+      expect(state.renderer.controlRegion).toBe('no-drag')
+      expect(state.renderer.dragRegion).toBe('drag')
+      child = undefined
+    },
+    60_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
     'runs the keyless tracer bullet on the installed bundle and quits quiescent',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-desktop-packaged-'))

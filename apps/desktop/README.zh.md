@@ -20,12 +20,15 @@
 
 安装后的应用不依赖系统 Node.js 或 DSH CLI 即可启动：Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从 `Contents/Resources/runtime` 解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程作为工作目录（该布局由 [`src/packaged-runtime.ts`](src/packaged-runtime.ts) 定义）。因此原生模块与 PTY helper 永远不会位于归档内。harness 主目录仍为共享的 `~/.dsh`，打包应用与 CLI 看到相同的会话、profile 与配置。
 
-## 打包产物冒烟测试
+## macOS 原生窗口
 
-`apps/desktop/tests/packaged-smoke.e2e.ts` 以 `--smoke --smoke-replay <file>` 启动安装后的应用包，断言完整的无密钥 tracer bullet——创建 Session、由终端执行的 `echo TERMINAL_OK` 工具回合及其有序流式事件、无 TCP 监听、干净退出——并确认没有残留的自有进程。失败路径用例给它一个缺失的 replay 文件，断言场景以非零退出码判负时同样静默。应用包缺失时该用例自跳过；macOS CI 任务会先打包并设置 `DSH_DESKTOP_SMOKE_REQUIRED=1`，把缺失变成硬失败。
+macOS `BrowserWindow` 使用 `hiddenInset` 标题栏、固定内嵌位置的 traffic lights、透明客户端表面，以及 Electron 基于 AppKit 的 `under-window` vibrancy，并将 `visualEffectState` 设为 `followWindow`。独立的 44 像素标题区域可拖动；链接、表单控件、按钮、可编辑内容与浮层保持为可交互的 no-drag 区域。系统明暗外观变化通过 Electron `nativeTheme` 传入；macOS“降低透明度”启用时，客户端切换到接近不透明的明色或暗色表面，同时保留清晰的键盘焦点。Electron 支持的接口已满足布局要求，因此应用不包含自定义原生视觉效果 addon。
+
+## 打包产物验收
+
+`apps/desktop/tests/packaged-smoke.e2e.ts` 以两种模式启动安装后的应用包。`--inspect-native-window` 创建真实 `BrowserWindow`，并报告标题栏、traffic lights、透明度、vibrancy、焦点、拖动区域、外观与降低透明度状态，供自动化断言。`--smoke --smoke-replay <file>` 断言完整的无密钥 tracer bullet——创建 Session、由终端执行的 `echo TERMINAL_OK` 工具回合及其有序流式事件、无 TCP 监听、干净退出——并确认没有残留的自有进程。应用包缺失时该用例自跳过；macOS CI 任务会先打包并设置 `DSH_DESKTOP_SMOKE_REQUIRED=1`，把缺失变成硬失败。
 
 ## 限制
 
 - tracer bullet 目前无签名、未公证；发布级的签名、公证与跨架构（x64）产物属于后续工单。
-- 冒烟启动是无窗口的；针对真实窗口的 GUI 验收属于窗口体验工单。
 - `--smoke` 在未显式指定 `DSH_HOME` 时拒绝运行，因此绝不会触碰机器主人的真实 `~/.dsh`。
