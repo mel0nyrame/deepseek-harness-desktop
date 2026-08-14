@@ -42,7 +42,14 @@ export default defineConfig({
     setupFiles: ['./scripts/test-invariants.ts'],
     // apps/cli only, not apps/*: apps/web/tests/*.e2e.ts needs the built
     // frontend dist and runs under vitest.web.config.ts (the test:web job).
-    include: ['packages/*/*/tests/**/*.e2e.ts', 'apps/cli/tests/**/*.e2e.ts', 'examples/*/tests/**/*.e2e.ts'],
+    // The desktop real-composition suite is keyless and needs the built client
+    // bundles, which the e2e lane builds before running.
+    include: [
+      'packages/*/*/tests/**/*.e2e.ts',
+      'apps/cli/tests/**/*.e2e.ts',
+      'apps/desktop/tests/**/*.e2e.ts',
+      'examples/*/tests/**/*.e2e.ts',
+    ],
     // Real model calls: generous timeouts, and retries for transient flakes
     // (the shared internal key hits concurrency quotas). No coverage — the
     // unit suites own the coverage gate.

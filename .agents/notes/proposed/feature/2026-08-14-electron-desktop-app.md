@@ -130,3 +130,14 @@ Two IPC hops add lifecycle and backpressure complexity. Stream channels need bou
 Native vibrancy can reduce contrast and behaves differently with system appearance, inactive windows, accessibility settings, and future macOS releases. The product must provide opaque-enough tokens and a reduced-transparency fallback rather than treating one screenshot as the contract.
 
 Child-process isolation prevents Host failures from taking down Electron main, but it does not provide a security sandbox for DSH. Tool permissions and subprocess sandbox policy remain DSH responsibilities; the desktop shell must not imply stronger confinement than the configured harness provides.
+
+## Implementation status
+
+Issues #1 and #2 shipped the first vertical slice through the development path:
+
+- The reusable Client Connection carrier contract ([`carrier-contract.client.ts`](../../../packages/client/connection/tests/carrier-contract.client.ts)) locks unary, reverse-response, mux-stream, and host-stream semantics plus readiness, ordering, cancellation, malformed-message, disconnect, and subscription-lifetime behavior; both the HTTP/WebSocket carrier and the new Electron carrier pass it unchanged.
+- The development tracer bullet runs via `pnpm run dev:desktop`: the Electron shell ([`apps/desktop`](../../../apps/desktop)) supervises one dedicated DSH child (`--profile desktop`, the shipped `base + web-app + desktop-app` overlay). The overlay ([`packages/bundle/desktop-app`](../../../packages/bundle/desktop-app)) disables every browser transport row (`web-startup`, `webserver`, `web-runtime`, `client-hmr`), pins the native directory picker, and mounts the child runtime that serves the existing API gateway and event streams over one IPC channel — no loopback HTTP listener participates.
+- The renderer reaches DSH only through the sandboxed, context-isolated preload bridge; [`DesktopApiClient`](../../../packages/client/connection/src/client/desktop-api-client.ts) implements the existing `IApiClient` surface over it. The Host-side Connection and client-modules plugins mount their Web transports only when a WebServer is present, so the Web development workflow is unchanged.
+- A keyless real-composition e2e ([`apps/desktop/tests/real-composition.e2e.ts`](../../../apps/desktop/tests/real-composition.e2e.ts)) forks the real desktop profile, creates a Session, replays a recorded `bash` tool turn, asserts the ordered streamed `TERMINAL_OK` result through the mux stream, and verifies terminate-and-join quit leaves no descendant process.
+
+Issues #3 (packaging), #4 (native macOS window experience), and #5 (carrier hardening: bounded backpressure and renderer-lifecycle closure) remain open; their acceptance criteria still apply.

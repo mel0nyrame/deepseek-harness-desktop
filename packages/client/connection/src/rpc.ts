@@ -56,6 +56,17 @@ export interface HostConnectionRpc {
 export interface HostConnectionHandle {
   /** Generic RPC channel registry. */
   readonly rpc: HostConnectionRpc
+  /**
+   * Compose the shared `/api` dispatcher from registered interceptors and a
+   * product transport's API Proxy fallback.
+   * @param channel - reserved shared channel.
+   * @param fallback - transport-independent fallback handler.
+   * @returns the complete request dispatcher for the active product carrier.
+   */
+  createSharedFetchHandler(
+    channel: '/api',
+    fallback: { fetch(request: Request): Promise<Response> },
+  ): { fetch(request: Request): Promise<Response> }
 }
 
 /** Client caller for logical RPC channels carried by the current transport. */

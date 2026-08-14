@@ -1,0 +1,33 @@
+# Desktop reuses the Web product composition but replaces every browser
+# transport/runtime row with one child-process IPC carrier.
+
+- id: web-startup
+  disabled: true
+
+- id: webserver
+  disabled: true
+
+- id: web-runtime
+  disabled: true
+
+- id: client-hmr
+  disabled: true
+
+# The auto picker resolves browse vs. native from the Web server; without one
+# it can never settle, so the desktop surface pins the native backend (its
+# capability seat stays `directoryPicker`, which the API gateway injects).
+- id: directory-picker
+  disabled: true
+
+- insert:
+    - id: directory-picker-native
+      name: '@deepseek-ai/dsh-host-directory-picker-native'
+
+- id: connection
+  inject: []
+  config:
+    trustedHosts: []
+
+- insert:
+    - id: desktop-runtime
+      name: '@deepseek-ai/dsh-desktop-app'

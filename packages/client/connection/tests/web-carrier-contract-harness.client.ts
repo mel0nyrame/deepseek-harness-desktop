@@ -82,8 +82,15 @@ export async function createWebCarrierContractHarness(): Promise<CarrierContract
     const message = JSON.parse(init.body) as RpcMessage
     if (url.pathname === '/api/respond') {
       const parsed = clientResponseSchema.safeParse(message)
-      if (!parsed.success || !parsed.data.result.ok
-        || !approvalResponsePayloadSchema.safeParse(parsed.data.result.value).success) {
+      const value = parsed.success && parsed.data.result.ok
+        ? approvalResponsePayloadSchema.safeParse(parsed.data.result.value)
+        : undefined
+      if (!parsed.success
+        || !parsed.data.result.ok
+        || value === undefined || !value.success
+        || value.data.sessionId !== 'contract-session'
+        || value.data.approvalId !== 'approval-1'
+        || value.data.outcome !== 'allowed-once') {
         return Response.json({ accepted: false, reason: 'bad-response' })
       }
       const accepted = pendingResponses.delete(parsed.data.rpcId)
