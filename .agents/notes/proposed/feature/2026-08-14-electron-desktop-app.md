@@ -1,0 +1,132 @@
+# Agent Note: Electron desktop application with a bundled DSH runtime
+
+Status: proposed
+
+English | [中文](2026-08-14-electron-desktop-app.zh.md)
+
+## Problem
+
+### Problem Statement
+
+DeepSeek Harness already has a React client and a local Node.js Host with filesystem, subprocess, PTY, persistence, plugin, and language-server capabilities. Using that product through a browser still requires the operator to start and manage the Host separately, and it cannot provide a fully integrated macOS window, application lifecycle, native blur, or installation experience.
+
+The desktop product must bundle DSH instead of assuming a separately installed CLI or Node.js runtime. It must preserve the existing client and Host contracts while isolating the Electron window lifecycle from model execution, plugins, PTYs, and process trees. The first release optimizes for a native macOS experience without committing the initial implementation to first-day Windows and Linux parity.
+
+## Proposal
+
+### Solution
+
+Ship an Electron application that reuses the built React client and includes a production DSH runtime. Electron is selected because the Host and its native dependencies are already implemented in TypeScript and Node.js; adopting Tauri would retain a Node sidecar or require a Rust migration without removing the difficult packaging and lifecycle work.
+
+The Electron main process owns windows, menus, system dialogs, path opening, signing-facing application metadata, and supervision of one app-scoped DSH child process. The DSH child owns the real Cordis composition, sessions, model calls, tools, plugins, PTYs, persistence, and subprocess trees. A Host failure may end or restart the DSH child, but it must not block or terminate Electron's main event loop.
+
+The renderer loads the existing production client from packaged files and uses an Electron adapter for the existing client connection interface. A narrow preload bridge carries validated unary requests and long-lived event streams through Electron IPC. Development Web builds retain their HTTP and WebSocket adapters; desktop packaging does not start a browser-facing HTTP server.
+
+The first product target is a signed and notarized macOS application for Apple silicon and Intel Macs. Its window uses the macOS inset title-bar treatment, native traffic lights, Electron's AppKit-backed vibrancy, and transparent client surfaces. A native addon is deferred unless the supported Electron APIs cannot provide the required region-specific visual effect.
+
+### User Stories
+
+1. As a macOS user, I want to install and open one signed application without installing Node.js or the DSH CLI so that I can start using the harness like an ordinary desktop product.
+2. As a macOS user, I want the application to start its bundled DSH runtime automatically so that I do not need to manage a background terminal process or local server.
+3. As a returning user, I want my workspaces, sessions, settings, credentials references, and transcripts to use the existing DSH persistence behavior so that moving from the Web client does not create a second product model.
+4. As an agent user, I want prompts, tool calls, approvals, questions, and streaming model output to behave like the existing client so that the desktop shell does not reduce harness capability.
+5. As a terminal-tool user, I want interactive shells and their streamed output to work inside the packaged application so that bundling does not break `node-pty` or its macOS helper.
+6. As a workspace user, I want folder selection and path-opening actions to use native macOS dialogs and applications so that privileged desktop actions feel integrated with the operating system.
+7. As a macOS user, I want inset traffic lights, a draggable custom title area, and native vibrancy behind translucent surfaces so that the application feels consistent with current macOS software.
+8. As a user, I want closing the application to stop the bundled DSH runtime, PTYs, and descendant processes so that no invisible agents or shell commands remain after quit.
+9. As a user, I want a clear recoverable state when the bundled Host fails to start so that a broken configuration or native dependency does not leave a blank window.
+10. As a user, I want the desktop shell to detect an unexpected Host exit and offer a controlled restart so that a plugin or runtime failure does not require force-quitting the application.
+11. As a security-conscious user, I want Web content to have no direct Node.js or unrestricted Electron access so that rendering model-generated content cannot invoke local capabilities outside the DSH protocol.
+12. As a client maintainer, I want Web and Electron to share the same connection interface and React modules so that product behavior fixes do not fork into two frontends.
+13. As a Host maintainer, I want desktop system integration to remain outside the agent loop so that windowing concerns do not become model-runtime concerns.
+14. As a release engineer, I want architecture-specific packaged smoke tests and signing/notarization checks so that a build cannot ship when its DSH runtime or native PTY addon fails after installation.
+15. As a contributor, I want development mode to preserve the existing Web workflow while allowing the Electron shell to target a local development build so that desktop work does not slow unrelated client development.
+
+### Implementation Decisions
+
+- Use Electron rather than Tauri for the first desktop implementation. This keeps the existing Node.js Host and native modules in their supported execution environment and avoids introducing Rust solely as a shell integration layer.
+- Bundle DSH with the application and run it as a dedicated child process. Do not run the long-lived Cordis Host, model loop, plugin runtime, or PTYs inside the Electron main process.
+- Own one DSH child per application instance in the first release. The main process controls startup, readiness, unexpected-exit reporting, restart, and terminate-and-join shutdown.
+- Reuse the existing React/Vite client without a desktop-specific fork. Desktop-only behavior enters through existing client plugin slots and the connection adapter.
+- Load packaged renderer assets locally. The packaged application uses the Electron IPC carrier and does not expose a loopback HTTP server; Web development and deployment continue to use HTTP and WebSocket carriers.
+- Keep protocol semantics in the existing abstract client. The Electron adapter implements the transport operations only: unary request/response, client responses to Host requests, the multiplexed Session stream, and the Host event stream.
+- Use dedicated long-lived IPC channels or transferred message ports for event streams. Do not model streaming as repeated unary IPC calls.
+- Expose only a small preload interface for request, response, subscription, cancellation, and connection lifecycle. Enable context isolation, disable renderer Node integration, and validate messages at the existing wire parser before dispatch.
+- Keep Electron main as a router and supervisor rather than a second implementation of ApiProxy. The DSH child remains the authority for sessions, tools, persistence, settings, credentials, and agent behavior.
+- Implement native directory selection and path opening in Electron main. The DSH Host reaches those operations through an explicit reverse request instead of giving the renderer general Electron access.
+- Preserve the existing model-visible logging rule. Moving messages over Electron IPC changes the carrier, not the Session events or reconstruction behavior.
+- Use `hiddenInset` title-bar behavior, configurable traffic-light placement, active-window vibrancy, and transparent CSS surfaces on macOS. Keep text and controls opaque enough to satisfy contrast and accessibility requirements.
+- Treat a region-specific `NSVisualEffectView` addon as a measured fallback. It is introduced only if a prototype proves that Electron's supported vibrancy controls cannot produce the required layout.
+- Package native modules and helper executables outside archives where runtime loading or execution requires real filesystem paths. Validate Electron ABI compatibility before selecting the production Electron version.
+- Produce signed and notarized macOS artifacts for arm64 and x64. Universal packaging is optional; both architectures must pass the same installed-application smoke test.
+
+### Testing Decisions
+
+The primary acceptance seam is the installed desktop application. A keyless test launches the packaged Electron app, waits for the real bundled DSH child to become ready, creates a Session through the renderer, runs a terminal-backed scenario, observes streamed output in the conversation, quits the app, and verifies that the DSH process, PTY, and descendant process tree have all exited. This is the highest existing product seam that exercises the new shell without replacing DSH behavior with mocks.
+
+Supporting contract tests run the existing client-carrier behaviors against the Electron adapter. They cover unary success and failure envelopes, server-to-client requests and responses, stream ordering, readiness, cancellation, malformed messages, disconnect, and subscription cleanup. The tests cross the same connection interface used by React callers and do not assert Electron IPC implementation details.
+
+Supervisor tests exercise startup success, startup timeout, configuration failure, unexpected child exit, one controlled restart, application quit during startup, and terminate-and-join cleanup. Process-tree assertions use real child processes on macOS for lifecycle claims that mocks cannot prove.
+
+macOS GUI acceptance runs against the real Electron window and records the user-visible workflow required by the repository GUI policy. It checks title-bar controls, drag and interactive regions, light and dark appearance, reduced-transparency fallback, focus, keyboard access, and stable rendering. A screenshot may document vibrancy, but an automated assertion must inspect the configured native window state because pixels alone cannot distinguish native blur from a translucent color.
+
+Release validation installs or mounts each architecture's signed artifact, passes Gatekeeper assessment, launches it outside the source tree, exercises the bundled Host and PTY path, and verifies notarization metadata. A source-mode test does not substitute for this artifact check.
+
+### Out of Scope
+
+- Windows and Linux desktop releases in the first delivery.
+- Rewriting DSH, subprocess management, PTY handling, or plugin execution in Rust.
+- Running the Host inside the renderer or Electron main process.
+- A remote-host connection mode or exposing the bundled Host over the network.
+- Mobile applications, browser extensions, or a second desktop-only frontend.
+- Multi-window and multi-Host orchestration.
+- Automatic updates, background launch at login, menu-bar-only operation, and cloud synchronization.
+- A custom native title bar or a macOS addon before the Electron vibrancy prototype demonstrates a concrete limitation.
+- Changing Session formats, model-visible events, tool semantics, or Web deployment behavior merely to support Electron.
+
+### Further Notes
+
+The current architecture already names Electron IPC as the intended non-Web carrier and keeps browser-safe protocol types separate from the Node Host. The desktop work should deepen that existing connection module rather than add a parallel desktop protocol.
+
+The first vertical prototype is deliberately narrow: launch the bundled DSH child, complete its readiness handshake, create one Session, execute one terminal command, stream the result, and quit with full process cleanup. Native-module loading, helper placement, code signing, and quit semantics must be proven in this prototype before broader window chrome or installer work proceeds.
+
+The desktop shell is a product assembly, not a new capability seam. If system integration later needs multiple implementations, the variability belongs behind a small Host-facing interface with Electron and test adapters; it does not belong in the agent loop.
+
+## Alternatives considered
+
+**Use Tauri with a Node sidecar.** Rejected for the first implementation because it preserves the Node distribution and process-supervision work while adding Rust, a second IPC layer, and a second desktop build toolchain. The smaller shell binary does not materially shrink a product that must still ship the DSH runtime and native dependencies.
+
+**Rewrite the Host in Rust for Tauri.** Rejected because it duplicates the existing plugin runtime, process management, protocol, and native integrations and would delay the desktop product without improving its first user workflow.
+
+**Run DSH inside Electron main.** Rejected because model execution, plugin failure, PTY load, and teardown would share the process responsible for windows and operating-system events. A stalled or crashing Host could freeze or terminate the desktop shell, and cleanup ownership would be ambiguous.
+
+**Start the existing Web server on loopback and point Electron at it.** Rejected for the packaged product because it opens an unnecessary network listener and retains browser transport and origin concerns. The existing client interface supports a direct IPC adapter. The Web server remains useful in development and ordinary Web deployments.
+
+**Build a separate native macOS frontend.** Rejected because it forks the established React client and its plugin presentation model. Electron supplies the required macOS window effects while retaining one client implementation.
+
+**Embed all renderer and native dependencies in one archive.** Rejected as a requirement because native modules and PTY helpers may need executable filesystem paths. Packaging must follow runtime loading constraints rather than archive purity.
+
+## Acceptance criteria
+
+- A clean macOS machine can install and launch a signed, notarized build without a separately installed Node.js runtime or DSH CLI.
+- The renderer reaches the bundled Host only through the preload bridge and existing typed protocol; renderer Node integration is disabled and context isolation is enabled.
+- The application can create and reopen Sessions, send prompts, handle Host interactions, and display ordered streaming events through the Electron carrier.
+- A terminal-backed keyless scenario runs through the packaged DSH runtime on arm64 and x64 artifacts.
+- Normal quit, quit during startup, and Host crash recovery leave no owned DSH, PTY, or descendant process alive.
+- Startup and runtime failures produce an actionable desktop state instead of a blank or indefinitely loading window.
+- Native folder selection and path opening work through Electron main without exposing general Electron or Node primitives to the renderer.
+- The macOS window has inset traffic lights, correct draggable regions, supported native vibrancy, light/dark appearance behavior, and an accessible reduced-transparency fallback.
+- The existing Web client continues to use its current HTTP/WebSocket development and deployment path without Electron dependencies entering browser bundles.
+- The packaged-app acceptance test, carrier contract tests, supervisor lifecycle tests, GUI evidence, and signing/notarization checks pass.
+
+## Risks
+
+Electron increases application size and memory use. The decision accepts that cost because retaining the existing client and Node Host reduces implementation risk and duplicated product logic.
+
+Native dependencies can fail because of Electron ABI, architecture, archive placement, hardened-runtime, or signing rules. The vertical prototype and per-architecture artifact smoke tests must resolve these failures before feature expansion.
+
+Two IPC hops add lifecycle and backpressure complexity. Stream channels need bounded queues, cancellation, and deterministic closure so a slow or disconnected renderer cannot retain Host resources indefinitely.
+
+Native vibrancy can reduce contrast and behaves differently with system appearance, inactive windows, accessibility settings, and future macOS releases. The product must provide opaque-enough tokens and a reduced-transparency fallback rather than treating one screenshot as the contract.
+
+Child-process isolation prevents Host failures from taking down Electron main, but it does not provide a security sandbox for DSH. Tool permissions and subprocess sandbox policy remain DSH responsibilities; the desktop shell must not imply stronger confinement than the configured harness provides.
