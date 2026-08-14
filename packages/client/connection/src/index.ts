@@ -3,8 +3,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Activates the webServer Context merge used below.
-import type { WebRoute, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import type { WebRoute, WebServer, WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import { toFetchHandler, type ApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts'
 import { bridge, DEFAULT_MAX_REQUEST_BODY_BYTES } from './http-bridge.ts'
 import { assertTrustedAuthority, isTrustedApiRequest } from './api-request-trust.ts'
@@ -135,7 +135,7 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
   // silently authorizing its hostname prefix at request time.
   for (const entry of trustedHosts) assertTrustedAuthority(entry)
   const connection = new HostConnectionService(ctx, trustedHosts)
-  const mountWebTransport = (webCtx: Context): void => {
+  const mountWebTransport = (webCtx: Context, webServer: WebServer): void => {
     if (webCtx.get('apiProxy') !== undefined) assertImageBodyCapacity(webCtx, maxRequestBodyBytes)
     const fetchHandler = connection.createSharedFetchHandler(API_PATH, {
       async fetch(request) {
@@ -171,15 +171,15 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
         await bridge(req, res, fetchHandler, maxRequestBodyBytes)
       },
     }
-    webCtx.effect(() => webCtx.webServer.register(route), 'client-connection: /api route')
-    const mountDownlinks = (apiCtx: Context): void => {
+    webCtx.effect(() => webServer.register(route), 'client-connection: /api route')
+    const mountDownlinks = (apiCtx: Context, apiProxy: ApiProxy): void => {
       assertImageBodyCapacity(apiCtx, maxRequestBodyBytes)
-      const downlinks = new WebSocketDownlinks(apiCtx.apiProxy)
+      const downlinks = new WebSocketDownlinks(apiProxy)
       const registerDownlink = (
         path: string,
         handle: WebUpgradeRoute['handler'],
       ): void => {
-        apiCtx.effect(() => apiCtx.webServer.registerUpgrade({
+        apiCtx.effect(() => webServer.registerUpgrade({
           path,
           handler: (req, socket, head) => {
             if (!isTrustedApiRequest(req, trustedHosts)) {
@@ -194,9 +194,26 @@ export function apply(ctx: Context, config?: ConnectionConfig): void {
       registerDownlink(MUX_EVENTS_PATH, (req, socket, head) => { downlinks.handleMux(req, socket, head) })
       registerDownlink(HOST_EVENTS_PATH, (req, socket, head) => { downlinks.handleHost(req, socket, head) })
     }
-    if (webCtx.get('apiProxy') === undefined) webCtx.inject(['apiProxy'], mountDownlinks)
-    else mountDownlinks(webCtx)
+    const mountWithApiProxy = (apiCtx: Context): void => {
+      const apiProxy = apiCtx.get('apiProxy')
+      if (apiProxy === undefined) throw new Error('client-connection: apiProxy became unavailable during downlink mount')
+      mountDownlinks(apiCtx, apiProxy)
+    }
+    if (webCtx.get('apiProxy') === undefined) webCtx.inject(['apiProxy'], mountWithApiProxy)
+    else mountWithApiProxy(webCtx)
   }
-  if (ctx.get('webServer') === undefined) ctx.inject(['webServer'], mountWebTransport)
-  else mountWebTransport(ctx)
+  // Services resolve through `get()` and travel by value: property access on
+  // the plugin context throws "cannot get property webServer without inject"
+  // whenever the service sits behind a fiber boundary at apply time, even
+  // though `get()` already sees it. The mount stays synchronous when the
+  // service is already available, and the injected child fiber applies as
+  // soon as it arrives — or never, for the desktop overlay's WebServer-free
+  // composition.
+  const mountWithWebServer = (webCtx: Context): void => {
+    const webServer = webCtx.get('webServer')
+    if (webServer === undefined) throw new Error('client-connection: webServer became unavailable during transport mount')
+    mountWebTransport(webCtx, webServer)
+  }
+  if (ctx.get('webServer') === undefined) ctx.inject(['webServer'], mountWithWebServer)
+  else mountWithWebServer(ctx)
 }

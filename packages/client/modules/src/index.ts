@@ -29,7 +29,7 @@ import { dirname, join } from 'node:path'
 import { Service } from '@deepseek-ai/cordis'
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
-import type {} from '@deepseek-ai/dsh-host-webserver'
+import type { WebServer } from '@deepseek-ai/dsh-host-webserver'
 import type { WebBootEntry, WebBootGraph } from './client/manifest.ts'
 
 export type {
@@ -238,18 +238,30 @@ export class ClientModuleRegistry extends Service {
       throw new ClientPackageCompositionError(failures)
     }
 
-    const mountWebTransport = (webCtx: Context): void => {
+    const mountWebTransport = (webCtx: Context, webServer: WebServer): void => {
       webCtx.effect(
-        () => webCtx.webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
+        () => webServer.register({ kind: 'prefix', path: '/plugins', handler: this.serveBundle }),
         'client-modules: bundle route',
       )
       webCtx.effect(
-        () => webCtx.webServer.tapIndex(html => injectBootManifest(html, this.composed)),
+        () => webServer.tapIndex(html => injectBootManifest(html, this.composed)),
         'client-modules: boot manifest injection',
       )
     }
-    if (ctx.get('webServer') === undefined) ctx.inject(['webServer'], mountWebTransport)
-    else mountWebTransport(ctx)
+    // The service resolves through `get()` and travels by value: property
+    // access on the plugin context throws "cannot get property webServer
+    // without inject" whenever the service sits behind a fiber boundary at
+    // apply time, even though `get()` already sees it. The mount stays
+    // synchronous when the service is already available, and the injected
+    // child fiber applies as soon as it arrives — or never, for the desktop
+    // overlay's WebServer-free composition.
+    const mountWithWebServer = (webCtx: Context): void => {
+      const webServer = webCtx.get('webServer')
+      if (webServer === undefined) throw new Error('client-modules: webServer became unavailable during transport mount')
+      mountWebTransport(webCtx, webServer)
+    }
+    if (ctx.get('webServer') === undefined) ctx.inject(['webServer'], mountWithWebServer)
+    else mountWithWebServer(ctx)
   }
 
   /**

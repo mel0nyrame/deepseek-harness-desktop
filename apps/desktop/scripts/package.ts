@@ -105,6 +105,32 @@ class DesktopPackageBuild {
     return join(dirname(require.resolve('electron/package.json')), 'dist')
   }
 
+  /**
+   * Ensure the pinned Electron distribution exists before rebuild and
+   * validation. Fresh installs download it through Electron's reviewed
+   * postinstall (allowBuilds), but the packaging pipeline must not depend on
+   * that side effect surviving the legacy deploy's workspace-state churn:
+   * when the dist is absent, restore it through the package's own install
+   * script.
+   */
+  async restoreElectronDist(): Promise<void> {
+    const electronExecutable = join(
+      this.electronDist(),
+      process.platform === 'darwin' ? 'Electron.app/Contents/MacOS/Electron' : 'electron',
+    )
+    if (existsSync(electronExecutable)) return
+    if (this.cli.dryRun) {
+      console.log('dsh-desktop package: [dry-run] node electron/install.js (distribution missing)')
+      return
+    }
+    const electronPackage = dirname(require.resolve('electron/package.json'))
+    console.log(`dsh-desktop package: electron distribution missing at ${this.electronDist()}; restoring with the package's install script.`)
+    await this.run('electron restore', process.execPath, [join(electronPackage, 'install.js')])
+    if (!existsSync(electronExecutable)) {
+      throw new Error(`dsh-desktop package: electron restore produced no distribution at ${this.electronDist()}`)
+    }
+  }
+
   /** Verify the runtime closure before deploying or packaging. */
   async verifyClosure(): Promise<void> {
     await this.run('runtime dependency closure', pnpmBin(), ['run', 'verify-runtime-closure'])
@@ -373,6 +399,7 @@ async function main(): Promise<void> {
   await pipeline.verifyClosure()
   await pipeline.buildLib()
   await pipeline.deployStaging()
+  await pipeline.restoreElectronDist()
   await pipeline.rebuildPty()
   await pipeline.validateRuntime()
   pipeline.printProducts(await pipeline.package())

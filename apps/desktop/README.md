@@ -10,12 +10,13 @@ Electron desktop application shell for the bundled DeepSeek Harness runtime. Ele
 
 ## Packaging (macOS)
 
-`pnpm --filter @deepseek-ai/dsh-desktop run package` produces an unsigned application bundle for the host architecture under `apps/desktop/dist/mac<optional-arch>/DSH Desktop.app` through four stages ([`scripts/package.ts`](scripts/package.ts)):
+`pnpm --filter @deepseek-ai/dsh-desktop run package` produces an unsigned application bundle for the host architecture under `apps/desktop/dist/mac<optional-arch>/DSH Desktop.app` through five stages ([`scripts/package.ts`](scripts/package.ts)):
 
 1. **Closure** — `pnpm run verify-runtime-closure` proves this package's dependency manifest supplies every required workspace peer.
 2. **Deploy** — a pnpm legacy deploy materializes the production runtime closure (the `dsh` CLI, every in-box plugin's built `lib`, the Web frontend `dist`, node-pty, and the keyless replay provider) into a symlink-free staging directory.
-3. **Native rebuild** — node-pty is rebuilt against the pinned Electron version's ABI (`@electron/rebuild`), then validated by loading it inside the Electron binary; the macOS `spawn-helper` is staged beside the rebuilt addon with its executable bit.
-4. **Bundle** — electron-builder ([`electron-builder.yml`](electron-builder.yml)) assembles the `.app`: the asar carries only `lib/main.js` and the sandboxed preload, while the runtime closure ships as real files under `Contents/Resources/runtime/`.
+3. **Electron restore** — when the pinned Electron distribution is missing (fresh installs fetch it through Electron's reviewed postinstall, `allowBuilds`), the package's own install script restores it before rebuild and validation.
+4. **Native rebuild** — node-pty is rebuilt against the pinned Electron version's ABI (`@electron/rebuild`), then validated by loading it inside the Electron binary; the macOS `spawn-helper` is staged beside the rebuilt addon with its executable bit.
+5. **Bundle** — electron-builder ([`electron-builder.yml`](electron-builder.yml)) assembles the `.app`: the asar carries only `lib/main.js` and the sandboxed preload, while the runtime closure ships as real files under `Contents/Resources/runtime/`.
 
 The installed application starts without a system Node.js or DSH CLI: Electron main forks the application binary itself as the DSH child (`ELECTRON_RUN_AS_NODE`), resolves the CLI, Web dist, and PTY helper from `Contents/Resources/runtime`, and hands the child its user-data directory as the working directory ([`src/packaged-runtime.ts`](src/packaged-runtime.ts) owns this layout). Native modules and the PTY helper therefore never sit inside an archive. The harness home stays the shared `~/.dsh`, so the packaged app and the CLI see the same sessions, profiles, and configuration.
 

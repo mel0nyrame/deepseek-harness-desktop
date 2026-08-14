@@ -40,6 +40,10 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
+  # The Electron devDependency's postinstall downloads the pinned platform
+  # binary; without it the packaged-app pipeline fails at the electron-dist
+  # guard (and dev:desktop cannot launch). Reviewed and required.
+  electron: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists

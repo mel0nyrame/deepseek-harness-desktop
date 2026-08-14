@@ -146,5 +146,6 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 - 安装布局把 shell 放在 asar 内，整个运行时闭包以真实文件放在 `Contents/Resources/runtime/` 下；Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从该闭包解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程（[`packaged-runtime.ts`](../../../../apps/desktop/src/packaged-runtime.ts) 定义该契约）。全程不依赖系统 Node.js 或 DSH CLI。
 - keyless 打包应用冒烟测试（`apps/desktop/tests/packaged-smoke.e2e.ts`）以 `--smoke` 启动安装后的应用包，在捆绑运行时上重跑 tracer bullet，断言零退出码与自有进程树的静默；失败路径用例给它一个缺失的 replay 文件，断言场景以非零退出码判负时同样静默。macOS CI 任务先打包，并把应用包缺失变成硬失败。
 - 桌面包清单兼任部署根清单：其依赖列表即打包运行时闭包，由 `verify-runtime-closure` 强制校验。
+- CI 触发 PR 暴露了两个分支级缺陷并在此修复：Connection 与 client-modules 的可选 WebServer 挂载改用捕获的 `ctx.get()` 值传递（Node 22 下直接属性访问会在 fiber 边界抛出 "cannot get property webServer without inject"）；`electron` 加入 `allowBuilds`，并新增打包恢复步骤，保证全新安装始终携带管线所校验的固定版本发行物。
 
 问题 #4（原生 macOS 窗口体验）和 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。#3 打包切片中发布级的签名、公证与跨架构产物延后到后续工单。
