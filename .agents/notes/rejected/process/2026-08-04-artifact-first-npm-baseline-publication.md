@@ -1,6 +1,6 @@
 # Agent Note: Artifact-first NPM baseline publication
 
-Status: proposed
+Status: rejected — repository-hosted publication is not being pursued; local artifact-first release commands own this capability
 
 English | [中文](2026-08-04-artifact-first-npm-baseline-publication.zh.md)
 

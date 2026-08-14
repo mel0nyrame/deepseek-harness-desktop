@@ -1,6 +1,6 @@
 # Agent Note: 以产物为先的 NPM 基线发布
 
-Status: proposed
+Status: rejected — repository-hosted publication is not being pursued; local artifact-first release commands own this capability
 
 [English](2026-08-04-artifact-first-npm-baseline-publication.md) | 中文
 

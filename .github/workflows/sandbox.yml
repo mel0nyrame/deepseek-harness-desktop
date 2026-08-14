@@ -36,9 +36,9 @@ jobs:
   #
   # The e2e files self-skip where their runner is absent, so a leg that lost
   # its runner (no bwrap, kernel without Landlock, macOS without
-  # sandbox-exec) would otherwise pass as a false green — the same trap
-  # e2e.yml's key preflight guards against. Each leg therefore asserts BOTH
-  # its platform files actually ran: `Test Files  2 passed (2)`, no skips.
+  # sandbox-exec) would otherwise pass as a false green. Each leg therefore
+  # asserts BOTH its platform files actually ran: `Test Files  2 passed (2)`,
+  # no skips.
   sandbox-e2e:
     strategy:
       fail-fast: false
