@@ -14,6 +14,7 @@ import { DshSupervisor, type DshChild } from '../src/supervisor.ts'
 import { discoverAcceptanceSession } from '../src/acceptance.ts'
 
 class FakeChild extends EventEmitter implements DshChild {
+  pid = undefined
   connected = true
   exitCode: number | null = null
   signalCode: NodeJS.Signals | null = null

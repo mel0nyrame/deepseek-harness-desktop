@@ -1,49 +1,11 @@
-import { EventEmitter } from 'node:events'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
-import type { DesktopChildMessage, DesktopParentMessage } from '@deepseek-ai/dsh-desktop-app'
-import { DshSupervisor, parseDesktopChildMessage, type DshChild } from '../src/supervisor.ts'
-
-class FakeChild extends EventEmitter implements DshChild {
-  connected = true
-  exitCode: number | null = null
-  signalCode: NodeJS.Signals | null = null
-  readonly sent: DesktopParentMessage[] = []
-  readonly killed: NodeJS.Signals[] = []
-  sendResult = true
-  nextSendError: Error | undefined
-
-  send(message: DesktopParentMessage, callback?: (error: Error | null) => void): boolean {
-    this.sent.push(message)
-    const error = this.nextSendError
-    this.nextSendError = undefined
-    queueMicrotask(() => { callback?.(error ?? null) })
-    return this.sendResult
-  }
-
-  kill(signal: NodeJS.Signals = 'SIGTERM'): boolean {
-    this.killed.push(signal)
-    return true
-  }
-
-  receive(message: DesktopChildMessage): void {
-    this.emit('message', message)
-  }
-
-  exit(code: number | null = 0, signal: NodeJS.Signals | null = null): void {
-    this.exitCode = code
-    this.signalCode = signal
-    this.connected = false
-    this.emit('exit', code, signal)
-  }
-
-  disconnect(): void {
-    this.connected = false
-    this.emit('disconnect')
-  }
-}
+import type { DesktopChildMessage } from '@deepseek-ai/dsh-desktop-app'
+import { DshSupervisor, parseDesktopChildMessage } from '../src/supervisor.ts'
+import type { ProcessTreeEntry, ProcessTreeSnapshot } from '../src/process-tree.ts'
+import { FakeChild } from './fixtures/fake-child.ts'
 
 describe('desktop DSH supervisor', () => {
   it('correlates readiness, requests, streams, and terminate-and-join shutdown', async () => {
@@ -76,16 +38,34 @@ describe('desktop DSH supervisor', () => {
     await expect(stopping).resolves.toBeUndefined()
   })
 
-  it('kills a child that misses the bounded graceful shutdown deadline', async () => {
+  it('resolves an escalated shutdown once the stubborn child dies to SIGKILL', async () => {
     vi.useFakeTimers()
     try {
       const child = new FakeChild()
       const supervisor = new DshSupervisor(child, { shutdownTimeoutMs: 10 })
       const stopping = supervisor.stop()
+      const settled = expect(stopping).resolves.toBeUndefined()
       await vi.advanceTimersByTimeAsync(10)
       expect(child.killed).toEqual(['SIGTERM', 'SIGKILL'])
       child.exit(null, 'SIGKILL')
-      await expect(stopping).rejects.toThrow(/did not exit within 10ms/)
+      await settled
+      expect(supervisor.wasEscalated).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects when the child survives forced termination entirely', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = new FakeChild()
+      const supervisor = new DshSupervisor(child, { shutdownTimeoutMs: 10 })
+      const stopping = supervisor.stop()
+      const rejected = expect(stopping).rejects.toThrow(/did not exit within 10ms/)
+      await vi.advanceTimersByTimeAsync(10)
+      expect(child.killed).toEqual(['SIGTERM', 'SIGKILL'])
+      await vi.advanceTimersByTimeAsync(10)
+      await rejected
     } finally {
       vi.useRealTimers()
     }
@@ -334,4 +314,99 @@ describe('desktop DSH supervisor', () => {
       await supervisor.stop()
     },
   )
+})
+
+/** Deterministic process-tree ladder for terminate-and-join tests. */
+class FakeLadder {
+  readonly signaled: Array<{ pgid: number; signal: 'SIGTERM' | 'SIGKILL' }> = []
+
+  constructor(private readonly alive: ProcessTreeEntry[], private readonly killable = true) {}
+
+  snapshot(rootPid: number): ProcessTreeSnapshot {
+    return { rootPid, rootPresent: true, owned: [...this.alive] }
+  }
+
+  signalGroups(entries: readonly ProcessTreeEntry[], signal: 'SIGTERM' | 'SIGKILL'): void {
+    const seen = new Set<number>()
+    for (const entry of entries) {
+      if (seen.has(entry.pgid)) continue
+      seen.add(entry.pgid)
+      this.signaled.push({ pgid: entry.pgid, signal })
+      // SIGKILL settles the group; SIGTERM leaves it alive to model a
+      // stubborn descendant.
+      if (signal === 'SIGKILL' && this.killable) {
+        for (let index = this.alive.length - 1; index >= 0; index -= 1) {
+          if (this.alive[index]!.pgid === entry.pgid) this.alive.splice(index, 1)
+        }
+      }
+    }
+  }
+
+  survivors(snapshot: ProcessTreeSnapshot): ProcessTreeEntry[] {
+    return this.alive.filter(entry => snapshot.owned.some(owned => owned.pid === entry.pid))
+  }
+}
+
+describe('desktop DSH supervisor process-tree ladder', () => {
+  it('sweeps stragglers with SIGTERM then SIGKILL after a graceful child exit', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = new FakeChild()
+      child.pid = 400
+      const ladder = new FakeLadder([{ pid: 401, pgid: 400, started: 'x', command: 'sleep 300' }])
+      const supervisor = new DshSupervisor(child, { tree: ladder, treeGraceMs: 5 })
+
+      const stopping = supervisor.stop()
+      await vi.advanceTimersByTimeAsync(0)
+      child.exit(0)
+      // First stage signals the straggler group with SIGTERM; it survives the
+      // grace, so the ladder escalates to SIGKILL and the tree empties.
+      await vi.advanceTimersByTimeAsync(100)
+      await expect(stopping).resolves.toBeUndefined()
+      expect(ladder.signaled).toEqual([
+        { pgid: 400, signal: 'SIGTERM' },
+        { pgid: 400, signal: 'SIGKILL' },
+      ])
+      expect(supervisor.wasEscalated).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('rejects with an actionable survivor list when the tree cannot be emptied', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = new FakeChild()
+      child.pid = 400
+      const ladder = new FakeLadder([{ pid: 401, pgid: 401, started: 'x', command: 'stubborn-helper' }], false)
+      const supervisor = new DshSupervisor(child, { tree: ladder, treeGraceMs: 5 })
+
+      const stopping = supervisor.stop()
+      const rejected = expect(stopping).rejects.toThrow(/left 1 surviving process\(es\): pid 401 \(stubborn-helper\)/)
+      await vi.advanceTimersByTimeAsync(0)
+      child.exit(0)
+      await vi.advanceTimersByTimeAsync(100)
+      await rejected
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('skips group signaling when the exit left no stragglers', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = new FakeChild()
+      child.pid = 400
+      const ladder = new FakeLadder([])
+      const supervisor = new DshSupervisor(child, { tree: ladder, treeGraceMs: 5 })
+
+      const stopping = supervisor.stop()
+      await vi.advanceTimersByTimeAsync(0)
+      child.exit(0)
+      await expect(stopping).resolves.toBeUndefined()
+      expect(ladder.signaled).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

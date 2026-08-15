@@ -47,3 +47,11 @@ contextBridge.exposeInMainWorld('dshDesktop', {
     return () => { streamListeners.delete(listener) }
   },
 })
+
+// The Host lifecycle status page is the only frame that may request recovery
+// actions; Electron main validates the sender URL again before acting.
+if (window.location.href === 'dsh://app/status.html') {
+  contextBridge.exposeInMainWorld('dshRecovery', (action: 'restart' | 'quit'): Promise<void> => {
+    return ipcRenderer.invoke('dsh:recovery', action)
+  })
+}

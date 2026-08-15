@@ -165,4 +165,11 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 - 沙箱化、context-isolated 的 renderer 仍然只接收窄 preload 桥，Web 产品保留 HTTP/WebSocket 载体且不引入 Electron 运行时依赖。这次仅传输层变化不新增模型可见输入或输出；Electron／Web 共享载体约定、聚焦的 client／runtime／preload／supervisor 测试、真实 desktop 组合以及安装态窗口 tracer 场景共同钉住该行为。
 - 安装态窗口录制场景在产品自身 seam 上暴露了驱动侧的三个竞态。其一，hero workspace 选择器的菜单在工作区基线与目录选择流程占位数挂载完成前不渲染任何内容，驱动脚本此前的重试点击实际上把已打开的选择器反复关掉了；现在驱动脚本会持续点击直到触发器的 `aria-expanded` 表明选择器确实已打开（绝不重复点击已打开的选择器），再等待可见菜单行出现。其二，`connectWorkspace` 只要其复用扫描暂时看不到空白会话就会现场新建一个会话，因此此前通过 wire 预创建会话的做法会与该扫描竞态，把回合写到驱动脚本从未轮询的那个会话里——提交的回合其实一直是 durable 的，只是落在选择器新建的会话中。驱动脚本不再预创建会话，而是通过 `workspace.list` 发现真实旅程打开的唯一会话（有界轮询，零个或多个都会响亮失败），聚焦的 `acceptance.spec.ts` 套件钉住了该行为。其三，驱动脚本的 select-all 加 `insertText` 替换在合成点击后会与应用自身的渲染帧竞态，偶尔把替换变成拼接；现在驱动脚本先冲刷动画帧再全选，并在发送前以重试验证草稿的精确内容。
 
-问题 #6、#7 与 #8 仍分别负责交互一致性、Host 恢复和原生路径操作。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。
+问题 #7 已交付 Host 恢复切片：
+
+- [`DesktopLifecycle`](../../../../apps/desktop/src/lifecycle.ts) 拥有唯一显式状态机——`starting`、`running`、`recovering`、`failed`、`stopping`、`stopped`——并作为单一退出 owner。启动超时或配置失败会进入状态页，展示子进程最近的 stderr 尾部与 Restart/Quit 操作；运行中的 Host 发生一次意外退出时触发恰好一次自动重启，恢复失败则回到 failed 状态并保留同样操作。按代记录的 ready 标记可避免把启动失败已上报后的迟到退出误判为崩溃。
+- [`process-tree.ts`](../../../../apps/desktop/src/process-tree.ts) 基于 `ps -axo pid=,ppid=,pgid=,lstart=,stat=,command` 实现 POSIX 关闭阶梯：快照为存活后代加进程组成员，`lstart` 用于识别 pid 复用，zombie 被排除，组信号去重并带有本组保护。[`DshSupervisor`](../../../../apps/desktop/src/supervisor.ts) 在子进程运行期间每秒刷新一次退出前的进程归属快照；停止时先请求 SIGTERM，在有界等待后升级为 SIGKILL，清扫并核验进程树；只要仍有进程存活，就以 `left N surviving process(es)` 列出 pid 与命令并拒绝成功，生命周期将其报告为可操作的 `cleanup-incomplete` 失败。
+- 位于 `dsh://app/status.html` 的状态页只通过 preload 桥暴露 Restart 与 Quit，且该桥只在该精确 frame 上可用。手动 `restart()` 仅允许从 failed 阶段发起；清理不完整时不再提供 Restart，避免新 generation 让上一棵进程树成为孤儿。
+- 实际覆盖：[`process-tree.spec.ts`](../../../../apps/desktop/tests/process-tree.spec.ts) 与 [`lifecycle.spec.ts`](../../../../apps/desktop/tests/lifecycle.spec.ts) 驱动确定性表与伪 spawn；[`process-tree.e2e.ts`](../../../../apps/desktop/tests/process-tree.e2e.ts) 在 macOS 上证明优雅终止、SIGTERM 免疫后的升级、被重设父进程的后代与孤儿清扫，以及真实 node-pty 清理；[`recovery.e2e.ts`](../../../../apps/desktop/tests/recovery.e2e.ts) 走通开发版恢复旅程；打包态 `--record-recovery` 验收记录 startup-failed、restarting、session-recovered 与 tracer-settled 帧，并断言没有残留的已安装应用进程。
+
+问题 #6 与 #8 仍分别负责交互一致性与原生路径操作。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。

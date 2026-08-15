@@ -6,6 +6,7 @@ import type {
   DesktopChildMessage,
   DesktopParentMessage,
 } from '@deepseek-ai/dsh-desktop-app'
+import type { ProcessTreeLadder, ProcessTreeSnapshot } from './process-tree.ts'
 
 type ReadyMessage = Extract<DesktopChildMessage, { type: 'ready' }>
 type ResponseMessage = Extract<DesktopChildMessage, { type: 'response' }>
@@ -14,6 +15,7 @@ type StreamMessage = Exclude<DesktopChildMessage, ReadyMessage | ResponseMessage
 
 /** Child-process surface used by the supervisor and its tests. */
 export interface DshChild {
+  readonly pid: number | undefined
   readonly connected: boolean
   readonly exitCode: number | null
   readonly signalCode: NodeJS.Signals | null
@@ -34,6 +36,12 @@ export interface SupervisorOptions {
   readonly startupTimeoutMs?: number
   readonly shutdownTimeoutMs?: number
   readonly bundleRoot?: string
+  /** Process-tree termination ladder; without one, stop joins the child only. */
+  readonly tree?: ProcessTreeLadder
+  /** Grace the ladder allows each escalation stage before escalating again. */
+  readonly treeGraceMs?: number
+  /** Refresh interval for the pre-exit ownership snapshot kept for crash recovery. */
+  readonly treeSnapshotMs?: number
 }
 
 interface PendingRequest {
@@ -48,6 +56,8 @@ interface SubscriptionState {
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000
+const DEFAULT_TREE_GRACE_MS = 1_000
+const DEFAULT_TREE_SNAPSHOT_MS = 1_000
 
 type SendResult =
   | { readonly kind: 'accepted' | 'backpressured' }
@@ -162,23 +172,34 @@ export class DshSupervisor {
   private readonly startupTimeoutMs: number
   private readonly shutdownTimeoutMs: number
   private readonly bundleRoot: string
+  private readonly tree: ProcessTreeLadder | undefined
+  private readonly treeGraceMs: number
+  private readonly treeSnapshotMs: number
+  private latestSnapshot: ProcessTreeSnapshot | undefined
+  private treeMonitor: ReturnType<typeof setInterval> | undefined
   private readonly ready = Promise.withResolvers<ReadyMessage>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly subscriptions = new Map<string, SubscriptionState>()
   private readonly queuedSubscriptions = new Map<'mux' | 'host', string>()
   private readonly streamListeners = new Set<(message: StreamMessage) => void>()
+  private readonly exitListeners = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>()
   private stopping: Promise<void> | undefined
   private settledReady = false
+  private escalated = false
 
   constructor(private readonly child: DshChild, options: SupervisorOptions = {}) {
     this.startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
     this.shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
+    this.treeGraceMs = options.treeGraceMs ?? DEFAULT_TREE_GRACE_MS
+    this.treeSnapshotMs = options.treeSnapshotMs ?? DEFAULT_TREE_SNAPSHOT_MS
+    this.tree = options.tree
     this.bundleRoot = resolve(options.bundleRoot ?? process.cwd())
+    this.startTreeMonitor()
     void this.ready.promise.catch((_error: unknown) => {
       // Child failure can precede start(); start() remains the public observer.
     })
     child.on('message', this.onMessage)
-    child.on('exit', this.onExit)
+    child.on('exit', this.handleChildExit)
     child.on('error', this.onError)
     child.on('disconnect', this.onDisconnect)
   }
@@ -280,10 +301,21 @@ export class DshSupervisor {
     return () => { this.streamListeners.delete(listener) }
   }
 
+  /** Observe child exit so the lifecycle owner can classify and recover. */
+  onExit(listener: (code: number | null, signal: NodeJS.Signals | null) => void): () => void {
+    this.exitListeners.add(listener)
+    return () => { this.exitListeners.delete(listener) }
+  }
+
   /** Ask the child to dispose its Cordis tree, then wait for process exit. */
   stop(): Promise<void> {
     this.stopping ??= this.stopOnce()
     return this.stopping
+  }
+
+  /** Whether shutdown had to escalate past the graceful SIGTERM stage. */
+  get wasEscalated(): boolean {
+    return this.escalated
   }
 
   private openSubscription(id: string, stream: 'mux' | 'host'): void {
@@ -372,7 +404,15 @@ export class DshSupervisor {
     if (!subscription.cancelling) this.publishStream(message)
   }
 
-  private readonly onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+  private readonly handleChildExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+    this.stopTreeMonitor()
+    for (const listener of [...this.exitListeners]) {
+      try {
+        listener(code, signal)
+      } catch (error) {
+        console.error('[desktop-supervisor] exit listener threw:', error)
+      }
+    }
     const error = new Error(`desktop DSH child exited before shutdown completed (code ${String(code)}, signal ${String(signal)})`)
     if (this.stopping === undefined) this.rejectReady(error)
     this.failPending(error)
@@ -462,35 +502,121 @@ export class DshSupervisor {
   private async stopOnce(): Promise<void> {
     this.failPending(new Error('desktop DSH child is stopping'))
     this.closeStreams()
-    if (this.child.exitCode !== null || this.child.signalCode !== null) {
-      this.detach()
-      return
-    }
-    const exited = new Promise<void>((resolve) => { this.child.on('exit', () => { resolve() }) })
-    this.child.kill('SIGTERM')
-    let timeout: ReturnType<typeof setTimeout> | undefined
+    // Quit can race startup: settle a pending ready wait so lifecycle.start()
+    // observers never hang behind a child that stop() already owns.
+    if (!this.settledReady) this.rejectReady(new Error('desktop DSH child did not become ready before shutdown'))
     try {
-      await Promise.race([
-        exited,
-        new Promise<void>((_resolve, reject) => {
-          timeout = setTimeout(() => {
-            reject(new Error(`desktop DSH child did not exit within ${String(this.shutdownTimeoutMs)}ms`))
-          }, this.shutdownTimeoutMs)
-        }),
-      ])
-    } catch (error) {
+      if (this.child.exitCode !== null || this.child.signalCode !== null) {
+        // The child already exited (crash recovery, startup failure): use the
+        // newest pre-exit snapshot, falling back to a post-exit group scan.
+        await this.terminateTree(false, this.latestSnapshot ?? this.snapshotTreeNow())
+        return
+      }
+      // Snapshot while the child still parents its descendants: a PTY session
+      // leader or grandchild that later reparents into its own group stays in
+      // this snapshot by pid identity. If IPC failure raced the exit (Node
+      // reports disconnect before exit), fall back to the pre-exit snapshot.
+      const freshSnapshot = this.snapshotTreeNow()
+      const snapshot = freshSnapshot?.rootPresent === true
+        ? freshSnapshot
+        : this.latestSnapshot ?? freshSnapshot
+      const exited = new Promise<void>((resolve) => { this.child.on('exit', () => { resolve() }) })
+      this.child.kill('SIGTERM')
+      if (await this.waitForExit(exited, this.shutdownTimeoutMs)) {
+        // Graceful dispose worked: verify quiescence and sweep stragglers.
+        await this.terminateTree(false, snapshot)
+        return
+      }
+      this.escalated = true
       this.child.kill('SIGKILL')
-      await exited
-      throw error
+      const settled = await this.waitForExit(exited, this.shutdownTimeoutMs)
+      // After forced termination, stragglers only get SIGKILL — SIGTERM already
+      // proved insufficient for this tree.
+      await this.terminateTree(true, snapshot)
+      if (!settled) {
+        throw new Error(`desktop DSH child did not exit within ${String(this.shutdownTimeoutMs)}ms`)
+      }
     } finally {
-      if (timeout !== undefined) clearTimeout(timeout)
       this.detach()
     }
   }
 
+  /** Resolve true when the child exits in time, false when the grace elapses. */
+  private async waitForExit(exited: Promise<void>, timeoutMs: number): Promise<boolean> {
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        exited.then(() => true),
+        new Promise<false>((resolve) => {
+          timeout = setTimeout(() => { resolve(false) }, timeoutMs)
+        }),
+      ])
+    } finally {
+      if (timeout !== undefined) clearTimeout(timeout)
+    }
+  }
+
+  private startTreeMonitor(): void {
+    if (this.tree === undefined || this.treeMonitor !== undefined) return
+    this.refreshTreeSnapshot()
+    this.treeMonitor = setInterval(() => { this.refreshTreeSnapshot() }, this.treeSnapshotMs)
+  }
+
+  private stopTreeMonitor(): void {
+    if (this.treeMonitor === undefined) return
+    clearInterval(this.treeMonitor)
+    this.treeMonitor = undefined
+  }
+
+  /** Refresh the pre-exit ownership snapshot while the child still lives. */
+  private refreshTreeSnapshot(): void {
+    if (this.child.exitCode !== null || this.child.signalCode !== null) {
+      this.stopTreeMonitor()
+      return
+    }
+    const snapshot = this.snapshotTreeNow()
+    if (snapshot !== undefined && snapshot.rootPresent) this.latestSnapshot = snapshot
+  }
+
+  private snapshotTreeNow(): ProcessTreeSnapshot | undefined {
+    const tree = this.tree
+    const rootPid = this.child.pid
+    return tree === undefined || rootPid === undefined ? undefined : tree.snapshot(rootPid)
+  }
+
+  /**
+   * Sweep the owned process tree until quiescent: signal the groups of every
+   * surviving snapshot entry, once per escalation stage, then verify. Throws an
+   * actionable error listing survivors instead of claiming completion while any
+   * owned DSH, PTY, or descendant process remains identifiable.
+   * @param killOnly - skip the SIGTERM stage (the tree already outlived grace).
+   * @param snapshot - the ownership snapshot; callers take it before signaling
+   * the child so descendants stay identifiable after the parent exits.
+   */
+  private async terminateTree(killOnly: boolean, snapshot: ProcessTreeSnapshot | undefined): Promise<void> {
+    const tree = this.tree
+    if (tree === undefined || snapshot === undefined) return
+    const stages: ReadonlyArray<'SIGTERM' | 'SIGKILL'> = killOnly ? ['SIGKILL'] : ['SIGTERM', 'SIGKILL']
+    for (const signal of stages) {
+      const remaining = tree.survivors(snapshot)
+      if (remaining.length === 0) break
+      if (signal === 'SIGKILL') this.escalated = true
+      tree.signalGroups(remaining, signal)
+      const deadline = Date.now() + this.treeGraceMs
+      while (tree.survivors(snapshot).length > 0 && Date.now() < deadline) {
+        await new Promise(resolveWait => setTimeout(resolveWait, 25))
+      }
+    }
+    const remaining = tree.survivors(snapshot)
+    if (remaining.length === 0) return
+    const description = remaining.map(entry => `pid ${String(entry.pid)} (${entry.command})`).join(', ')
+    throw new Error(`desktop DSH shutdown left ${String(remaining.length)} surviving process(es): ${description}`)
+  }
+
   private detach(): void {
+    this.stopTreeMonitor()
     this.child.off('message', this.onMessage)
-    this.child.off('exit', this.onExit)
+    this.child.off('exit', this.handleChildExit)
     this.child.off('error', this.onError)
     this.child.off('disconnect', this.onDisconnect)
     this.subscriptions.clear()

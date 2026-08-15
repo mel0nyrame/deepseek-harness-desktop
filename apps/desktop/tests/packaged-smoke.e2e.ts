@@ -278,6 +278,69 @@ describe('packaged desktop application', () => {
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'records truthful recovery frames from the failed state through a recovered Session',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-packaged-recovery-'))
+      const framesDir = join(REPO_ROOT, '.playwright-mcp', 'gif-frames-issue7-recovery')
+      // One storyboard is one evidence run: start from a fresh frame root.
+      await rm(framesDir, { recursive: true, force: true })
+      const replayFile = join(home, 'replay.jsonl')
+      await copyFile(REPLAY_FIXTURE, replayFile)
+      const hangKill = setTimeout(() => {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 300_000)
+      const { exitCode, captured } = await launchInstalledApp(
+        home,
+        ['--record-recovery', '--smoke-replay', replayFile],
+        {
+          DSH_DESKTOP_FRAMES_DIR: framesDir,
+          DSH_DESKTOP_STARTUP_TIMEOUT_MS: '20000',
+        },
+      )
+      clearTimeout(hangKill)
+
+      expect(exitCode, `recovery recording exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+      for (const marker of [
+        'SMOKE_OK recovery-failed-state',
+        'SMOKE_OK recovery-restart',
+        'SMOKE_OK session',
+        'SMOKE_OK terminal',
+        'SMOKE_OK quit',
+      ]) {
+        expect(captured, `recovery recording output must carry ${marker}`).toContain(marker)
+      }
+      const line = captured.split('\n').find(value => value.startsWith('RECOVERY_RECORDING '))
+      expect(line).toBeDefined()
+      const state = JSON.parse(line!.slice('RECOVERY_RECORDING '.length)) as {
+        framesDir: string
+        frames: string[]
+        phases: string[]
+        failure: { kind: string | null; message: string | null; detail: string | null }
+        keyboard: { activeElement: string; value: string }
+        scenarioFailure: string | null
+      }
+      expect(state.scenarioFailure).toBeNull()
+      expect(state.failure.kind).toBe('startup-failed')
+      expect(state.framesDir).toBe(framesDir)
+      expect(captured).not.toContain('UnhandledPromiseRejectionWarning')
+      expect(captured).not.toContain('Object has been destroyed')
+      for (const label of ['startup-failed', 'restarting', 'session-recovered', 'tracer-settled']) {
+        expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)
+      }
+      // Verify the world, not the self-report: the recorded frames exist as
+      // real non-empty PNG files on disk.
+      for (const name of state.frames) {
+        const path = join(framesDir, name)
+        expect(existsSync(path), `frame ${name} exists on disk`).toBe(true)
+        expect(statSync(path).size, `frame ${name} is a non-empty PNG`).toBeGreaterThan(100)
+      }
+      assertNoSurvivors()
+      child = undefined
+    },
+    300_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
     'runs the keyless tracer bullet on the installed bundle and quits quiescent',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-desktop-packaged-'))

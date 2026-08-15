@@ -7,10 +7,13 @@ import { createRequire } from 'node:module'
 import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
-  app, BrowserWindow, ipcMain, nativeTheme, net, protocol,
+  app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol,
   type IpcMainEvent, type IpcMainInvokeEvent,
 } from 'electron'
 import { DshSupervisor } from './supervisor.ts'
+import { DesktopLifecycle, type HostPhase, type StopReport } from './lifecycle.ts'
+import { createProcessTreeLadder } from './process-tree.ts'
+import { DESKTOP_STATUS_HTML, STATUS_PAGE_PATH, statusStateFor } from './status.ts'
 import { RendererStreamRelay } from './renderer-stream-relay.ts'
 import { desktopRpc, discoverAcceptanceSession } from './acceptance.ts'
 import {
@@ -19,11 +22,12 @@ import {
   packagedRuntimeLayout,
   parseSmokeInvocation,
 } from './packaged-runtime.ts'
-import { prepareSmokeProfile, RECORDED_PROMPT, runSmokeScenario } from './smoke.ts'
+import { prepareBrokenProfile, prepareSmokeProfile, RECORDED_PROMPT, runSmokeScenario } from './smoke.ts'
 import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
 import {
   isDesktopAppUrl,
   parseRendererId,
+  parseRendererRecoveryAction,
   parseRendererRequest,
   parseRendererSubscription,
   toRendererStreamEvent,
@@ -37,6 +41,17 @@ protocol.registerSchemesAsPrivileged([{
   scheme: SCHEME,
   privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
 }])
+
+/** Default grace for Host startup and shutdown, overridable for tests. */
+function desktopTimeoutMs(envName: string, fallback: number): number {
+  const raw = process.env[envName]
+  if (raw === undefined || raw.trim() === '') return fallback
+  const value = Number(raw)
+  return Number.isSafeInteger(value) && value > 0 ? value : fallback
+}
+
+const STARTUP_TIMEOUT_MS = desktopTimeoutMs('DSH_DESKTOP_STARTUP_TIMEOUT_MS', 30_000)
+const SHUTDOWN_TIMEOUT_MS = desktopTimeoutMs('DSH_DESKTOP_SHUTDOWN_TIMEOUT_MS', 15_000)
 
 interface DesktopBoot {
   readonly rev: string
@@ -57,6 +72,13 @@ interface DshChildOptions {
   readonly execPath: string
   readonly execArgv: readonly string[]
   readonly env: NodeJS.ProcessEnv
+}
+
+/** One spawned DSH generation plus its failure context. */
+interface DshSpawn {
+  readonly supervisor: DshSupervisor
+  readonly childPid: number | undefined
+  readonly tail: () => string
 }
 
 function packageDir(specifier: string): string {
@@ -86,14 +108,23 @@ function contentType(path: string): string | undefined {
   }
 }
 
-function registerAssetProtocol(webDist: string, bundles: ReadonlyMap<string, string>): void {
+/** Client bundle paths announced by the running generation, keyed by token. */
+const servedBundles = new Map<string, string>()
+
+function registerAssetProtocol(webDist: string): void {
   protocol.handle(SCHEME, async (request) => {
     const url = new URL(request.url)
     if (url.host !== 'app' || request.method !== 'GET') return new Response('not found', { status: 404 })
+    if (url.pathname === STATUS_PAGE_PATH) {
+      return new Response(DESKTOP_STATUS_HTML, {
+        status: 200,
+        headers: { 'content-type': 'text/html; charset=utf-8' },
+      })
+    }
     const bundleMatch = /^\/bundle\/([A-Za-z0-9_-]+)\.js$/.exec(url.pathname)
     const path = bundleMatch === null
       ? safeAssetPath(webDist, url.pathname)
-      : bundles.get(bundleMatch[1] as string)
+      : servedBundles.get(bundleMatch[1] as string)
     if (path === undefined) return new Response('not found', { status: 404 })
     const response = await net.fetch(pathToFileURL(path).href)
     const type = contentType(path)
@@ -107,7 +138,12 @@ function registerAssetProtocol(webDist: string, bundles: ReadonlyMap<string, str
   })
 }
 
-function spawnDshChild(options: DshChildOptions): { supervisor: DshSupervisor; childPid: number | undefined } {
+/**
+ * Spawn one DSH generation. The child runs detached, leading its own process
+ * group and session, so the shutdown ladder can still identify and signal
+ * descendants and PTYs after the immediate parent exits.
+ */
+function spawnDshChild(options: DshChildOptions): DshSpawn {
   const child = fork(options.cliEntry, ['--profile', 'desktop'], {
     cwd: options.cwd,
     execPath: options.execPath,
@@ -118,13 +154,36 @@ function spawnDshChild(options: DshChildOptions): { supervisor: DshSupervisor; c
     // embedded V8 and the DSH child's Node differ in serialization version.
     serialization: 'json',
     stdio: ['ignore', 'pipe', 'pipe', 'ipc'],
+    detached: true,
   })
   child.stdout?.on('data', (chunk: Buffer) => { process.stdout.write(chunk) })
-  child.stderr?.on('data', (chunk: Buffer) => { process.stderr.write(chunk) })
-  return {
-    supervisor: new DshSupervisor(child, { bundleRoot: options.bundleRoot }),
-    childPid: child.pid,
-  }
+  const stderrTail: string[] = []
+  child.stderr?.on('data', (chunk: Buffer) => {
+    process.stderr.write(chunk)
+    stderrTail.push(String(chunk))
+    if (stderrTail.length > 40) stderrTail.shift()
+  })
+  // fork()'s ChildProcess overloads are looser than the narrow supervisor
+  // surface; this view pins exactly the members the supervisor may touch and
+  // reads mutable child state live through getters.
+  const dshChild = {
+    get pid() { return child.pid },
+    get connected() { return child.connected },
+    get exitCode() { return child.exitCode },
+    get signalCode() { return child.signalCode },
+    send: child.send.bind(child),
+    kill: child.kill.bind(child),
+    on: child.on.bind(child),
+    off: child.off.bind(child),
+  } as import('./supervisor.ts').DshChild
+  const tree = createProcessTreeLadder()
+  const supervisor = new DshSupervisor(dshChild, {
+    bundleRoot: options.bundleRoot,
+    startupTimeoutMs: STARTUP_TIMEOUT_MS,
+    shutdownTimeoutMs: SHUTDOWN_TIMEOUT_MS,
+    ...(tree === undefined ? {} : { tree }),
+  })
+  return { supervisor, childPid: child.pid, tail: () => stderrTail.join('') }
 }
 
 /** Development layout: the child runs from the source tree like `dsh --profile desktop`. */
@@ -169,7 +228,27 @@ function senderIs(window: BrowserWindow, event: IpcMainEvent | IpcMainInvokeEven
     && isDesktopAppUrl(event.senderFrame.url)
 }
 
-function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: DesktopBoot): () => void {
+/** The boot payload of the current running generation, for `dsh:boot`. */
+let currentBoot: DesktopBoot | undefined
+
+function refreshBoot(lifecycle: DesktopLifecycle): void {
+  const ready = lifecycle.bootInfo
+  if (ready === undefined) {
+    currentBoot = undefined
+    return
+  }
+  servedBundles.clear()
+  for (const bundle of ready.bundles) servedBundles.set(tokenFor(bundle.id), bundle.path)
+  currentBoot = {
+    rev: ready.graph.rev,
+    entries: ready.graph.entries.map(entry => ({
+      ...entry,
+      url: `${APP_ORIGIN}/bundle/${tokenFor(entry.id)}.js?rev=${entry.rev}`,
+    })),
+  }
+}
+
+function installIpc(window: BrowserWindow, lifecycle: DesktopLifecycle): () => void {
   const webContents = window.webContents
   const senderAllowed = (event: IpcMainEvent): boolean => {
     if (senderIs(window, event)) return true
@@ -179,6 +258,19 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
   const assertInvokeSender = (event: IpcMainInvokeEvent): void => {
     if (!senderIs(window, event)) throw new Error('desktop IPC rejected an unknown sender')
   }
+  const statusSenderAllowed = (event: IpcMainInvokeEvent): boolean => {
+    if (!senderIs(window, event) || event.senderFrame === null) return false
+    const url = new URL(event.senderFrame.url)
+    return url.pathname === STATUS_PAGE_PATH
+  }
+  const supervisorOf = (): DshSupervisor => {
+    const current = lifecycle.current()
+    if (current === undefined) throw new Error('desktop IPC reached with no DSH generation')
+    return current.supervisor
+  }
+  // .on handlers cannot throw into Electron; a phase without a generation
+  // simply drops the stale renderer call.
+  const maybeSupervisor = (): DshSupervisor | undefined => lifecycle.current()?.supervisor
   const relay = new RendererStreamRelay(
     (message) => {
       if (window.isDestroyed()) return false
@@ -190,17 +282,17 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
         return false
       }
     },
-    (id) => { supervisor.cancelSubscription(id) },
+    (id) => { maybeSupervisor()?.cancelSubscription(id) },
   )
   ipcMain.on('dsh:boot', (event) => {
     if (!senderAllowed(event)) return
-    event.returnValue = boot
+    event.returnValue = currentBoot ?? null
   })
   ipcMain.handle('dsh:request', (event, value: unknown) => {
     assertInvokeSender(event)
     const request = parseRendererRequest(value)
     if (request === undefined) throw new Error('desktop IPC rejected a malformed request')
-    return supervisor.request(request)
+    return supervisorOf().request(request)
   })
   ipcMain.on('dsh:cancel-request', (event, value: unknown) => {
     if (!senderAllowed(event)) return
@@ -209,7 +301,7 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
       console.error('[desktop-main] dropped malformed request cancellation')
       return
     }
-    supervisor.cancelRequest(id)
+    maybeSupervisor()?.cancelRequest(id)
   })
   ipcMain.on('dsh:subscribe', (event, idValue: unknown, streamValue: unknown) => {
     if (!senderAllowed(event)) return
@@ -218,7 +310,7 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
       console.error('[desktop-main] dropped malformed subscription')
       return
     }
-    supervisor.subscribe(subscription.id, subscription.stream)
+    maybeSupervisor()?.subscribe(subscription.id, subscription.stream)
   })
   ipcMain.on('dsh:cancel-subscription', (event, value: unknown) => {
     if (!senderAllowed(event)) return
@@ -228,7 +320,7 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
       return
     }
     relay.clear(id)
-    supervisor.cancelSubscription(id)
+    maybeSupervisor()?.cancelSubscription(id)
   })
   ipcMain.on('dsh:stream-ack', (event, value: unknown) => {
     if (!senderAllowed(event)) return
@@ -239,18 +331,43 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
     }
     relay.ack(id)
   })
+  ipcMain.handle('dsh:recovery', (event, value: unknown) => {
+    if (!statusSenderAllowed(event)) throw new Error('desktop IPC rejected an unknown recovery sender')
+    const action = parseRendererRecoveryAction(value)
+    if (action === undefined) throw new Error('desktop IPC rejected a malformed recovery action')
+    if (action === 'quit') {
+      app.quit()
+      return
+    }
+    void lifecycle.restart().catch((error: unknown) => {
+      console.error(`desktop recovery restart failed: ${String(error)}`)
+    })
+  })
   const disconnectRenderer = (): void => {
     relay.clearAll()
-    supervisor.disconnectRenderer()
+    const current = lifecycle.current()
+    current?.supervisor.disconnectRenderer()
   }
   const onNavigation = (): void => { disconnectRenderer() }
   webContents.on('render-process-gone', disconnectRenderer)
   webContents.on('destroyed', disconnectRenderer)
   webContents.on('did-navigate', onNavigation)
-  const stopStreams = supervisor.onStream((message) => {
-    relay.push(toRendererStreamEvent(message))
-  })
+  // Stream forwarding follows the current generation: re-attach whenever the
+  // lifecycle spawns or settles a generation.
+  let stopStreams = (): void => {}
+  const attachStreams = (): void => {
+    stopStreams()
+    const current = lifecycle.current()
+    if (current !== undefined) {
+      stopStreams = current.supervisor.onStream((message) => {
+        relay.push(toRendererStreamEvent(message))
+      })
+    }
+  }
+  const detachPhase = lifecycle.onPhase(attachStreams)
+  attachStreams()
   return () => {
+    detachPhase()
     stopStreams()
     relay.clearAll()
     if (!webContents.isDestroyed()) {
@@ -259,90 +376,199 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
       webContents.off('did-navigate', onNavigation)
     }
     ipcMain.removeHandler('dsh:request')
+    ipcMain.removeHandler('dsh:recovery')
     for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription', 'dsh:stream-ack']) {
       ipcMain.removeAllListeners(channel)
     }
   }
 }
 
-let quitting: Promise<void> | undefined
-
-/** Boot the desktop window over a started supervisor. */
-async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<BrowserWindow> {
-  let removeIpc = (): void => {}
-  let window: BrowserWindow | undefined
-  const onBeforeQuit = (event: Electron.Event): void => {
-    if (quitting !== undefined) return
-    event.preventDefault()
-    removeIpc()
-    quitting = (async () => {
-      await supervisor.stop().catch((error: unknown) => {
-        console.error(`desktop DSH shutdown required force termination: ${String(error)}`)
-      })
-      app.quit()
-    })()
+/** Serialize page transitions for one window: status page ↔ assembled app. */
+function pageDirector(window: BrowserWindow) {
+  let queue: Promise<void> = Promise.resolve()
+  const run = (transition: () => Promise<void>): void => {
+    queue = queue.then(transition).catch((error: unknown) => {
+      console.error('[desktop-main] page transition failed:', error)
+    })
   }
-  app.on('before-quit', onBeforeQuit)
-  try {
-    const ready = await supervisor.start()
-    const bundlePaths = new Map(ready.bundles.map(bundle => [tokenFor(bundle.id), bundle.path]))
-    const boot: DesktopBoot = {
-      rev: ready.graph.rev,
-      entries: ready.graph.entries.map(entry => ({
-        ...entry,
-        url: `${APP_ORIGIN}/bundle/${tokenFor(entry.id)}.js?rev=${entry.rev}`,
-      })),
-    }
-    registerAssetProtocol(webDist, bundlePaths)
+  const atPath = (pathname: string): boolean => {
+    if (window.isDestroyed()) return false
+    const current = window.webContents.getURL()
+    return isDesktopAppUrl(current) && new URL(current).pathname === pathname
+  }
+  const ensure = async (pathname: string): Promise<void> => {
+    if (atPath(pathname)) return
+    await window.loadURL(`${APP_ORIGIN}${pathname}`)
+    await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+  }
+  return {
+    status(state: ReturnType<typeof statusStateFor>): void {
+      run(async () => {
+        await ensure(STATUS_PAGE_PATH)
+        await window.webContents.executeJavaScript(
+          `window.renderStatus(${JSON.stringify(state)})`,
+        ).catch((error: unknown) => {
+          console.error(`desktop status render failed: ${String(error)}`)
+        })
+      })
+    },
+    app(): void {
+      run(async () => {
+        await ensure('/index.html')
+      })
+    },
+  }
+}
 
-    window = new BrowserWindow({
-      width: 1280,
-      height: 840,
-      minWidth: 900,
-      minHeight: 640,
-      ...desktopWindowOptions(process.platform),
-      webPreferences: {
-        preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
-        contextIsolation: true,
-        nodeIntegration: false,
-        sandbox: true,
-      },
-    })
-    const startedWindow = window
-    startedWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-    startedWindow.webContents.on('will-navigate', (event, url) => {
-      if (!isDesktopAppUrl(url)) event.preventDefault()
-    })
-    removeIpc = installIpc(startedWindow, supervisor, boot)
-    await startedWindow.loadURL(`${APP_ORIGIN}/index.html`)
-    await startedWindow.webContents.insertCSS(DESKTOP_SURFACE_CSS)
-    const applySurfaceState = (): void => {
-      const state = rendererSurfaceState(
-        nativeTheme.shouldUseDarkColors,
-        nativeTheme.prefersReducedTransparency,
-      )
-      void startedWindow.webContents.executeJavaScript(`
+/** Boot the desktop window over the lifecycle owner and start the Host. */
+function bootWindow(
+  lifecycle: DesktopLifecycle,
+): { window: BrowserWindow; ready: Promise<void> } {
+  const window = new BrowserWindow({
+    width: 1280,
+    height: 840,
+    minWidth: 900,
+    minHeight: 640,
+    ...desktopWindowOptions(process.platform),
+    webPreferences: {
+      preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  })
+  currentWindow = window
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+  window.webContents.on('will-navigate', (event, url) => {
+    if (!isDesktopAppUrl(url)) event.preventDefault()
+  })
+  const applySurfaceState = (): void => {
+    const state = rendererSurfaceState(
+      nativeTheme.shouldUseDarkColors,
+      nativeTheme.prefersReducedTransparency,
+    )
+    void window.webContents.executeJavaScript(`
       document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
       document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
     `).catch((error: unknown) => {
-        console.error(`desktop appearance update failed: ${String(error)}`)
+      console.error(`desktop appearance update failed: ${String(error)}`)
+    })
+  }
+  applySurfaceState()
+  nativeTheme.on('updated', applySurfaceState)
+  window.once('closed', () => {
+    if (currentWindow === window) currentWindow = undefined
+    nativeTheme.off('updated', applySurfaceState)
+  })
+  app.on('window-all-closed', () => { app.quit() })
+
+  const removeIpc = installIpc(window, lifecycle)
+  const pages = pageDirector(window)
+  window.once('closed', () => { removeIpc() })
+
+  // Wire every lifecycle phase to the defined user-visible surface.
+  const reflectPhase = (phase: HostPhase): void => {
+    switch (phase) {
+      case 'running':
+        refreshBoot(lifecycle)
+        pages.app()
+        return
+      case 'starting':
+      case 'recovering':
+      case 'failed':
+      case 'stopping':
+        pages.status(statusStateFor(phase, lifecycle.failure, lifecycle.restartAvailable))
+        return
+      case 'stopped':
+        return
+    }
+  }
+  const removePhase = lifecycle.onPhase(reflectPhase)
+  const removeFailure = lifecycle.onFailure(() => {
+    const phase = lifecycle.phase
+    if (phase === 'failed' || phase === 'recovering') {
+      pages.status(statusStateFor(phase, lifecycle.failure, lifecycle.restartAvailable))
+    }
+  })
+  window.once('closed', () => {
+    removePhase()
+    removeFailure()
+  })
+  pages.status(statusStateFor('starting'))
+
+  const ready = lifecycle.start()
+  return { window, ready }
+}
+
+let quitting: Promise<void> | undefined
+let quitArmed = false
+let currentWindow: BrowserWindow | undefined
+
+/** Describe a failed cleanup without ever claiming success. */
+function formatCleanupFailure(report: StopReport): string {
+  const failure = report.failure
+  if (failure === undefined) return 'shutdown incomplete'
+  const survivors = failure.survivors === undefined
+    ? ''
+    : `\n${failure.survivors.map(survivor => `pid ${String(survivor.pid)}: ${survivor.command}`).join('\n')}`
+  return `${failure.message}${survivors}`
+}
+
+/**
+ * The one application quit owner: every quit path funnels through the
+ * lifecycle's terminate-and-join ladder before the process may complete, and
+ * an incomplete cleanup surfaces actionably instead of reporting success.
+ */
+function installQuitOwner(
+  lifecycle: DesktopLifecycle,
+  getWindow: () => BrowserWindow | undefined,
+  headless: boolean,
+): void {
+  app.on('before-quit', (event) => {
+    if (quitArmed) return
+    event.preventDefault()
+    quitting ??= (async () => {
+      const report = await lifecycle.stop()
+      if (!report.quiescent) {
+        const message = formatCleanupFailure(report)
+        console.error(`[desktop-main] shutdown incomplete: ${message}`)
+        console.error(`CLEANUP_INCOMPLETE ${JSON.stringify(report.failure)}`)
+        if (!headless) {
+          const window = getWindow()
+          if (window !== undefined && !window.isDestroyed()) {
+            await dialog.showMessageBox(window, {
+              type: 'error',
+              title: 'DSH Desktop',
+              message: 'The DSH runtime did not shut down cleanly',
+              detail: message,
+              buttons: ['Force Quit'],
+            })
+          }
+        }
+        process.exitCode = 1
+      }
+      quitArmed = true
+      app.quit()
+    })()
+  })
+}
+
+/** Stop the lifecycle after an acceptance or recording journey. */
+async function stopAfterJourney(lifecycle: DesktopLifecycle, headless: boolean): Promise<void> {
+  const report = await lifecycle.stop()
+  if (!report.quiescent) {
+    console.error(`[desktop-main] shutdown incomplete: ${formatCleanupFailure(report)}`)
+    console.error(`CLEANUP_INCOMPLETE ${JSON.stringify(report.failure)}`)
+    if (!headless) {
+      await dialog.showMessageBox({
+        type: 'error',
+        title: 'DSH Desktop',
+        message: 'The DSH runtime did not shut down cleanly',
+        detail: formatCleanupFailure(report),
+        buttons: ['Force Quit'],
       })
     }
-    applySurfaceState()
-    nativeTheme.on('updated', applySurfaceState)
-    startedWindow.once('closed', () => {
-      nativeTheme.off('updated', applySurfaceState)
-    })
-    app.on('window-all-closed', () => { app.quit() })
-    return startedWindow
-  } catch (error) {
-    app.off('before-quit', onBeforeQuit)
-    removeIpc()
-    if (window !== undefined && !window.isDestroyed()) window.destroy()
-    await supervisor.stop().catch((stopError: unknown) => {
-      console.error(`desktop startup cleanup failed to stop DSH: ${String(stopError)}`)
-    })
-    throw error
+    process.exitCode = 1
   }
 }
 
@@ -608,8 +834,12 @@ async function waitForRecordedTurn(
 }
 
 /** Exercise the installed app's assembled renderer and visible native window. */
-async function acceptNativeWindow(supervisor: DshSupervisor, webDist: string): Promise<void> {
-  const window = await bootWindow(supervisor, webDist)
+async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
+  const { window, ready } = bootWindow(lifecycle)
+  await ready
+  if (lifecycle.phase !== 'running') {
+    throw new Error(`desktop acceptance: Host did not reach the running phase (${lifecycle.phase})`)
+  }
   const focus: string[] = []
   const initialBounds = { x: 120, y: 120, width: 960, height: 700 }
   window.setBounds(initialBounds)
@@ -638,7 +868,7 @@ async function acceptNativeWindow(supervisor: DshSupervisor, webDist: string): P
     await Promise.race([dragged, new Promise(resolveWait => setTimeout(resolveWait, 1_000))])
     const draggedBounds = window.getBounds()
 
-    await reachLiveComposer(supervisor, window)
+    await reachLiveComposer(currentSupervisor(lifecycle), window)
     const keyboardBeforeMinimize = await typeIntoComposer(window)
     const controlBounds = window.getBounds()
 
@@ -682,8 +912,36 @@ async function acceptNativeWindow(supervisor: DshSupervisor, webDist: string): P
   } finally {
     other?.destroy()
     window.destroy()
-    await supervisor.stop()
+    await stopAfterJourney(lifecycle, true)
   }
+}
+
+interface FrameRecorder {
+  readonly frames: string[]
+  capture(label: string): Promise<void>
+}
+
+/** Write numbered `capturePage()` PNG frames into one evidence directory. */
+function createFrameRecorder(window: BrowserWindow, framesDir: string): FrameRecorder {
+  const frames: string[] = []
+  let frameIndex = 0
+  return {
+    frames,
+    async capture(label) {
+      frameIndex += 1
+      const image = await window.webContents.capturePage()
+      const name = `${String(frameIndex).padStart(2, '0')}-${label}.png`
+      await writeFile(join(framesDir, name), image.toPNG())
+      frames.push(name)
+    },
+  }
+}
+
+/** Require the current generation's supervisor, or fail with the lifecycle context. */
+function currentSupervisor(lifecycle: DesktopLifecycle): DshSupervisor {
+  const current = lifecycle.current()
+  if (current === undefined) throw new Error('desktop recording: no DSH generation after start')
+  return current.supervisor
 }
 
 /** Parse the `--smoke-replay <file>` value of a recording invocation. */
@@ -707,24 +965,19 @@ function parseReplayArg(argv: readonly string[]): string | undefined {
  * `DSH_DESKTOP_FRAMES_DIR`; restores the entry `nativeTheme.themeSource`.
  */
 async function recordNativeWindow(
-  supervisor: DshSupervisor,
-  webDist: string,
+  lifecycle: DesktopLifecycle,
 ): Promise<void> {
   const framesDir = process.env.DSH_DESKTOP_FRAMES_DIR
   if (framesDir === undefined || framesDir.trim() === '') {
     throw new Error('desktop recording requires DSH_DESKTOP_FRAMES_DIR so frames never touch the owner\'s home')
   }
   await mkdir(framesDir, { recursive: true })
-  const window = await bootWindow(supervisor, webDist)
-  const frames: string[] = []
-  let frameIndex = 0
-  const capture = async (label: string): Promise<void> => {
-    frameIndex += 1
-    const image = await window.webContents.capturePage()
-    const name = `${String(frameIndex).padStart(2, '0')}-${label}.png`
-    await writeFile(join(framesDir, name), image.toPNG())
-    frames.push(name)
+  const { window, ready } = bootWindow(lifecycle)
+  await ready
+  if (lifecycle.phase !== 'running') {
+    throw new Error(`desktop recording: Host did not reach the running phase (${lifecycle.phase})`)
   }
+  const recorder = createFrameRecorder(window, framesDir)
   const focus: string[] = []
   const initialBounds = { x: 120, y: 120, width: 960, height: 700 }
   window.setBounds(initialBounds)
@@ -740,18 +993,18 @@ async function recordNativeWindow(
   let capturing = true
   try {
     await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
-    await capture('launch')
+    await recorder.capture('launch')
     await completeOnboarding(window)
 
     const blurred = onceWindowEvent(window, 'blur')
     other = new BrowserWindow({ width: 240, height: 160, show: true })
     other.focus()
     await blurred
-    await capture('inactive')
+    await recorder.capture('inactive')
     const focused = onceWindowEvent(window, 'focus')
     window.focus()
     await focused
-    await capture('active')
+    await recorder.capture('active')
 
     // Synthetic input exercises the drag strip without OS-level pointer
     // permissions; the evidence line records the resulting bounds.
@@ -759,12 +1012,12 @@ async function recordNativeWindow(
     window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
     window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 60, button: 'left', clickCount: 1 })
     const dragAttemptBounds = window.getBounds()
-    await capture('drag-strip-attempt')
+    await recorder.capture('drag-strip-attempt')
 
-    const sessionId = await reachLiveComposer(supervisor, window)
+    const sessionId = await reachLiveComposer(currentSupervisor(lifecycle), window)
     const keyboard = await typeIntoComposer(window)
     const controlBounds = window.getBounds()
-    await capture('keyboard-typed')
+    await recorder.capture('keyboard-typed')
 
     const minimized = onceWindowEvent(window, 'minimize')
     window.minimize()
@@ -773,39 +1026,39 @@ async function recordNativeWindow(
     const restored = onceWindowEvent(window, 'restore')
     window.restore()
     await restored
-    await capture('restored')
+    await recorder.capture('restored')
 
     nativeTheme.themeSource = 'dark'
     await new Promise(resolveWait => setTimeout(resolveWait, 250))
-    await capture('appearance-dark')
+    await recorder.capture('appearance-dark')
     nativeTheme.themeSource = 'light'
     await new Promise(resolveWait => setTimeout(resolveWait, 250))
-    await capture('appearance-light')
+    await recorder.capture('appearance-light')
 
     // The tracer bullet: replay the recorded turn through the assembled
     // renderer while polling frames, so the frames show the real session and
     // streamed transcript rather than a synthetic page.
     const poll = (async () => {
       while (capturing) {
-        await capture('tracer-turn')
+        await recorder.capture('tracer-turn')
         await new Promise(resolveWait => setTimeout(resolveWait, 400))
       }
     })()
     try {
       console.log('SMOKE_OK session')
       await submitRecordedPrompt(window)
-      await waitForRecordedTurn(supervisor, window, sessionId)
+      await waitForRecordedTurn(currentSupervisor(lifecycle), window, sessionId)
     } catch (error) {
       scenarioFailure = error instanceof Error ? error.message : String(error)
     } finally {
       capturing = false
     }
     await poll
-    await capture('tracer-settled')
+    await recorder.capture('tracer-settled')
 
     console.log(`NATIVE_WINDOW_RECORDING ${JSON.stringify({
       framesDir,
-      frames,
+      frames: recorder.frames,
       focus,
       window: {
         initialBounds,
@@ -821,7 +1074,96 @@ async function recordNativeWindow(
     nativeTheme.themeSource = originalThemeSource
     other?.destroy()
     window.destroy()
-    await supervisor.stop()
+    await stopAfterJourney(lifecycle, true)
+  }
+  console.log('SMOKE_OK quit')
+}
+
+/**
+ * Record the recovery journey: a configuration failure reaches the visible
+ * failed state, one controlled restart returns the Host to the running phase,
+ * and the real Session surface becomes usable again. Requires
+ * `--record-recovery --smoke-replay <file>` plus an explicit
+ * `DSH_DESKTOP_FRAMES_DIR` and `DSH_HOME`; the caller must have seeded the
+ * broken profile ({@link prepareBrokenProfile}) before the Host spawned.
+ */
+async function recordRecovery(
+  lifecycle: DesktopLifecycle,
+  replayFile: string,
+  replayProvider: string,
+): Promise<void> {
+  const framesDir = process.env.DSH_DESKTOP_FRAMES_DIR
+  if (framesDir === undefined || framesDir.trim() === '') {
+    throw new Error('desktop recovery recording requires DSH_DESKTOP_FRAMES_DIR so frames never touch the owner\'s home')
+  }
+  await mkdir(framesDir, { recursive: true })
+  const { window, ready } = bootWindow(lifecycle)
+  const recorder = createFrameRecorder(window, framesDir)
+  const phases: HostPhase[] = []
+  lifecycle.onPhase((phase) => { phases.push(phase) })
+  window.show()
+  window.focus()
+
+  let scenarioFailure: string | null = null
+  try {
+    // Startup failure: the seeded broken profile must land the visible
+    // failed state (configuration failure), not a hang or a silent blank.
+    await ready
+    if (lifecycle.phase !== 'failed' || lifecycle.failure === undefined) {
+      throw new Error(`desktop recovery: expected the failed phase, reached ${lifecycle.phase}`)
+    }
+    // Restart clears lifecycle.failure once the fresh generation becomes
+    // ready, so retain the startup failure for the recording verdict.
+    const startupFailure = lifecycle.failure
+    await waitForRenderer(window, 'document.querySelector("#restart") !== null', 5_000)
+    await recorder.capture('startup-failed')
+    console.log('SMOKE_OK recovery-failed-state')
+
+    // One controlled restart after repairing the configuration.
+    prepareSmokeProfile(replayFile, replayProvider)
+    const restarting = lifecycle.restart()
+    await waitForRenderer(window, 'document.getElementById("message")?.textContent?.includes("Starting")', 5_000)
+    await recorder.capture('restarting')
+    await restarting
+    // The phase may have advanced while restart() ran; avoid narrowing on the
+    // pre-restart snapshot so the running check stays live.
+    const settledPhase = lifecycle.phase as HostPhase
+    if (settledPhase !== 'running') {
+      throw new Error(`desktop recovery: restart did not reach the running phase (${settledPhase})`)
+    }
+    console.log('SMOKE_OK recovery-restart')
+
+    // Return to a usable Session state over the fresh generation.
+    await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+    await completeOnboarding(window)
+    const sessionId = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    const keyboard = await typeIntoComposer(window)
+    await recorder.capture('session-recovered')
+    console.log('SMOKE_OK session')
+
+    try {
+      await submitRecordedPrompt(window)
+      await waitForRecordedTurn(currentSupervisor(lifecycle), window, sessionId)
+    } catch (error) {
+      scenarioFailure = error instanceof Error ? error.message : String(error)
+    }
+    await recorder.capture('tracer-settled')
+
+    console.log(`RECOVERY_RECORDING ${JSON.stringify({
+      framesDir,
+      frames: recorder.frames,
+      phases,
+      failure: {
+        kind: startupFailure.kind,
+        message: startupFailure.message,
+        detail: startupFailure.detail ?? null,
+      },
+      keyboard,
+      scenarioFailure,
+    })}`)
+  } finally {
+    window.destroy()
+    await stopAfterJourney(lifecycle, true)
   }
   console.log('SMOKE_OK quit')
 }
@@ -884,18 +1226,31 @@ async function inspectNativeWindow(): Promise<void> {
  * verdict. The packaged-app smoke test launches the installed application
  * binary with `--smoke --smoke-replay <file>`.
  */
-async function bootSmoke(supervisor: DshSupervisor, childPid: number | undefined): Promise<number> {
+async function bootSmoke(lifecycle: DesktopLifecycle): Promise<number> {
   try {
-    await runSmokeScenario(supervisor, childPid ?? process.pid)
+    await lifecycle.start()
+    if (lifecycle.phase !== 'running') {
+      throw new Error(`desktop smoke: Host did not reach the running phase (${lifecycle.phase})`)
+    }
+    const current = lifecycle.current()
+    if (current === undefined) throw new Error('desktop smoke: no DSH generation after start')
+    await runSmokeScenario(current.supervisor, current.childPid ?? process.pid)
+    const report = await lifecycle.stop()
+    if (!report.quiescent) {
+      console.error(`SMOKE_QUIT_FAILED ${JSON.stringify(report.failure)}`)
+      return 1
+    }
+    console.log('SMOKE_OK quit')
     console.log('SMOKE_PASS')
     return 0
   } catch (error) {
     console.error(`desktop smoke failed: ${error instanceof Error ? error.message : String(error)}`)
     // A stop failure is secondary to the scenario verdict already in hand, so
     // report it by name instead of masking the original error.
-    await supervisor.stop().catch((stopError: unknown) => {
-      console.error(`desktop smoke: stopping the child also failed: ${String(stopError)}`)
-    })
+    const report = await lifecycle.stop()
+    if (!report.quiescent) {
+      console.error(`SMOKE_QUIT_FAILED ${JSON.stringify(report.failure)}`)
+    }
     return 1
   }
 }
@@ -912,26 +1267,50 @@ void app.whenReady().then(() => {
     }
     const acceptance = process.argv.includes('--accept-native-window')
     const recording = process.argv.includes('--record-native-window')
+    const recoveryRecording = process.argv.includes('--record-recovery')
     const smoke = parseSmokeInvocation(process.argv)
-    const options = app.isPackaged ? packagedChildOptions(smoke !== undefined || recording) : developmentChildOptions()
-    if (recording) {
+    const options = app.isPackaged
+      ? packagedChildOptions(smoke !== undefined || recording || recoveryRecording)
+      : developmentChildOptions()
+    const lifecycle = new DesktopLifecycle({
+      spawn: () => spawnDshChild(options),
+    })
+    lifecycle.onPhase((phase) => { console.error(`[desktop-main] Host phase: ${phase}`) })
+    const webDist = app.isPackaged
+      ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
+      : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
+    registerAssetProtocol(webDist)
+    const headless = smoke !== undefined || acceptance || recording || recoveryRecording
+    installQuitOwner(lifecycle, () => currentWindow, headless)
+
+    if (recording || recoveryRecording) {
       const replayFile = parseReplayArg(process.argv)
       if (replayFile === undefined) {
         console.error('desktop recording requires --smoke-replay <file>')
         app.exit(1)
         return
       }
-      // The recording drives the same keyless replay profile as the smoke:
-      // the assembled renderer must display a real session, never a mock.
+      // The child reads its profile at boot, so the smoke profile (bundles +
+      // keyless replay patch + the fallback link to the replay provider) must
+      // exist before the child spawns.
       const replayProvider = app.isPackaged
         ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
         : packageDir('@deepseek-ai/dsh-llm-replay')
-      prepareSmokeProfile(replayFile, replayProvider)
-      const webDist = app.isPackaged
-        ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
-        : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
-      const { supervisor } = spawnDshChild(options)
-      await recordNativeWindow(supervisor, webDist)
+      if (recording) prepareSmokeProfile(replayFile, replayProvider)
+      else prepareBrokenProfile()
+      try {
+        if (recording) await recordNativeWindow(lifecycle)
+        else await recordRecovery(lifecycle, replayFile, replayProvider)
+      } catch (error) {
+        console.error(`desktop recording failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          // The recording verdict above already owns this failure mode;
+          // report shutdown trouble without replacing it.
+          console.error('desktop recording failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      }
       app.exit(0)
       return
     }
@@ -949,20 +1328,28 @@ void app.whenReady().then(() => {
         ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
         : packageDir('@deepseek-ai/dsh-llm-replay')
       prepareSmokeProfile(replayFile, replayProvider)
-      const { supervisor, childPid } = spawnDshChild(options)
-      app.exit(await bootSmoke(supervisor, childPid))
+      app.exit(await bootSmoke(lifecycle))
       return
     }
-    const webDist = app.isPackaged
-      ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
-      : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
-    const { supervisor } = spawnDshChild(options)
     if (acceptance) {
-      await acceptNativeWindow(supervisor, webDist)
+      try {
+        await acceptNativeWindow(lifecycle)
+      } catch (error) {
+        console.error(`desktop acceptance failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          // The acceptance verdict above already owns this failure mode;
+          // report shutdown trouble without replacing it.
+          console.error('desktop acceptance failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      }
       app.exit(0)
       return
     }
-    await bootWindow(supervisor, webDist)
+    // Interactive: the window shows the starting status page while the Host
+    // boots; startup failure reaches the visible failed state with restart.
+    bootWindow(lifecycle)
   })().catch((error: unknown) => {
     console.error(`desktop app failed to start: ${String(error)}`)
     app.exit(1)

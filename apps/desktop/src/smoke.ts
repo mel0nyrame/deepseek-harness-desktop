@@ -75,6 +75,29 @@ export function prepareSmokeProfile(replayFile: string, replayProviderDir: strin
   return home
 }
 
+/**
+ * Seed a desktop profile whose `cordis.patch.yml` cannot parse, so the bundled
+ * Host fails configuration at startup. This is the deterministic configuration
+ * failure the recovery acceptance journey exercises; {@link prepareSmokeProfile}
+ * repairs it with a valid keyless replay profile.
+ */
+export function prepareBrokenProfile(): string {
+  const home = process.env.DSH_HOME
+  if (home === undefined || home.trim() === '') {
+    throw new Error('desktop recovery requires an explicit DSH_HOME so it never touches the owner\'s ~/.dsh')
+  }
+  const profileDir = join(home, 'profiles', 'desktop')
+  mkdirSync(profileDir, { recursive: true })
+  writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
+    name: 'dsh-profile-desktop',
+    private: true,
+    dependencies: {},
+    dsh: { profile: { bundles: PROFILE_BUNDLES } },
+  }, undefined, 2))
+  writeFileSync(join(profileDir, 'cordis.patch.yml'), '- insert: [not valid yaml\n  trailing:')
+  return home
+}
+
 export const RECORDED_PROMPT = 'Use the bash tool to run exactly: echo TERMINAL_OK. Then reply with the single word DONE and stop.'
 
 interface StreamRecord {
@@ -115,10 +138,11 @@ function assert(condition: unknown, message: string): asserts condition {
 }
 
 /**
- * Drive the tracer scenario over a booted supervisor, then stop the child.
- * Prints one `SMOKE_OK` line per verified stage so the outer driver can
- * attribute failures precisely; every failure throws and becomes a non-zero
- * application exit.
+ * Drive the tracer scenario over a booted supervisor. Prints one `SMOKE_OK`
+ * line per verified stage so the outer driver can attribute failures
+ * precisely; every failure throws and becomes a non-zero application exit.
+ * The caller (the lifecycle owner) stops the child and prints the quit
+ * verdict, so this scenario never claims shutdown on its own.
  * @param supervisor - supervisor wrapping the spawned DSH child.
  * @param childPid - the DSH child's operating-system process id, for the listener probe.
  */
@@ -210,7 +234,4 @@ export async function runSmokeScenario(supervisor: DshSupervisor, childPid: numb
     .join('')
   assert(terminalText.includes('TERMINAL_OK'), 'the terminal tool result streams TERMINAL_OK')
   console.log('SMOKE_OK terminal')
-
-  await supervisor.stop()
-  console.log('SMOKE_OK quit')
 }

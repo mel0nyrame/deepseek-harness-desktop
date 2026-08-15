@@ -74,6 +74,11 @@ export function parseRendererSubscription(
   return { id, stream }
 }
 
+/** Validate one status-page recovery action. */
+export function parseRendererRecoveryAction(value: unknown): 'restart' | 'quit' | undefined {
+  return value === 'restart' || value === 'quit' ? value : undefined
+}
+
 /** Validate one main-to-preload stream lifecycle message before renderer delivery. */
 export function parseRendererStreamEvent(value: unknown): RendererStreamEvent | undefined {
   if (!isRecord(value) || !isId(value.id) || typeof value.type !== 'string') return undefined
