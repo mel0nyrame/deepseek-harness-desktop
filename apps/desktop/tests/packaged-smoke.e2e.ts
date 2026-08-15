@@ -15,7 +15,7 @@
  */
 
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { existsSync, readdirSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { copyFile, mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -57,7 +57,11 @@ describe('packaged desktop application', () => {
   })
 
   /** Launch the installed binary with a fresh harness home and capture its verdict. */
-  async function launchInstalledApp(homeDir: string, args: string[]): Promise<{ exitCode: number | null; captured: string }> {
+  async function launchInstalledApp(
+    homeDir: string,
+    args: string[],
+    extraEnv: Record<string, string> = {},
+  ): Promise<{ exitCode: number | null; captured: string }> {
     const env = { ...process.env }
     // The application binary must launch as an app, not as a Node runtime.
     delete env['ELECTRON_RUN_AS_NODE']
@@ -67,6 +71,7 @@ describe('packaged desktop application', () => {
       DSH_AGENTS_HOME: join(homeDir, '.agents'),
       DSH_TELEMETRY_DISABLED: '1',
       DEEPSEEK_API_KEY: 'keyless-desktop-no-call',
+      ...extraEnv,
     })
 
     const output: string[] = []
@@ -146,6 +151,128 @@ describe('packaged desktop application', () => {
       child = undefined
     },
     60_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'operates the assembled renderer through a visible native window',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-acceptance-'))
+      const hangKill = setTimeout(() => {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 120_000)
+      const { exitCode, captured } = await launchInstalledApp(home, ['--accept-native-window'])
+      clearTimeout(hangKill)
+
+      expect(exitCode, `native acceptance exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+      const line = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_ACCEPTANCE '))
+      expect(line).toBeDefined()
+      const state = JSON.parse(line!.slice('NATIVE_WINDOW_ACCEPTANCE '.length)) as {
+        focus: string[]
+        window: {
+          initialBounds: { x: number; y: number; width: number; height: number }
+          draggedBounds: { x: number; y: number; width: number; height: number }
+          controlBounds: { x: number; y: number; width: number; height: number }
+          minimized: boolean
+          restored: boolean
+        }
+        renderer: {
+          assembled: boolean
+          root: { top: number; bottom: number; height: number }
+          viewportHeight: number
+          dragRegion: string
+          controlRegion: string
+          activeElement: string
+          keyboardValue: string
+          keyboardBeforeMinimize: { activeElement: string; value: string }
+        }
+      }
+      expect(state.focus.slice(0, 3)).toEqual(['active', 'inactive', 'active'])
+      expect(state.focus.length).toBeGreaterThanOrEqual(3)
+      expect(state.window.minimized).toBe(true)
+      expect(state.window.restored).toBe(true)
+      expect(state.window.draggedBounds).toEqual(state.window.initialBounds)
+      expect(state.window.controlBounds).toEqual(state.window.initialBounds)
+      expect(state.renderer.assembled).toBe(true)
+      expect(state.renderer.root.top).toBe(44)
+      expect(state.renderer.root.bottom).toBeLessThanOrEqual(state.renderer.viewportHeight)
+      expect(state.renderer.root.height).toBe(state.renderer.viewportHeight - 44)
+      expect(state.renderer.dragRegion).toBe('drag')
+      expect(state.renderer.controlRegion).toBe('no-drag')
+      // Keyboard evidence is captured before minimize: the assembled client's
+      // own focus handling runs again after restore, so post-restore focus is
+      // app behavior, not a drag-region or keyboard claim.
+      expect(state.renderer.keyboardBeforeMinimize).toEqual({ activeElement: 'TEXTAREA', value: 'KEYBOARD_OK' })
+      expect(state.renderer.keyboardValue).toBe('KEYBOARD_OK')
+      child = undefined
+    },
+    180_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'records truthful real-app frames of window interaction, appearance, and the tracer bullet',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-recording-'))
+      const framesDir = join(REPO_ROOT, '.playwright-mcp', 'gif-frames-issue4-native')
+      // One storyboard is one evidence run: start from a fresh frame root.
+      await rm(framesDir, { recursive: true, force: true })
+      const replayFile = join(home, 'replay.jsonl')
+      await copyFile(REPLAY_FIXTURE, replayFile)
+      const hangKill = setTimeout(() => {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 120_000)
+      const { exitCode, captured } = await launchInstalledApp(
+        home,
+        ['--record-native-window', '--smoke-replay', replayFile],
+        { DSH_DESKTOP_FRAMES_DIR: framesDir },
+      )
+      clearTimeout(hangKill)
+
+      expect(exitCode, `native recording exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+      for (const marker of ['SMOKE_OK session', 'SMOKE_OK terminal', 'SMOKE_OK quit']) {
+        expect(captured, `recording output must carry ${marker}`).toContain(marker)
+      }
+      const line = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_RECORDING '))
+      expect(line).toBeDefined()
+      const state = JSON.parse(line!.slice('NATIVE_WINDOW_RECORDING '.length)) as {
+        framesDir: string
+        frames: string[]
+        focus: string[]
+        window: {
+          initialBounds: { x: number; y: number; width: number; height: number }
+          dragAttemptBounds: { x: number; y: number; width: number; height: number }
+          controlBounds: { x: number; y: number; width: number; height: number }
+          minimized: boolean
+          restored: boolean
+        }
+        keyboard: { activeElement: string; value: string }
+        scenarioFailure: string | null
+      }
+      expect(state.scenarioFailure).toBeNull()
+      expect(state.framesDir).toBe(framesDir)
+      expect(state.focus.slice(0, 3)).toEqual(['active', 'inactive', 'active'])
+      expect(state.window.minimized).toBe(true)
+      expect(state.window.restored).toBe(true)
+      expect(state.keyboard).toEqual({ activeElement: 'TEXTAREA', value: 'KEYBOARD_OK' })
+      // Synthetic drag input cannot move a native window without OS pointer
+      // permissions; the frames and computed regions carry the product claim.
+      expect(state.window.dragAttemptBounds).toEqual(state.window.initialBounds)
+      expect(state.window.controlBounds).toEqual(state.window.initialBounds)
+      for (const label of [
+        'launch', 'inactive', 'active', 'drag-strip-attempt', 'keyboard-typed',
+        'restored', 'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+      ]) {
+        expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)
+      }
+      // Verify the world, not the self-report: the recorded frames exist as
+      // real non-empty PNG files on disk.
+      for (const name of state.frames) {
+        const path = join(framesDir, name)
+        expect(existsSync(path), `frame ${name} exists on disk`).toBe(true)
+        expect(statSync(path).size, `frame ${name} is a non-empty PNG`).toBeGreaterThan(100)
+      }
+      child = undefined
+    },
+    300_000,
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(

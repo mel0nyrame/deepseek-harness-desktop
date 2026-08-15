@@ -22,13 +22,14 @@
 
 ## macOS 原生窗口
 
-macOS `BrowserWindow` 使用 `hiddenInset` 标题栏、固定内嵌位置的 traffic lights、透明客户端表面，以及 Electron 基于 AppKit 的 `under-window` vibrancy，并将 `visualEffectState` 设为 `followWindow`。独立的 44 像素标题区域可拖动；链接、表单控件、按钮、可编辑内容与浮层保持为可交互的 no-drag 区域。系统明暗外观变化通过 Electron `nativeTheme` 传入；macOS“降低透明度”启用时，客户端切换到接近不透明的明色或暗色表面，同时保留清晰的键盘焦点。Electron 支持的接口已满足布局要求，因此应用不包含自定义原生视觉效果 addon。
+macOS `BrowserWindow` 使用 `hiddenInset` 标题栏、固定内嵌位置的 traffic lights、透明客户端表面，以及 Electron 基于 AppKit 的 `under-window` vibrancy，并将 `visualEffectState` 设为 `followWindow`。独立的 44 像素标题区域可拖动；链接、表单控件、按钮、可编辑内容与浮层保持为可交互的 no-drag 区域。客户端根节点以绝对定位位于该区域下方（`inset: 44px 0 0`），标题区域不会遮挡或推移内容。系统明暗外观变化通过 Electron `nativeTheme` 传入；macOS“降低透明度”启用时，客户端切换到接近不透明的明色或暗色表面，同时保留清晰的键盘焦点。Electron 支持的接口已满足布局要求，因此应用不包含自定义原生视觉效果 addon。
 
 ## 打包产物验收
 
-`apps/desktop/tests/packaged-smoke.e2e.ts` 以两种模式启动安装后的应用包。`--inspect-native-window` 创建真实 `BrowserWindow`，并报告标题栏、traffic lights、透明度、vibrancy、焦点、拖动区域、外观与降低透明度状态，供自动化断言。`--smoke --smoke-replay <file>` 断言完整的无密钥 tracer bullet——创建 Session、由终端执行的 `echo TERMINAL_OK` 工具回合及其有序流式事件、无 TCP 监听、干净退出——并确认没有残留的自有进程。应用包缺失时该用例自跳过；macOS CI 任务会先打包并设置 `DSH_DESKTOP_SMOKE_REQUIRED=1`，把缺失变成硬失败。
+`apps/desktop/tests/packaged-smoke.e2e.ts` 以四种模式启动安装后的应用包。`--inspect-native-window` 创建真实 `BrowserWindow`，并报告标题栏、traffic lights、透明度、vibrancy、焦点、拖动区域、外观与降低透明度状态，供自动化断言。`--accept-native-window` 在装配好的渲染器上打开可见窗口，断言 active → inactive → active 焦点切换、最小化/恢复、标题区域拖动输入尝试、44 像素标题区域布局且内容不被遮挡、计算得到的 drag/no-drag 区域，以及真实输入框的键盘路径。`--record-native-window --smoke-replay <file>` 配合 `DSH_DESKTOP_FRAMES_DIR` 录制真实渲染器帧：启动、焦点切换、标题区域拖动尝试、键盘操作、最小化/恢复、明暗外观与装配 UI 中回放的 tracer 回合，并在结束后把 `nativeTheme.themeSource` 恢复为进入录制模式时的值。`--smoke --smoke-replay <file>` 断言完整的无密钥 tracer bullet——创建 Session、由终端执行的 `echo TERMINAL_OK` 工具回合及其有序流式事件、无 TCP 监听、干净退出——并确认没有残留的自有进程。应用包缺失时该用例自跳过；macOS CI 任务会先打包并设置 `DSH_DESKTOP_SMOKE_REQUIRED=1`，把缺失变成硬失败。
 
 ## 限制
 
 - tracer bullet 目前无签名、未公证；发布级的签名、公证与跨架构（x64）产物属于后续工单。
 - `--smoke` 在未显式指定 `DSH_HOME` 时拒绝运行，因此绝不会触碰机器主人的真实 `~/.dsh`。
+- `capturePage()` 只能看到渲染器像素：录制的帧不包含原生 traffic lights 图形，合成输入也无法像操作系统指针拖拽那样移动原生窗口。证据由两部分组成——帧与受检的已配置/已观测原生窗口状态；具备屏幕录制权限的机器可以用系统级捕获替换帧，而断言无需改动。

@@ -10,8 +10,9 @@ body {
 }
 
 #root {
-  height: calc(100% - 44px) !important;
-  padding-top: 44px;
+  position: absolute !important;
+  inset: 44px 0 0 !important;
+  height: auto !important;
   background: transparent !important;
 }
 

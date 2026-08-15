@@ -2,8 +2,9 @@
 
 import { fork } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
+import { mkdir, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, extname, relative, resolve, sep } from 'node:path'
+import { dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
   app, BrowserWindow, ipcMain, nativeTheme, net, protocol,
@@ -209,7 +210,7 @@ function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: Desk
 let quitting: Promise<void> | undefined
 
 /** Boot the desktop window over a started supervisor. */
-async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<void> {
+async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<BrowserWindow> {
   const ready = await supervisor.start()
   const bundlePaths = new Map(ready.bundles.map(bundle => [tokenFor(bundle.id), bundle.path]))
   const boot: DesktopBoot = {
@@ -271,6 +272,381 @@ async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<v
   })
 
   app.on('window-all-closed', () => { app.quit() })
+  return window
+}
+
+function onceWindowEvent(window: BrowserWindow, event: 'focus' | 'blur' | 'minimize' | 'restore'): Promise<void> {
+  return new Promise((resolveEvent) => {
+    const done = (): void => { resolveEvent() }
+    switch (event) {
+      case 'focus': window.once('focus', done); break
+      case 'blur': window.once('blur', done); break
+      case 'minimize': window.once('minimize', done); break
+      case 'restore': window.once('restore', done); break
+    }
+  })
+}
+
+async function waitForRenderer(window: BrowserWindow, expression: string, timeoutMs = 30_000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    if (await window.webContents.executeJavaScript(`Boolean(${expression})`) as boolean) return
+    await new Promise(resolveWait => setTimeout(resolveWait, 50))
+  }
+  throw new Error(`desktop renderer did not satisfy ${expression}`)
+}
+
+/** One unary desktop-protocol request over the supervisor bridge. */
+async function desktopRpc(
+  supervisor: DshSupervisor,
+  id: string,
+  method: string,
+  payload: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const response = await supervisor.request({
+    type: 'request',
+    id,
+    url: `dsh://app/api/${method}`,
+    method: 'POST',
+    headers: [['content-type', 'application/json']],
+    body: JSON.stringify({ type: 'client-request', rpcId: id, method, payload }),
+  })
+  if (response.status !== 200) throw new Error(`desktop ${method} returned status ${String(response.status)}`)
+  const parsed = JSON.parse(response.body) as {
+    type: string
+    result: { ok: true; value: unknown } | { ok: false; error: unknown }
+  }
+  if (parsed.type !== 'server-response' || !parsed.result.ok) {
+    throw new Error(`desktop ${method} failed: ${JSON.stringify(parsed)}`)
+  }
+  return parsed.result.value as Record<string, unknown>
+}
+
+/** Click one renderer element with real pointer input at its measured center. */
+async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
+  const point = await window.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector(${JSON.stringify(selector)});
+    if (el === null) return null;
+    const box = el.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+  if (point === null) throw new Error(`desktop acceptance: ${selector} has no clickable element`)
+  window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+}
+
+const WORKSPACE_MENU = '[role="menu"] [role="menuitem"], [role="menu"] button, [role="listbox"] [role="option"]'
+const LIVE_COMPOSER = 'textarea:not([readonly]):not(:disabled)'
+
+/** Pass the product's two named first-run gates through real pointer controls. */
+async function completeOnboarding(window: BrowserWindow): Promise<void> {
+  const dialog = '[role="dialog"]'
+  const title = `${dialog} h2`
+  await waitForRenderer(window, `document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Internal Testing Notice'`)
+  await clickAt(window, `${dialog} button`)
+  await waitForRenderer(window, `!document.querySelector(${JSON.stringify(dialog)}) || document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Add an API key to get started'`)
+  const secondTitle = await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(title)})?.textContent?.trim()`) as string | undefined
+  if (secondTitle === undefined) return
+  if (secondTitle !== 'Add an API key to get started') {
+    throw new Error(`desktop acceptance: unexpected onboarding dialog ${JSON.stringify(secondTitle)}`)
+  }
+  const configureLater = await window.webContents.executeJavaScript(`(() => Array.from(
+    document.querySelectorAll(${JSON.stringify(`${dialog} button`)}),
+    button => button.textContent?.trim(),
+  ))()`) as unknown[]
+  if (!configureLater.includes('Configure later')) {
+    throw new Error('desktop acceptance: credential onboarding has no Configure later action')
+  }
+  const point = await window.webContents.executeJavaScript(`(() => {
+    const button = Array.from(document.querySelectorAll(${JSON.stringify(`${dialog} button`)}))
+      .find(candidate => candidate.textContent?.trim() === 'Configure later');
+    if (button === undefined) return null;
+    const box = button.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+  if (point === null) throw new Error('desktop acceptance: Configure later action has no clickable element')
+  window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  await waitForRenderer(window, `!document.querySelector(${JSON.stringify(dialog)})`)
+}
+
+/**
+ * Reach the live composer through the real user journey: adopt a scratch
+ * workspace over the desktop wire, open the hero workspace picker by clicking
+ * the trigger, pick the workspace with pointer input, and land on the live
+ * blank-session composer. Only real pointer input is used, because the
+ * assembled client's own focus choreography outruns programmatic focus.
+ */
+async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindow): Promise<void> {
+  const workspaceDir = join(app.getPath('userData'), 'acceptance-workspace')
+  await mkdir(workspaceDir, { recursive: true })
+  const created = await desktopRpc(supervisor, 'accept-workspace', 'workspace.create', { path: workspaceDir })
+  const workspace = created['workspace'] as Record<string, unknown>
+  const workspaceId = String(workspace['workspaceId'])
+  await desktopRpc(supervisor, 'accept-session', 'session.create', { workspaceId })
+  // The assembled workspace store loads its baseline once during client boot;
+  // reload after adoption so the real picker observes the workspace created by
+  // this acceptance run rather than an intentionally stale empty snapshot.
+  const loaded = new Promise<void>((resolveLoad) => {
+    window.webContents.once('did-finish-load', () => { resolveLoad() })
+  })
+  window.webContents.reload()
+  await loaded
+  await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+  await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+
+  await waitForRenderer(window, "document.querySelector('textarea[aria-haspopup]') && !document.querySelector('textarea').disabled")
+  // The trigger textarea is pointer-inert by design; its capsule card is the
+  // pick target that opens the workspace picker.
+  await clickAt(window, '[data-composer-card]')
+  await waitForRenderer(window, `document.querySelector(${JSON.stringify(WORKSPACE_MENU)})`, 5_000)
+  // The portaled menu pre-renders offscreen until placement; only click a
+  // row whose measured box is actually on screen.
+  await waitForRenderer(window, "(() => { const row = document.querySelector('[role=\"menu\"] [role=\"menuitem\"], [role=\"listbox\"] [role=\"option\"]'); if (row === null) return false; const box = row.getBoundingClientRect(); return box.width > 0 && box.height > 0 && box.top >= 0 && box.left >= 0; })()")
+  await clickAt(window, '[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')
+  await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})`)
+}
+
+/** Click the live composer for native focus and type through the real input-event path. */
+async function typeIntoComposer(window: BrowserWindow): Promise<{ activeElement: string; value: string }> {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    window.focus()
+    window.webContents.focus()
+    await clickAt(window, LIVE_COMPOSER)
+    try {
+      await waitForRenderer(window, "document.activeElement?.tagName === 'TEXTAREA'", 1_000)
+    } catch {
+      continue
+    }
+    await window.webContents.insertText('KEYBOARD_OK')
+    try {
+      await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === 'KEYBOARD_OK'`, 1_000)
+    } catch {
+      continue
+    }
+    return await window.webContents.executeJavaScript(`(() => {
+      const textarea = document.querySelector(${JSON.stringify(LIVE_COMPOSER)});
+      return { activeElement: document.activeElement?.tagName, value: textarea.value };
+    })()`) as { activeElement: string; value: string }
+  }
+  throw new Error('desktop acceptance: keyboard input never reached the live composer')
+}
+
+/** Exercise the installed app's assembled renderer and visible native window. */
+async function acceptNativeWindow(supervisor: DshSupervisor, webDist: string): Promise<void> {
+  const window = await bootWindow(supervisor, webDist)
+  const focus: string[] = []
+  const initialBounds = { x: 120, y: 120, width: 960, height: 700 }
+  window.setBounds(initialBounds)
+  window.show()
+  window.focus()
+  focus.push('active')
+  window.on('focus', () => { focus.push('active') })
+  window.on('blur', () => { focus.push('inactive') })
+
+  let other: BrowserWindow | undefined
+  try {
+    await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+    await completeOnboarding(window)
+    const blurred = onceWindowEvent(window, 'blur')
+    other = new BrowserWindow({ width: 240, height: 160, show: true })
+    other.focus()
+    await blurred
+    const focused = onceWindowEvent(window, 'focus')
+    window.focus()
+    await focused
+
+    const dragged = new Promise<void>((resolveMove) => { window.once('move', () => { resolveMove() }) })
+    window.webContents.sendInputEvent({ type: 'mouseDown', x: 480, y: 20, button: 'left', clickCount: 1 })
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
+    window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 60, button: 'left', clickCount: 1 })
+    await Promise.race([dragged, new Promise(resolveWait => setTimeout(resolveWait, 1_000))])
+    const draggedBounds = window.getBounds()
+
+    await reachLiveComposer(supervisor, window)
+    const keyboardBeforeMinimize = await typeIntoComposer(window)
+    const controlBounds = window.getBounds()
+
+    const minimized = onceWindowEvent(window, 'minimize')
+    window.minimize()
+    await minimized
+    const wasMinimized = window.isMinimized()
+    const restored = onceWindowEvent(window, 'restore')
+    window.restore()
+    await restored
+
+    const renderer = await window.webContents.executeJavaScript(`(() => {
+      const root = document.querySelector('#root');
+      const textarea = document.querySelector('textarea');
+      const box = root.getBoundingClientRect();
+      return {
+        assembled: root.childElementCount > 0,
+        root: {
+          top: box.top,
+          bottom: box.bottom,
+          height: box.height,
+        },
+        viewportHeight: innerHeight,
+        dragRegion: getComputedStyle(document.body, '::before').webkitAppRegion,
+        controlRegion: getComputedStyle(textarea).webkitAppRegion,
+        activeElement: document.activeElement?.tagName,
+        keyboardValue: textarea.value,
+      };
+    })()`) as unknown
+    console.log(`NATIVE_WINDOW_ACCEPTANCE ${JSON.stringify({
+      focus,
+      window: {
+        initialBounds,
+        draggedBounds,
+        controlBounds,
+        minimized: wasMinimized,
+        restored: !window.isMinimized(),
+      },
+      renderer: { ...(renderer as Record<string, unknown>), keyboardBeforeMinimize },
+    })}`)
+  } finally {
+    other?.destroy()
+    window.destroy()
+    await supervisor.stop()
+  }
+}
+
+/** Parse the `--smoke-replay <file>` value of a recording invocation. */
+function parseReplayArg(argv: readonly string[]): string | undefined {
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== '--smoke-replay') continue
+    const value = argv[index + 1]
+    if (typeof value === 'string' && value !== '' && !value.startsWith('-')) return value
+  }
+  return undefined
+}
+
+/**
+ * Record truthful renderer frames of the real packaged window: launch, focus
+ * transitions, the drag-strip input attempt, keyboard operation, minimize/
+ * restore, light/dark appearance, and the replayed tracer-bullet turn in the
+ * assembled UI. `capturePage()` sees renderer pixels only, so native
+ * traffic-light glyphs and OS-level drag movement are out of frame; the
+ * evidence line reports the native window state beside the frame list.
+ * Requires `--record-native-window --smoke-replay <file>` plus an explicit
+ * `DSH_DESKTOP_FRAMES_DIR`; restores the entry `nativeTheme.themeSource`.
+ */
+async function recordNativeWindow(
+  supervisor: DshSupervisor,
+  childPid: number | undefined,
+  webDist: string,
+): Promise<void> {
+  const framesDir = process.env.DSH_DESKTOP_FRAMES_DIR
+  if (framesDir === undefined || framesDir.trim() === '') {
+    throw new Error('desktop recording requires DSH_DESKTOP_FRAMES_DIR so frames never touch the owner\'s home')
+  }
+  await mkdir(framesDir, { recursive: true })
+  const window = await bootWindow(supervisor, webDist)
+  const frames: string[] = []
+  let frameIndex = 0
+  const capture = async (label: string): Promise<void> => {
+    frameIndex += 1
+    const image = await window.webContents.capturePage()
+    const name = `${String(frameIndex).padStart(2, '0')}-${label}.png`
+    await writeFile(join(framesDir, name), image.toPNG())
+    frames.push(name)
+  }
+  const focus: string[] = []
+  const initialBounds = { x: 120, y: 120, width: 960, height: 700 }
+  window.setBounds(initialBounds)
+  window.show()
+  window.focus()
+  focus.push('active')
+  window.on('focus', () => { focus.push('active') })
+  window.on('blur', () => { focus.push('inactive') })
+
+  let other: BrowserWindow | undefined
+  const originalThemeSource = nativeTheme.themeSource
+  let scenarioFailure: string | null = null
+  let capturing = true
+  try {
+    await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+    await capture('launch')
+    await completeOnboarding(window)
+
+    const blurred = onceWindowEvent(window, 'blur')
+    other = new BrowserWindow({ width: 240, height: 160, show: true })
+    other.focus()
+    await blurred
+    await capture('inactive')
+    const focused = onceWindowEvent(window, 'focus')
+    window.focus()
+    await focused
+    await capture('active')
+
+    // Synthetic input exercises the drag strip without OS-level pointer
+    // permissions; the evidence line records the resulting bounds.
+    window.webContents.sendInputEvent({ type: 'mouseDown', x: 480, y: 20, button: 'left', clickCount: 1 })
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
+    window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 60, button: 'left', clickCount: 1 })
+    const dragAttemptBounds = window.getBounds()
+    await capture('drag-strip-attempt')
+
+    await reachLiveComposer(supervisor, window)
+    const keyboard = await typeIntoComposer(window)
+    const controlBounds = window.getBounds()
+    await capture('keyboard-typed')
+
+    const minimized = onceWindowEvent(window, 'minimize')
+    window.minimize()
+    await minimized
+    const wasMinimized = window.isMinimized()
+    const restored = onceWindowEvent(window, 'restore')
+    window.restore()
+    await restored
+    await capture('restored')
+
+    nativeTheme.themeSource = 'dark'
+    await new Promise(resolveWait => setTimeout(resolveWait, 250))
+    await capture('appearance-dark')
+    nativeTheme.themeSource = 'light'
+    await new Promise(resolveWait => setTimeout(resolveWait, 250))
+    await capture('appearance-light')
+
+    // The tracer bullet: replay the recorded turn through the assembled
+    // renderer while polling frames, so the frames show the real session and
+    // streamed transcript rather than a synthetic page.
+    const poll = (async () => {
+      while (capturing) {
+        await capture('tracer-turn')
+        await new Promise(resolveWait => setTimeout(resolveWait, 400))
+      }
+    })()
+    try {
+      await runSmokeScenario(supervisor, childPid ?? process.pid)
+    } catch (error) {
+      scenarioFailure = error instanceof Error ? error.message : String(error)
+    } finally {
+      capturing = false
+    }
+    await poll
+    await capture('tracer-settled')
+
+    console.log(`NATIVE_WINDOW_RECORDING ${JSON.stringify({
+      framesDir,
+      frames,
+      focus,
+      window: {
+        initialBounds,
+        dragAttemptBounds,
+        controlBounds,
+        minimized: wasMinimized,
+        restored: !window.isMinimized(),
+      },
+      keyboard,
+      scenarioFailure,
+    })}`)
+  } finally {
+    nativeTheme.themeSource = originalThemeSource
+    other?.destroy()
+    window.destroy()
+    await supervisor.stop()
+  }
 }
 
 /** Print native and renderer state from a real BrowserWindow for automated acceptance. */
@@ -357,8 +733,31 @@ void app.whenReady().then(() => {
       app.exit(0)
       return
     }
+    const acceptance = process.argv.includes('--accept-native-window')
+    const recording = process.argv.includes('--record-native-window')
     const smoke = parseSmokeInvocation(process.argv)
-    const options = app.isPackaged ? packagedChildOptions(smoke !== undefined) : developmentChildOptions()
+    const options = app.isPackaged ? packagedChildOptions(smoke !== undefined || recording) : developmentChildOptions()
+    if (recording) {
+      const replayFile = parseReplayArg(process.argv)
+      if (replayFile === undefined) {
+        console.error('desktop recording requires --smoke-replay <file>')
+        app.exit(1)
+        return
+      }
+      // The recording drives the same keyless replay profile as the smoke:
+      // the assembled renderer must display a real session, never a mock.
+      const replayProvider = app.isPackaged
+        ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
+        : packageDir('@deepseek-ai/dsh-llm-replay')
+      prepareSmokeProfile(replayFile, replayProvider)
+      const webDist = app.isPackaged
+        ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
+        : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
+      const { supervisor, childPid } = spawnDshChild(options)
+      await recordNativeWindow(supervisor, childPid, webDist)
+      app.exit(0)
+      return
+    }
     if (smoke !== undefined) {
       const replayFile = smoke.replayFile
       if (replayFile === undefined) {
@@ -381,6 +780,11 @@ void app.whenReady().then(() => {
       ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
       : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
     const { supervisor } = spawnDshChild(options)
+    if (acceptance) {
+      await acceptNativeWindow(supervisor, webDist)
+      app.exit(0)
+      return
+    }
     await bootWindow(supervisor, webDist)
   })().catch((error: unknown) => {
     console.error(`desktop app failed to start: ${String(error)}`)

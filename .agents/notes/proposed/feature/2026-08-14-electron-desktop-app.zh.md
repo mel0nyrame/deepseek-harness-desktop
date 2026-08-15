@@ -150,9 +150,10 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 
 问题 #4 已交付 macOS 原生窗口切片：
 
-- 真实 `BrowserWindow` 使用 `hiddenInset` chrome、固定内嵌位置的 traffic lights、透明客户端表面，以及 Electron 基于 AppKit 的 `under-window` vibrancy，并将 `visualEffectState` 设为 `followWindow`。
+- 真实 `BrowserWindow` 使用 `hiddenInset` chrome、固定内嵌位置的 traffic lights、透明客户端表面，以及 Electron 基于 AppKit 的 `under-window` vibrancy，并将 `visualEffectState` 设为 `followWindow`。客户端根节点以绝对定位位于 44 像素区域下方（`inset: 44px 0 0`），标题区域不会遮挡或推移内容列。
 - 独立的 44 像素标题区域可拖动，链接、控件、可编辑内容与浮层保持为 no-drag 区域。Electron `nativeTheme` 更新系统外观与“降低透明度”状态；无障碍 fallback 使用接近不透明的明色或暗色表面，并保留清晰的键盘焦点。
-- 打包验收通过 `--inspect-native-window` 启动真实 `BrowserWindow`，检查配置选项、实际原生背景与焦点状态、计算后的拖动区域，以及全部 renderer 外观／透明度组合。本地真实应用 GIF 记录打包窗口的启动、键盘焦点与明暗外观；同一验收套件中的打包冒烟测试另行证明 tracer-bullet 工作流。
+- 打包验收通过 `--inspect-native-window` 启动真实 `BrowserWindow`，检查配置选项、实际原生背景与焦点状态、计算后的拖动区域，以及全部 renderer 外观／透明度组合。`--accept-native-window` 在可见窗口中打开装配好的渲染器，断言 active → inactive → active 焦点切换、最小化／恢复、标题区域拖动输入尝试、44 像素标题区域布局且内容不被遮挡、计算得到的 drag/no-drag 区域，以及真实输入框的键盘路径。`--record-native-window --smoke-replay <file>` 配合 `DSH_DESKTOP_FRAMES_DIR` 录制真实渲染器帧：启动、焦点切换、标题区域拖动尝试、键盘操作、最小化／恢复、明暗外观与装配 UI 中回放的 tracer 回合，并在 `finally` 中把 `nativeTheme.themeSource` 恢复为进入录制模式时的值；同一验收套件中的打包冒烟测试另行证明无窗口 tracer-bullet 工作流。
+- 本机 macOS 缺少屏幕录制与辅助功能自动化权限，因此录制帧来自 `webContents.capturePage()`：帧不含原生 traffic lights 图形，合成输入也无法像操作系统指针拖拽那样移动原生窗口。证据由帧与受检的已配置／已观测原生窗口状态共同构成；具备权限的机器可以用系统级捕获替换帧，而断言无需改动。
 - Electron 支持的接口已满足所需布局，因此未加入原生视觉效果 addon。
 
 问题 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。#3 打包切片中发布级的签名、公证与跨架构产物延后到后续工单。
