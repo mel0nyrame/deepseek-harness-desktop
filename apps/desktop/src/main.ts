@@ -12,6 +12,7 @@ import {
 } from 'electron'
 import { DshSupervisor } from './supervisor.ts'
 import { RendererStreamRelay } from './renderer-stream-relay.ts'
+import { desktopRpc, discoverAcceptanceSession } from './acceptance.ts'
 import {
   PACKAGED_CHILD_EXEC_ARGV,
   packagedChildEnv,
@@ -366,32 +367,6 @@ async function waitForRenderer(window: BrowserWindow, expression: string, timeou
   throw new Error(`desktop renderer did not satisfy ${expression}`)
 }
 
-/** One unary desktop-protocol request over the supervisor bridge. */
-async function desktopRpc(
-  supervisor: DshSupervisor,
-  id: string,
-  method: string,
-  payload: Record<string, unknown>,
-): Promise<Record<string, unknown>> {
-  const response = await supervisor.request({
-    type: 'request',
-    id,
-    url: `dsh://app/api/${method}`,
-    method: 'POST',
-    headers: [['content-type', 'application/json']],
-    body: JSON.stringify({ type: 'client-request', rpcId: id, method, payload }),
-  })
-  if (response.status !== 200) throw new Error(`desktop ${method} returned status ${String(response.status)}`)
-  const parsed = JSON.parse(response.body) as {
-    type: string
-    result: { ok: true; value: unknown } | { ok: false; error: unknown }
-  }
-  if (parsed.type !== 'server-response' || !parsed.result.ok) {
-    throw new Error(`desktop ${method} failed: ${JSON.stringify(parsed)}`)
-  }
-  return parsed.result.value as Record<string, unknown>
-}
-
 /** Click one renderer element with real pointer input at its measured center. */
 async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
   const point = await window.webContents.executeJavaScript(`(() => {
@@ -405,7 +380,6 @@ async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
   window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
 }
 
-const WORKSPACE_MENU = '[role="menu"] [role="menuitem"], [role="menu"] button, [role="listbox"] [role="option"]'
 const LIVE_COMPOSER = 'textarea:not([readonly]):not(:disabled)'
 const SETTLED_BASH_CARD = '[data-sample="bash"][data-state="ok"]'
 
@@ -447,6 +421,13 @@ async function completeOnboarding(window: BrowserWindow): Promise<void> {
  * the trigger, pick the workspace with pointer input, and land on the live
  * blank-session composer. Only real pointer input is used, because the
  * assembled client's own focus choreography outruns programmatic focus.
+ *
+ * The pick itself mints the session: the picker's `connectWorkspace` reuses a
+ * blank session only when its reuse scan can already see one, and pre-creating
+ * a session over the wire races that scan (the pick then mints a second one
+ * and the composer submits to the minted id while the driver polls the
+ * pre-created one). This journey therefore returns the session the real pick
+ * opened, discovered through the durable workspace view.
  */
 async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindow): Promise<string> {
   const workspaceDir = join(app.getPath('userData'), 'acceptance-workspace')
@@ -454,9 +435,6 @@ async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindo
   const created = await desktopRpc(supervisor, 'accept-workspace', 'workspace.create', { path: workspaceDir })
   const workspace = created['workspace'] as Record<string, unknown>
   const workspaceId = String(workspace['workspaceId'])
-  const session = await desktopRpc(supervisor, 'accept-session', 'session.create', { workspaceId })
-  const sessionId = session['sessionId']
-  if (typeof sessionId !== 'string') throw new Error('desktop acceptance: session.create returned no session id')
   // The assembled workspace store loads its baseline once during client boot;
   // reload after adoption so the real picker observes the workspace created by
   // this acceptance run rather than an intentionally stale empty snapshot.
@@ -470,14 +448,19 @@ async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindo
 
   await waitForRenderer(window, "document.querySelector('textarea[aria-haspopup]') && !document.querySelector('textarea').disabled")
   // The trigger textarea is pointer-inert by design; its capsule card is the
-  // pick target that opens the workspace picker.
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    await clickAt(window, '[data-composer-card]')
+  // pick target that opens the workspace picker. The trigger's aria-expanded
+  // mirrors the owner's picker-open state even while the menu renders nothing
+  // (the workspace baseline and the directory-flow occupant mount
+  // asynchronously after boot), so click until the picker is genuinely open —
+  // re-clicking an open picker toggles it closed, so an open state without a
+  // rendered menu must never be re-clicked.
+  for (let attempt = 0; attempt < 10; attempt += 1) {
     try {
-      await waitForRenderer(window, `document.querySelector(${JSON.stringify(WORKSPACE_MENU)})`, 2_000)
+      await clickAt(window, '[data-composer-card]')
+      await waitForRenderer(window, "document.querySelector('textarea[aria-expanded=\"true\"]')", 1_000)
       break
     } catch (error) {
-      if (attempt === 2) throw error
+      if (attempt === 9) throw error
     }
   }
   // The portaled menu pre-renders offscreen until placement; only click a
@@ -485,7 +468,7 @@ async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindo
   await waitForRenderer(window, "(() => { const row = document.querySelector('[role=\"menu\"] [role=\"menuitem\"], [role=\"listbox\"] [role=\"option\"]'); if (row === null) return false; const box = row.getBoundingClientRect(); return box.width > 0 && box.height > 0 && box.top >= 0 && box.left >= 0; })()")
   await clickAt(window, '[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')
   await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})`)
-  return sessionId
+  return discoverAcceptanceSession(supervisor, workspaceId)
 }
 
 /** Click the live composer for native focus and type through the real input-event path. */
@@ -515,21 +498,50 @@ async function typeIntoComposer(window: BrowserWindow): Promise<{ activeElement:
 
 /** Replace the live draft and submit it through the renderer's real Enter path. */
 async function submitRecordedPrompt(window: BrowserWindow): Promise<void> {
-  window.focus()
-  window.webContents.focus()
-  await clickAt(window, LIVE_COMPOSER)
-  const selected = await window.webContents.executeJavaScript(`(() => {
-    const textarea = document.querySelector(${JSON.stringify(LIVE_COMPOSER)});
-    if (!(textarea instanceof HTMLTextAreaElement)) return false;
-    textarea.select();
-    return document.activeElement === textarea && textarea.selectionStart === 0 && textarea.selectionEnd === textarea.value.length;
-  })()`) as boolean
-  if (!selected) throw new Error('desktop recording: the live composer draft could not be selected')
-  await window.webContents.insertText(RECORDED_PROMPT)
-  await waitForRenderer(
-    window,
-    `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ${JSON.stringify(RECORDED_PROMPT)}`,
-  )
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    window.focus()
+    window.webContents.focus()
+    await clickAt(window, LIVE_COMPOSER)
+    // The synthetic click and the surrounding focus choreography schedule the
+    // app's own frames; a select-all issued before they settle can collapse
+    // again between the select and the insert, turning the replacement into a
+    // concatenation. Flush pending animation frames first so the selection
+    // survives, then verify the exact draft before committing to the send.
+    await window.webContents.executeJavaScript(
+      'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined))))',
+    )
+    const selected = await window.webContents.executeJavaScript(`(() => {
+      const textarea = document.querySelector(${JSON.stringify(LIVE_COMPOSER)});
+      if (!(textarea instanceof HTMLTextAreaElement)) return false;
+      textarea.select();
+      return document.activeElement === textarea && textarea.selectionStart === 0 && textarea.selectionEnd === textarea.value.length;
+    })()`) as boolean
+    if (!selected) throw new Error('desktop recording: the live composer draft could not be selected')
+    await window.webContents.insertText(RECORDED_PROMPT)
+    try {
+      await waitForRenderer(
+        window,
+        `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ${JSON.stringify(RECORDED_PROMPT)}`,
+        2_000,
+      )
+      break
+    } catch (error) {
+      if (attempt === 2) {
+        const observed = await window.webContents.executeJavaScript(`(() => {
+          const textarea = document.querySelector(${JSON.stringify(LIVE_COMPOSER)});
+          return {
+            value: textarea instanceof HTMLTextAreaElement ? textarea.value : null,
+            activeElement: document.activeElement?.tagName ?? null,
+            hasFocus: document.hasFocus(),
+          };
+        })()`) as unknown
+        throw new Error(
+          `desktop recording: the prompt never landed in the live composer; observed ${JSON.stringify(observed)}`,
+          { cause: error },
+        )
+      }
+    }
+  }
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
   await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ''`)

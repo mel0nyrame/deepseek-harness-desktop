@@ -163,5 +163,6 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 - Electron main 通过有界 relay 确认 renderer 交付，每条流只保留有限的 in-flight／排队窗口；溢出或重复的 open 通知会取消子进程订阅，并按顺序发出 `error`／`end` 关闭。preload 使用一个通知 dispatcher，每条事件只发送一次确认。每种逻辑 `mux` 与 `host` 流最多允许一个活跃订阅。
 - [`DshSupervisor`](../../../../apps/desktop/src/supervisor.ts) 持有 renderer 请求与订阅的关联关系。取消会立即释放关联；main-frame reload／导航、renderer 崩溃／销毁、子进程 IPC 断连／退出／报错、应用 stop 与启动失败都会结算各自持有的资源，不留下存活流或子进程。listener 异常由各自 dispatcher 内部隔离。
 - 沙箱化、context-isolated 的 renderer 仍然只接收窄 preload 桥，Web 产品保留 HTTP/WebSocket 载体且不引入 Electron 运行时依赖。这次仅传输层变化不新增模型可见输入或输出；Electron／Web 共享载体约定、聚焦的 client／runtime／preload／supervisor 测试、真实 desktop 组合以及安装态窗口 tracer 场景共同钉住该行为。
+- 安装态窗口录制场景在产品自身 seam 上暴露了驱动侧的三个竞态。其一，hero workspace 选择器的菜单在工作区基线与目录选择流程占位数挂载完成前不渲染任何内容，驱动脚本此前的重试点击实际上把已打开的选择器反复关掉了；现在驱动脚本会持续点击直到触发器的 `aria-expanded` 表明选择器确实已打开（绝不重复点击已打开的选择器），再等待可见菜单行出现。其二，`connectWorkspace` 只要其复用扫描暂时看不到空白会话就会现场新建一个会话，因此此前通过 wire 预创建会话的做法会与该扫描竞态，把回合写到驱动脚本从未轮询的那个会话里——提交的回合其实一直是 durable 的，只是落在选择器新建的会话中。驱动脚本不再预创建会话，而是通过 `workspace.list` 发现真实旅程打开的唯一会话（有界轮询，零个或多个都会响亮失败），聚焦的 `acceptance.spec.ts` 套件钉住了该行为。其三，驱动脚本的 select-all 加 `insertText` 替换在合成点击后会与应用自身的渲染帧竞态，偶尔把替换变成拼接；现在驱动脚本先冲刷动画帧再全选，并在发送前以重试验证草稿的精确内容。
 
 问题 #6、#7 与 #8 仍分别负责交互一致性、Host 恢复和原生路径操作。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。
