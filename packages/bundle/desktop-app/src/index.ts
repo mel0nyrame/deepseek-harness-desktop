@@ -1,23 +1,33 @@
 /** Desktop product glue running inside the dedicated DSH child process. */
 
 import { randomUUID } from 'node:crypto'
+import { isAbsolute } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
+import { DirectoryPicker, type DirectoryPickerCapability } from '@deepseek-ai/dsh-host-directory-picker'
 import { RpcId, type HostFrame, type MuxFrame, type RpcRequest, type ServerRequest } from '@deepseek-ai/dsh-host-apiproxy/api'
-import { toFetchHandler } from '@deepseek-ai/dsh-host-apiproxy'
+import { toFetchHandler, type NativePathOpener } from '@deepseek-ai/dsh-host-apiproxy'
 import type {} from '@deepseek-ai/cordis-plugin-loader'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-client-modules'
-import type { DesktopChildMessage, DesktopParentMessage } from './protocol.ts'
+import type {
+  DesktopChildMessage,
+  DesktopNativeErrorCode,
+  DesktopNativeRequest,
+  DesktopNativeResult,
+  DesktopNativeValue,
+  DesktopParentMessage,
+} from './protocol.ts'
 
 export type {
-  DesktopChildMessage, DesktopChildRequest, DesktopClientBundle, DesktopParentMessage,
+  DesktopChildMessage, DesktopChildRequest, DesktopClientBundle, DesktopNativeErrorCode,
+  DesktopNativeRequest, DesktopNativeResult, DesktopNativeValue, DesktopParentMessage,
 } from './protocol.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'desktop-app'
 
 /** Services needed before the child can announce a complete product composition. */
-export const inject = ['apiProxy', 'connection', 'clientModules', 'loader']
+export const inject = ['connection', 'clientModules', 'loader']
 
 /** Process-like IPC endpoint; tests substitute a deterministic in-memory peer. */
 export interface DesktopChildEndpoint {
@@ -37,6 +47,10 @@ function isId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
 
+function isAbsolutePath(value: string): boolean {
+  return value !== '' && !value.includes('\0') && isAbsolute(value)
+}
+
 function isDesktopAppUrl(value: string): boolean {
   try {
     const url = new URL(value)
@@ -50,6 +64,41 @@ function isDesktopAppUrl(value: string): boolean {
   }
 }
 
+const NATIVE_ERROR_CODES = new Set([
+  'cancelled', 'invalid-request', 'invalid-path', 'unavailable', 'failed',
+])
+
+function parseNativeValue(value: unknown): DesktopNativeValue | undefined {
+  if (!isRecord(value) || typeof value.type !== 'string') return undefined
+  if (value.type === 'pick-directory') {
+    return value.path === null || typeof value.path === 'string' && isAbsolutePath(value.path)
+      ? { type: 'pick-directory', path: value.path }
+      : undefined
+  }
+  if (value.type === 'open-path' && value.opened === true) {
+    return { type: 'open-path', opened: true }
+  }
+  return undefined
+}
+
+function parseNativeResult(value: unknown): DesktopNativeResult | undefined {
+  if (!isRecord(value) || typeof value.ok !== 'boolean') return undefined
+  if (value.ok) {
+    const parsed = parseNativeValue(value.value)
+    return parsed === undefined ? undefined : { ok: true, value: parsed }
+  }
+  if (!isRecord(value.error) || typeof value.error.code !== 'string'
+    || !NATIVE_ERROR_CODES.has(value.error.code)
+    || typeof value.error.message !== 'string') return undefined
+  return {
+    ok: false,
+    error: {
+      code: value.error.code as DesktopNativeErrorCode,
+      message: value.error.message,
+    },
+  }
+}
+
 function parseParentMessage(value: unknown): DesktopParentMessage | undefined {
   if (!isRecord(value) || typeof value.type !== 'string' || !isId(value.id)) return undefined
   switch (value.type) {
@@ -60,6 +109,10 @@ function parseParentMessage(value: unknown): DesktopParentMessage | undefined {
       return value.stream === 'mux' || value.stream === 'host'
         ? { type: 'subscribe', id: value.id, stream: value.stream }
         : undefined
+    case 'native-response': {
+      const result = parseNativeResult(value.result)
+      return result === undefined ? undefined : { type: 'native-response', id: value.id, result }
+    }
     case 'request': {
       if (typeof value.url !== 'string' || !isDesktopAppUrl(value.url)
         || typeof value.method !== 'string' || value.method.length === 0
@@ -83,6 +136,161 @@ function parseParentMessage(value: unknown): DesktopParentMessage | undefined {
     default:
       return undefined
   }
+}
+
+interface PendingNativeAction {
+  readonly request: DesktopNativeRequest
+  readonly signal: AbortSignal
+  readonly onAbort: () => void
+  resolve(value: DesktopNativeValue): void
+  reject(error: Error): void
+}
+
+function nativeValueMatches(request: DesktopNativeRequest, value: DesktopNativeValue): boolean {
+  return request.type === value.type
+}
+
+/** Desktop product adapter: the child delegates its two system actions back to Electron main. */
+export class DesktopNativeActions extends DirectoryPicker implements NativePathOpener {
+  private readonly pending = new Map<string, PendingNativeAction>()
+  private readonly nativeCapability: DirectoryPickerCapability = {
+    kind: 'native',
+    pick: signal => this.pick(signal),
+  }
+  private disposed = false
+
+  constructor(ctx: Context, private readonly endpoint: DesktopChildEndpoint) {
+    super(ctx)
+    ctx.provide('nativePathOpener', this)
+    endpoint.on('message', this.onMessage)
+  }
+
+  /** Stable native directory-picker capability consumed by ApiProxy. */
+  capability(): DirectoryPickerCapability {
+    return this.nativeCapability
+  }
+
+  /** Electron main is the visible desktop for this product assembly. */
+  available(): boolean {
+    return !this.disposed && this.endpoint.connected
+  }
+
+  /** Ask Electron main to open one Host-resolved path. */
+  async open(path: string, signal: AbortSignal): Promise<void> {
+    const value = await this.request({ type: 'open-path', path }, signal)
+    if (value.type !== 'open-path') throw new Error('desktop-app: malformed native response')
+  }
+
+  /** Stop listening and settle every reverse request owned by this assembly. */
+  async dispose(): Promise<void> {
+    if (this.disposed) return
+    this.disposed = true
+    this.endpoint.off('message', this.onMessage)
+    const cancellations: Promise<void>[] = []
+    for (const [id, pending] of this.pending) {
+      pending.signal.removeEventListener('abort', pending.onAbort)
+      cancellations.push(sendChildMessage(this.endpoint, { type: 'cancel-native-request', id }).catch((error: unknown) => {
+        console.error('[desktop-app] native cancellation delivery failed:', error)
+      }))
+      pending.reject(new Error('desktop native actions disposed'))
+      this.pending.delete(id)
+    }
+    await Promise.all(cancellations)
+  }
+
+  private async pick(signal: AbortSignal): Promise<string | null> {
+    const value = await this.request({ type: 'pick-directory' }, signal)
+    if (value.type !== 'pick-directory') throw new Error('desktop-app: malformed native response')
+    return value.path
+  }
+
+  private request(request: DesktopNativeRequest, signal: AbortSignal): Promise<DesktopNativeValue> {
+    if (this.disposed) return Promise.reject(new Error('desktop native actions disposed'))
+    if (signal.aborted) return Promise.reject(errorFrom(signal.reason))
+    const id = randomUUID()
+    const result = Promise.withResolvers<DesktopNativeValue>()
+    const onAbort = (): void => {
+      const pending = this.pending.get(id)
+      if (pending === undefined) return
+      this.pending.delete(id)
+      signal.removeEventListener('abort', onAbort)
+      this.sendDetached({ type: 'cancel-native-request', id })
+      result.reject(errorFrom(signal.reason))
+    }
+    this.pending.set(id, { request, signal, onAbort, resolve: result.resolve, reject: result.reject })
+    signal.addEventListener('abort', onAbort, { once: true })
+    void sendChildMessage(this.endpoint, { type: 'native-request', id, request }).catch((error: unknown) => {
+      const pending = this.pending.get(id)
+      if (pending === undefined) return
+      this.pending.delete(id)
+      signal.removeEventListener('abort', onAbort)
+      result.reject(errorFrom(error))
+    })
+    return result.promise
+  }
+
+  private readonly onMessage = (value: unknown): void => {
+    const message = parseParentMessage(value)
+    if (message?.type !== 'native-response') {
+      if (isRecord(value) && value.type === 'native-response' && isId(value.id)) {
+        const pending = this.pending.get(value.id)
+        if (pending !== undefined) this.settleFailure(value.id, pending, new Error('desktop-app: malformed native response'))
+      }
+      return
+    }
+    const pending = this.pending.get(message.id)
+    if (pending === undefined) return
+    if (!message.result.ok) {
+      this.settleFailure(message.id, pending, new Error(message.result.error.message))
+      return
+    }
+    if (!nativeValueMatches(pending.request, message.result.value)) {
+      this.settleFailure(message.id, pending, new Error('desktop-app: malformed native response'))
+      return
+    }
+    this.pending.delete(message.id)
+    pending.signal.removeEventListener('abort', pending.onAbort)
+    pending.resolve(message.result.value)
+  }
+
+  private settleFailure(id: string, pending: PendingNativeAction, error: Error): void {
+    this.pending.delete(id)
+    pending.signal.removeEventListener('abort', pending.onAbort)
+    pending.reject(error)
+  }
+
+  private sendDetached(message: DesktopChildMessage): void {
+    void sendChildMessage(this.endpoint, message).catch((error: unknown) => {
+      console.error('[desktop-app] native cancellation delivery failed:', error)
+    })
+  }
+}
+
+function errorFrom(value: unknown): Error {
+  return value instanceof Error ? value : new Error(String(value))
+}
+
+function sendChildMessage(endpoint: DesktopChildEndpoint, message: DesktopChildMessage): Promise<void> {
+  return new Promise((resolveSend, reject) => {
+    if (!endpoint.connected) {
+      reject(new Error('desktop-app: child IPC channel is closed'))
+      return
+    }
+    let settled = false
+    const settle = (error: Error | null): void => {
+      if (settled) return
+      settled = true
+      if (error === null) resolveSend()
+      else reject(new Error(`desktop-app: child IPC send failed: ${error.message}`))
+    }
+    try {
+      // The callback is the drain signal when send() returns false; awaiting it
+      // retains at most one child-IPC notification per logical pump.
+      endpoint.send(message, settle)
+    } catch (error: unknown) {
+      settle(errorFrom(error))
+    }
+  })
 }
 
 function fullFrame(frame: RpcRequest<Frame>): ServerRequest {
@@ -137,31 +345,8 @@ export class DesktopHostRuntime {
     this.subscriptionStreams.clear()
   }
 
-  private send(message: DesktopChildMessage): Promise<void> {
-    return new Promise((resolveSend, reject) => {
-      if (!this.endpoint.connected) {
-        reject(new Error('desktop-app: child IPC channel is closed'))
-        return
-      }
-      let settled = false
-      const settle = (error: Error | null): void => {
-        if (settled) return
-        settled = true
-        if (error === null) resolveSend()
-        else reject(new Error(`desktop-app: child IPC send failed: ${error.message}`))
-      }
-      try {
-        // The callback is the drain signal when send() returns false; awaiting it
-        // retains at most one child-IPC notification per logical pump.
-        this.endpoint.send(message, settle)
-      } catch (error: unknown) {
-        settle(error instanceof Error ? error : new Error(String(error)))
-      }
-    })
-  }
-
   private sendDetached(message: DesktopChildMessage): void {
-    void this.send(message).catch((error: unknown) => {
+    void sendChildMessage(this.endpoint, message).catch((error: unknown) => {
       this.ctx.logger.error(`desktop-app: notification delivery failed: ${String(error)}`)
     })
   }
@@ -179,7 +364,7 @@ export class DesktopHostRuntime {
       if (path === undefined) throw new Error(`desktop-app: missing client bundle path for ${entry.id}`)
       return { id: entry.id, path }
     })
-    await this.send({ type: 'ready', graph, bundles })
+    await sendChildMessage(this.endpoint, { type: 'ready', graph, bundles })
   }
 
   private readonly onMessage = (value: unknown): void => {
@@ -204,6 +389,9 @@ export class DesktopHostRuntime {
         return
       case 'cancel-subscription':
         this.subscriptions.get(message.id)?.abort()
+        return
+      case 'native-response':
+        // DesktopNativeActions owns reverse-response correlation on the same endpoint.
         return
       default:
         message satisfies never
@@ -240,7 +428,7 @@ export class DesktopHostRuntime {
       this.requestAborts.delete(message.id)
     }
     try {
-      await this.send(reply)
+      await sendChildMessage(this.endpoint, reply)
     } catch (error: unknown) {
       this.ctx.logger.error(`desktop-app: request reply delivery failed: ${String(error)}`)
     }
@@ -270,8 +458,8 @@ export class DesktopHostRuntime {
     if (controller !== undefined) controller.abort()
     const rejection = (async () => {
       try {
-        await this.send({ type: 'stream-error', id, message })
-        if (controller === undefined) await this.send({ type: 'stream-end', id })
+        await sendChildMessage(this.endpoint, { type: 'stream-error', id, message })
+        if (controller === undefined) await sendChildMessage(this.endpoint, { type: 'stream-end', id })
       } catch (error: unknown) {
         this.ctx.logger.error(`desktop-app: subscription rejection delivery failed: ${String(error)}`)
       }
@@ -287,14 +475,14 @@ export class DesktopHostRuntime {
     controller: AbortController,
   ): Promise<void> {
     try {
-      await this.send({ type: 'stream-open', id })
+      await sendChildMessage(this.endpoint, { type: 'stream-open', id })
       for await (const frame of frames) {
-        await this.send({ type: 'stream-message', id, message: fullFrame(frame) })
+        await sendChildMessage(this.endpoint, { type: 'stream-message', id, message: fullFrame(frame) })
       }
     } catch (error) {
       if (!controller.signal.aborted) {
         try {
-          await this.send({
+          await sendChildMessage(this.endpoint, {
             type: 'stream-error',
             id,
             message: error instanceof Error ? error.message : String(error),
@@ -308,7 +496,7 @@ export class DesktopHostRuntime {
       this.subscriptions.delete(id)
       if (this.subscriptionStreams.get(stream) === id) this.subscriptionStreams.delete(stream)
       try {
-        await this.send({ type: 'stream-end', id })
+        await sendChildMessage(this.endpoint, { type: 'stream-end', id })
       } catch (error: unknown) {
         this.ctx.logger.error(`desktop-app: stream end delivery failed: ${String(error)}`)
       }
@@ -326,9 +514,19 @@ export function apply(ctx: Context): void {
   if (!internals.endpoint.connected) {
     throw new Error('desktop-app: DSH runtime must be launched with an IPC channel')
   }
-  const runtime = new DesktopHostRuntime(ctx, internals.endpoint)
+  const actions = new DesktopNativeActions(ctx, internals.endpoint)
   ctx.effect(() => {
-    runtime.start()
-    return () => runtime.dispose()
-  }, 'desktop-app: child IPC runtime')
+    return () => actions.dispose()
+  }, 'desktop-app: native actions')
+  const mountRuntime = (runtimeCtx: Context): void => {
+    const apiProxy = runtimeCtx.get('apiProxy')
+    if (apiProxy === undefined) throw new Error('desktop-app: apiProxy became unavailable during runtime mount')
+    const runtime = new DesktopHostRuntime(runtimeCtx, internals.endpoint)
+    runtimeCtx.effect(() => {
+      runtime.start()
+      return () => runtime.dispose()
+    }, 'desktop-app: child IPC runtime')
+  }
+  if (ctx.get('apiProxy') === undefined) ctx.inject(['apiProxy'], mountRuntime)
+  else mountRuntime(ctx)
 }

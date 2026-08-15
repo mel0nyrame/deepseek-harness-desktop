@@ -11,7 +11,7 @@ import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspa
 /** Injected face: the wire call the flow drives (bound in apply's closure). */
 export interface NativeFlowInjected {
   /** Ask the local Host to open its native single-directory chooser. */
-  pick: () => Promise<string | null>
+  pick: (signal: AbortSignal) => Promise<string | null>
 }
 
 /**
@@ -25,17 +25,16 @@ export interface NativeFlowInjected {
 export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowInjected): ReactElement | null {
   const { open, pick } = props
   const armed = useRef(false)
+  const active = useRef<AbortController>()
+  const currentPick = useRef(pick)
+  currentPick.current = pick
   // Callbacks ride a ref so the settled pick reports through the owner's
   // latest handlers, not the ones captured when the chooser opened.
   const outcome = useRef(props)
   outcome.current = props
-  // Unmount (HMR replacing the occupant) discards settlements wholesale: the
-  // dead instance must neither adopt a path nor drive the owner's error
-  // surface. The wire carries no per-request abort, so the host-side chooser
-  // survives until answered — its answer just lands nowhere; the replacement
-  // instance re-arms under the owner's still-open request. An injected-face
-  // identity change alone (re-registration) keeps the pending settlement:
-  // the chooser on the host display is still the same dialog.
+  // Unmount or owner withdrawal aborts the wire request and discards its
+  // settlement wholesale. An injected-face identity change alone keeps the
+  // pending operation: the chooser on the host display is still the same task.
   const alive = useRef(true)
   useEffect(() => {
     // StrictMode's development replay runs the cleanup once before the real
@@ -46,20 +45,37 @@ export function NativeDirectoryFlow(props: DirectoryFlowOwnerProps & NativeFlowI
   useEffect(() => {
     if (!open) {
       armed.current = false
+      active.current?.abort()
+      active.current = undefined
       return
     }
-    if (armed.current) return
-    armed.current = true
-    pick().then(
-      (path) => {
-        if (!alive.current) return
-        if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path)
-      },
-      (reason: unknown) => {
-        if (!alive.current) return
-        outcome.current.onError(reason instanceof Error ? reason.message : String(reason))
-      },
-    )
-  }, [open, pick])
+    if (!armed.current) {
+      armed.current = true
+      const controller = new AbortController()
+      active.current = controller
+      currentPick.current(controller.signal).then(
+        (path) => {
+          if (!alive.current || controller.signal.aborted) return
+          if (path === null) outcome.current.onCancel(); else outcome.current.onPicked(path)
+        },
+        (reason: unknown) => {
+          if (!alive.current || controller.signal.aborted) return
+          outcome.current.onError(reason instanceof Error ? reason.message : String(reason))
+        },
+      )
+    }
+    const controller = active.current
+    return () => {
+      // StrictMode immediately restores the same lifetime after its probe
+      // cleanup. Defer physical cancellation so that replay retains one dialog;
+      // a real unmount leaves `alive` false and aborts before the next task.
+      queueMicrotask(() => {
+        if (alive.current || active.current !== controller) return
+        armed.current = false
+        active.current = undefined
+        controller?.abort()
+      })
+    }
+  }, [open])
   return null
 }

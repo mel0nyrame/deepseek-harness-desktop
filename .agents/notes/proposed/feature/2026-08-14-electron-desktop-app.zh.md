@@ -127,6 +127,8 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 
 两层 IPC 会增加生命周期和背压复杂度。流 channel 需要有界队列、取消和确定性关闭，以免缓慢或断开的 renderer 无限期保留 Host 资源。
 
+Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因此取消只会让进行中的原生操作在逻辑上结算，已经显示的原生对话框会保留到用户主动关闭。
+
 原生 vibrancy 可能降低对比度，并会随系统外观、非活动窗口、无障碍设置和未来 macOS 版本变化。产品必须提供足够不透明的 token 和减少透明度 fallback，不能把一张截图视为约定。
 
 子进程隔离可以防止 Host 故障带崩 Electron main，但不会为 DSH 提供安全沙箱。工具权限和子进程沙箱策略仍由 DSH 负责；桌面 shell 不得暗示比 harness 配置更强的限制。
@@ -136,7 +138,7 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 问题 #1 与 #2 已通过开发路径交付第一个垂直切片：
 
 - 可复用的 Client Connection 载体契约（[`carrier-contract.client.ts`](../../../../packages/client/connection/tests/carrier-contract.client.ts)）锁定了 unary、反向响应、mux 流和 host 流语义，以及就绪、顺序、取消、畸形消息、断连和订阅生命周期行为；HTTP/WebSocket 载体和新的 Electron 载体均原样通过该契约。
-- 开发版 tracer bullet 通过 `pnpm run dev:desktop` 运行：Electron shell（[`apps/desktop`](../../../../apps/desktop)）监督一个专属 DSH 子进程（`--profile desktop`，即内置的 `base + web-app + desktop-app` overlay）。该 overlay（[`packages/bundle/desktop-app`](../../../../packages/bundle/desktop-app)）禁用全部浏览器传输行（`web-startup`、`webserver`、`web-runtime`、`client-hmr`），固定原生目录选择器，并挂载子进程运行时，通过单一 IPC channel 提供现有 API gateway 和事件流——路径中不参与任何 loopback HTTP 监听。
+- 开发版 tracer bullet 通过 `pnpm run dev:desktop` 运行：Electron shell（[`apps/desktop`](../../../../apps/desktop)）监督一个专属 DSH 子进程（`--profile desktop`，即内置的 `base + web-app + desktop-app` overlay）。该 overlay（[`packages/bundle/desktop-app`](../../../../packages/bundle/desktop-app)）禁用全部浏览器传输行（`web-startup`、`webserver`、`web-runtime`、`client-hmr`），挂载原生选择器 client half，并通过子进程运行时提供选择器和路径打开器——路径中不参与任何 loopback HTTP 监听。
 - renderer 只能通过沙箱化、context-isolated 的 preload 桥访问 DSH；[`DesktopApiClient`](../../../../packages/client/connection/src/client/desktop-api-client.ts) 在其上实现现有 `IApiClient` 接口。Host 侧 Connection 与 client-modules 插件仅在存在 WebServer 时才挂载 Web 传输，因此 Web 开发工作流保持不变。
 - 一个 keyless 真实组合 e2e（[`apps/desktop/tests/real-composition.e2e.ts`](../../../../apps/desktop/tests/real-composition.e2e.ts)）fork 真实的 desktop profile，创建 Session，重放一段已录制的 `bash` 工具回合，断言 mux 流中按序流式到达的 `TERMINAL_OK` 结果，并验证 terminate-and-join 退出后没有残留后代进程。
 
@@ -172,4 +174,11 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 - 位于 `dsh://app/status.html` 的状态页只通过 preload 桥暴露 Restart 与 Quit，且该桥只在该精确 frame 上可用。手动 `restart()` 仅允许从 failed 阶段发起；清理不完整时不再提供 Restart，避免新 generation 让上一棵进程树成为孤儿。
 - 实际覆盖：[`process-tree.spec.ts`](../../../../apps/desktop/tests/process-tree.spec.ts) 与 [`lifecycle.spec.ts`](../../../../apps/desktop/tests/lifecycle.spec.ts) 驱动确定性表与伪 spawn；[`process-tree.e2e.ts`](../../../../apps/desktop/tests/process-tree.e2e.ts) 在 macOS 上证明优雅终止、SIGTERM 免疫后的升级、被重设父进程的后代与孤儿清扫，以及真实 node-pty 清理；[`recovery.e2e.ts`](../../../../apps/desktop/tests/recovery.e2e.ts) 走通开发版恢复旅程；打包态 `--record-recovery` 验收记录 startup-failed、restarting、session-recovered 与 tracer-settled 帧，并断言没有残留的已安装应用进程。
 
-问题 #6 与 #8 仍分别负责交互一致性与原生路径操作。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。
+问题 #8 已交付原生桌面操作切片：
+
+- 桌面子进程现在通过一个封闭的反向请求联合提供 `directoryPicker` 与 `nativePathOpener`：`pick-directory` 和 `open-path`。Electron main 校验每条请求，只接受不含 NUL 字节的非空绝对路径，检查目标可用性，调用 `dialog` 或 `shell.openPath`，并持有可操作的原生失败对话框；renderer 仍然只接收现有任务级 Workspace 与 Host API。
+- 取消会沿 owner 任务从 renderer 的 `AbortSignal` 传播至 `host.pickDirectory`、桌面子进程关联和主进程处理器。畸形请求、重复 id、不可用目标、子进程断连、处理器移除、组装 disposal 与应用关停都会确定性释放关联；迟到的原生结算不能复活已完成操作。
+- desktop profile 挂载无渲染的原生选择器 client half，由子进程运行时提供能力，因此 Web 部署保留现有 native／browse 组合。ApiProxy 路径打开器接收产品 shell adapter，无需把 Host 路径解析或业务分发移入 Electron main。
+- 聚焦的处理器、协议、supervisor、client runtime 与无渲染 flow 测试钉住校验和清理。安装态 `--record-native-actions` 旅程保留真实窗口、preload、ApiProxy、反向 IPC、Workspace 接纳与 Session 导航，只替换确定性的对话框／shell primitive，并记录选中的 Workspace、成功打开和不可用路径失败；Workspace 发现使用 Host 的 canonical realpath，而不是选择器返回的 macOS 原始别名。
+
+问题 #6 仍负责交互一致性。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。

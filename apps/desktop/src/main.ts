@@ -2,12 +2,12 @@
 
 import { fork } from 'node:child_process'
 import { mkdirSync } from 'node:fs'
-import { mkdir, writeFile } from 'node:fs/promises'
+import { mkdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
-import { dirname, extname, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import {
-  app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol,
+  app, BrowserWindow, dialog, ipcMain, nativeTheme, net, protocol, shell,
   type IpcMainEvent, type IpcMainInvokeEvent,
 } from 'electron'
 import { DshSupervisor } from './supervisor.ts'
@@ -15,7 +15,11 @@ import { DesktopLifecycle, type HostPhase, type StopReport } from './lifecycle.t
 import { createProcessTreeLadder } from './process-tree.ts'
 import { DESKTOP_STATUS_HTML, STATUS_PAGE_PATH, statusStateFor } from './status.ts'
 import { RendererStreamRelay } from './renderer-stream-relay.ts'
-import { desktopRpc, discoverAcceptanceSession } from './acceptance.ts'
+import {
+  desktopRpc,
+  discoverAcceptanceSession,
+  discoverAcceptanceWorkspaceSession,
+} from './acceptance.ts'
 import {
   PACKAGED_CHILD_EXEC_ARGV,
   packagedChildEnv,
@@ -24,6 +28,7 @@ import {
 } from './packaged-runtime.ts'
 import { prepareBrokenProfile, prepareSmokeProfile, RECORDED_PROMPT, runSmokeScenario } from './smoke.ts'
 import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
+import { createNativeActionHandler, type DesktopNativePlatform } from './native-actions.ts'
 import {
   isDesktopAppUrl,
   parseRendererId,
@@ -248,7 +253,48 @@ function refreshBoot(lifecycle: DesktopLifecycle): void {
   }
 }
 
-function installIpc(window: BrowserWindow, lifecycle: DesktopLifecycle): () => void {
+/** True while one absolute target exists for the operating-system handoff. */
+async function statAvailable(path: string): Promise<boolean> {
+  try {
+    await stat(path)
+    return true
+  } catch (_error: unknown) {
+    // Missing, unreadable, and broken-link targets are all unavailable to
+    // the operating-system handoff and share one actionable result.
+    return false
+  }
+}
+
+/** Bind the production native-action boundary to Electron main primitives. */
+function electronNativePlatform(window: BrowserWindow): DesktopNativePlatform {
+  return {
+    async pickDirectory() {
+      const result = await dialog.showOpenDialog(window, {
+        title: '选择工作区文件夹',
+        buttonLabel: '选择文件夹',
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      return result.canceled ? null : result.filePaths[0] ?? null
+    },
+    pathAvailable: statAvailable,
+    openPath: path => shell.openPath(path),
+    async reportFailure(path, message) {
+      if (window.isDestroyed()) return
+      await dialog.showMessageBox(window, {
+        type: 'error',
+        message: '无法打开路径',
+        detail: `${path}\n\n${message}`,
+        buttons: ['好'],
+      })
+    },
+  }
+}
+
+function installIpc(
+  window: BrowserWindow,
+  lifecycle: DesktopLifecycle,
+  nativePlatform: DesktopNativePlatform = electronNativePlatform(window),
+): () => void {
   const webContents = window.webContents
   const senderAllowed = (event: IpcMainEvent): boolean => {
     if (senderIs(window, event)) return true
@@ -284,6 +330,7 @@ function installIpc(window: BrowserWindow, lifecycle: DesktopLifecycle): () => v
     },
     (id) => { maybeSupervisor()?.cancelSubscription(id) },
   )
+  const handleNativeAction = createNativeActionHandler(nativePlatform)
   ipcMain.on('dsh:boot', (event) => {
     if (!senderAllowed(event)) return
     event.returnValue = currentBoot ?? null
@@ -355,6 +402,8 @@ function installIpc(window: BrowserWindow, lifecycle: DesktopLifecycle): () => v
   // Stream forwarding follows the current generation: re-attach whenever the
   // lifecycle spawns or settles a generation.
   let stopStreams = (): void => {}
+  let stopNativeActions = (): void => {}
+  let nativeActionSupervisor: DshSupervisor | undefined
   const attachStreams = (): void => {
     stopStreams()
     const current = lifecycle.current()
@@ -363,12 +412,20 @@ function installIpc(window: BrowserWindow, lifecycle: DesktopLifecycle): () => v
         relay.push(toRendererStreamEvent(message))
       })
     }
+    if (current?.supervisor === nativeActionSupervisor) return
+    stopNativeActions()
+    nativeActionSupervisor = current?.supervisor
+    stopNativeActions = current === undefined
+      ? () => {}
+      : current.supervisor.serveNativeActions(handleNativeAction)
   }
   const detachPhase = lifecycle.onPhase(attachStreams)
   attachStreams()
   return () => {
     detachPhase()
     stopStreams()
+    stopNativeActions()
+    nativeActionSupervisor = undefined
     relay.clearAll()
     if (!webContents.isDestroyed()) {
       webContents.off('render-process-gone', disconnectRenderer)
@@ -423,6 +480,7 @@ function pageDirector(window: BrowserWindow) {
 /** Boot the desktop window over the lifecycle owner and start the Host. */
 function bootWindow(
   lifecycle: DesktopLifecycle,
+  nativePlatform?: DesktopNativePlatform,
 ): { window: BrowserWindow; ready: Promise<void> } {
   const window = new BrowserWindow({
     width: 1280,
@@ -462,7 +520,7 @@ function bootWindow(
   })
   app.on('window-all-closed', () => { app.quit() })
 
-  const removeIpc = installIpc(window, lifecycle)
+  const removeIpc = installIpc(window, lifecycle, nativePlatform)
   const pages = pageDirector(window)
   window.once('closed', () => { removeIpc() })
 
@@ -606,6 +664,47 @@ async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
   window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
 }
 
+type AcceptanceRpcResult =
+  | { readonly ok: true; readonly value: Record<string, unknown> }
+  | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
+
+/** Send one acceptance request through the real context-isolated renderer bridge. */
+async function rendererRpc(
+  window: BrowserWindow,
+  id: string,
+  method: string,
+  payload: Record<string, unknown>,
+): Promise<AcceptanceRpcResult> {
+  const request = {
+    id,
+    url: `dsh://app/api/${method}`,
+    method: 'POST',
+    headers: [['content-type', 'application/json']],
+    body: JSON.stringify({ type: 'client-request', rpcId: id, method, payload }),
+  }
+  const parsed = await window.webContents.executeJavaScript(`globalThis.dshDesktop
+    .request(${JSON.stringify(request)})
+    .then(response => JSON.parse(response.body))`) as unknown
+  if (typeof parsed !== 'object' || parsed === null) {
+    throw new Error(`desktop acceptance: ${method} returned no server response`)
+  }
+  const envelope = parsed as { type?: unknown; result?: unknown }
+  if (envelope.type !== 'server-response' || typeof envelope.result !== 'object' || envelope.result === null) {
+    throw new Error(`desktop acceptance: ${method} returned a malformed server response`)
+  }
+  const result = envelope.result as { ok?: unknown; value?: unknown; error?: unknown }
+  if (result.ok === true && typeof result.value === 'object' && result.value !== null) {
+    return { ok: true, value: result.value as Record<string, unknown> }
+  }
+  if (result.ok === false && typeof result.error === 'object' && result.error !== null) {
+    const error = result.error as { code?: unknown; message?: unknown }
+    if (typeof error.code === 'string' && typeof error.message === 'string') {
+      return { ok: false, error: { code: error.code, message: error.message } }
+    }
+  }
+  throw new Error(`desktop acceptance: ${method} returned a malformed result`)
+}
+
 const LIVE_COMPOSER = 'textarea:not([readonly]):not(:disabled)'
 const SETTLED_BASH_CARD = '[data-sample="bash"][data-state="ok"]'
 
@@ -695,6 +794,34 @@ async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindo
   await clickAt(window, '[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')
   await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})`)
   return discoverAcceptanceSession(supervisor, workspaceId)
+}
+
+/** Adopt a fresh Workspace through the real native-picker UI and open its Session. */
+async function reachLiveComposerThroughNativePicker(
+  supervisor: DshSupervisor,
+  window: BrowserWindow,
+  canonicalWorkspacePath: string,
+  nativePickStarted: () => boolean,
+): Promise<{ workspaceId: string; sessionId: string; visible: boolean }> {
+  await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+  await completeOnboarding(window)
+  await waitForRenderer(window, "document.querySelector('textarea[aria-haspopup]') && !document.querySelector('textarea').disabled")
+  for (let attempt = 0; attempt < 10 && !nativePickStarted(); attempt += 1) {
+    await clickAt(window, '[data-composer-card]')
+    try {
+      await waitForRenderer(window, "document.querySelector('textarea[aria-expanded=\"true\"]')", 1_000)
+      break
+    } catch (error) {
+      if (nativePickStarted()) break
+      if (attempt === 9) throw error
+    }
+  }
+  const adopted = await discoverAcceptanceWorkspaceSession(supervisor, canonicalWorkspacePath)
+  await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})`)
+  const visible = await window.webContents.executeJavaScript(
+    `document.body.textContent?.includes(${JSON.stringify(basename(canonicalWorkspacePath))}) === true`,
+  ) as boolean
+  return { ...adopted, visible }
 }
 
 /** Click the live composer for native focus and type through the real input-event path. */
@@ -1168,6 +1295,101 @@ async function recordRecovery(
   console.log('SMOKE_OK quit')
 }
 
+/**
+ * Record the installed renderer's native-picker and path-opening journey while
+ * substituting only the nondeterministic operating-system boundary. The real
+ * window, preload bridge, ApiProxy, reverse child IPC, Workspace adoption, and
+ * Session navigation remain assembled; structured evidence accompanies the
+ * renderer frames because `capturePage()` cannot see native dialogs.
+ */
+async function recordNativeActions(lifecycle: DesktopLifecycle): Promise<void> {
+  const framesDir = process.env.DSH_DESKTOP_FRAMES_DIR
+  if (framesDir === undefined || framesDir.trim() === '') {
+    throw new Error('desktop native-actions recording requires DSH_DESKTOP_FRAMES_DIR')
+  }
+  const harnessHome = process.env.DSH_HOME
+  if (harnessHome === undefined || harnessHome.trim() === '') {
+    throw new Error('desktop native-actions recording requires DSH_HOME')
+  }
+  const workspacePath = join(harnessHome, 'native-actions-workspace')
+  const openedPath = join(workspacePath, 'opened.txt')
+  const missingPath = join(workspacePath, 'missing.txt')
+  await mkdir(framesDir, { recursive: true })
+  await mkdir(workspacePath, { recursive: true })
+  await writeFile(openedPath, 'native action acceptance\n')
+  const canonicalWorkspacePath = await realpath(workspacePath)
+
+  const picked: string[] = []
+  const opened: string[] = []
+  const failures: Array<{ path: string; message: string }> = []
+  const nativePlatform: DesktopNativePlatform = {
+    pickDirectory() {
+      picked.push(workspacePath)
+      return Promise.resolve(workspacePath)
+    },
+    pathAvailable: statAvailable,
+    openPath(path) {
+      opened.push(path)
+      return Promise.resolve('')
+    },
+    reportFailure(path, message) {
+      failures.push({ path, message })
+      return Promise.resolve()
+    },
+  }
+
+  const { window, ready } = bootWindow(lifecycle, nativePlatform)
+  await ready
+  if (lifecycle.phase !== 'running') {
+    throw new Error(`desktop native-actions recording: Host did not reach the running phase (${lifecycle.phase})`)
+  }
+  const recorder = createFrameRecorder(window, framesDir)
+  window.show()
+  window.focus()
+  try {
+    const workspace = await reachLiveComposerThroughNativePicker(
+      currentSupervisor(lifecycle),
+      window,
+      canonicalWorkspacePath,
+      () => picked.length > 0,
+    )
+    if (!workspace.visible) {
+      throw new Error('desktop native-actions recording: adopted workspace is not visible')
+    }
+    await recorder.capture('directory-picked')
+    console.log('SMOKE_OK native-directory')
+
+    const success = await rendererRpc(window, 'native-open-success', 'host.openPath', { path: openedPath })
+    if (!success.ok || success.value['opened'] !== true) {
+      throw new Error(`desktop native-actions recording: eligible path did not open: ${JSON.stringify(success)}`)
+    }
+    await recorder.capture('path-opened')
+    console.log('SMOKE_OK native-open')
+
+    const failure = await rendererRpc(window, 'native-open-failure', 'host.openPath', { path: missingPath })
+    if (failure.ok || !failure.error.message.includes(`path is unavailable: ${missingPath}`)) {
+      throw new Error(`desktop native-actions recording: missing path was not rejected actionably: ${JSON.stringify(failure)}`)
+    }
+    await recorder.capture('path-failure')
+    console.log('SMOKE_OK native-failure')
+
+    console.log(`NATIVE_ACTIONS_RECORDING ${JSON.stringify({
+      framesDir,
+      frames: recorder.frames,
+      workspace: { path: workspacePath, ...workspace },
+      picked,
+      opened,
+      failures,
+      success,
+      failure,
+    })}`)
+  } finally {
+    window.destroy()
+    await stopAfterJourney(lifecycle, true)
+  }
+  console.log('SMOKE_OK quit')
+}
+
 /** Print native and renderer state from a real BrowserWindow for automated acceptance. */
 async function inspectNativeWindow(): Promise<void> {
   const options = desktopWindowOptions(process.platform)
@@ -1267,10 +1489,11 @@ void app.whenReady().then(() => {
     }
     const acceptance = process.argv.includes('--accept-native-window')
     const recording = process.argv.includes('--record-native-window')
+    const nativeActionsRecording = process.argv.includes('--record-native-actions')
     const recoveryRecording = process.argv.includes('--record-recovery')
     const smoke = parseSmokeInvocation(process.argv)
     const options = app.isPackaged
-      ? packagedChildOptions(smoke !== undefined || recording || recoveryRecording)
+      ? packagedChildOptions(smoke !== undefined || recording || nativeActionsRecording || recoveryRecording)
       : developmentChildOptions()
     const lifecycle = new DesktopLifecycle({
       spawn: () => spawnDshChild(options),
@@ -1280,8 +1503,23 @@ void app.whenReady().then(() => {
       ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
       : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
     registerAssetProtocol(webDist)
-    const headless = smoke !== undefined || acceptance || recording || recoveryRecording
+    const headless = smoke !== undefined || acceptance || recording || nativeActionsRecording || recoveryRecording
     installQuitOwner(lifecycle, () => currentWindow, headless)
+
+    if (nativeActionsRecording) {
+      try {
+        await recordNativeActions(lifecycle)
+      } catch (error) {
+        console.error(`desktop native-actions recording failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          console.error('desktop native-actions recording failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      }
+      app.exit(0)
+      return
+    }
 
     if (recording || recoveryRecording) {
       const replayFile = parseReplayArg(process.argv)

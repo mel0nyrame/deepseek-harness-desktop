@@ -246,6 +246,17 @@ describe('host.openPath', () => {
     expect(opened).toEqual(['/tmp/a.txt'])
   })
 
+  it('resolves a Host-relative path before crossing the native boundary', async () => {
+    const opened: string[] = []
+    const { api, root } = await harness(undefined, undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+
+    expect((await api.host.openPath(request({ path: 'notes/a.txt' }), new AbortController().signal)).result)
+      .toEqual({ ok: true, value: { opened: true } })
+    expect(opened).toEqual([join(root, 'notes/a.txt')])
+  })
+
   it('propagates abort into the native boundary as a cancelled RPC error', async () => {
     const { api } = await harness(undefined, undefined, {
       openPath: (_path, signal) => new Promise((_resolve, reject) => {

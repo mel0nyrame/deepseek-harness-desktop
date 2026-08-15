@@ -36,9 +36,10 @@ export interface IWorkspaces {
   create(input: { path: string }): Promise<WorkspaceView>
   /**
    * Open the Host's native directory picker.
+   * @param signal - caller lifetime; abort cancels the in-flight picker request.
    * @returns the selected path, or null when the user cancelled.
    */
-  pickDirectory(): Promise<string | null>
+  pickDirectory(signal?: AbortSignal): Promise<string | null>
   /**
    * List one directory level through the Host's `browse` capability.
    * @param path - absolute directory to list; absent lists the Host home directory.

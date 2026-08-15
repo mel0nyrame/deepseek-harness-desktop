@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { RendererStreamEvent } from '../src/renderer-ipc.ts'
 

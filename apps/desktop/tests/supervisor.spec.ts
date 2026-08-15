@@ -100,6 +100,107 @@ describe('desktop DSH supervisor', () => {
     await supervisor.stop()
   })
 
+  it('serves typed child-to-main native requests and correlates their responses', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+    const handler = vi.fn(async () => ({
+      ok: true as const,
+      value: { type: 'pick-directory' as const, path: '/workspace/alpha' },
+    }))
+    supervisor.serveNativeActions(handler)
+
+    child.receive({ type: 'native-request', id: 'native-1', request: { type: 'pick-directory' } })
+    await vi.waitFor(() => {
+      expect(child.sent.at(-1)).toEqual({
+        type: 'native-response', id: 'native-1',
+        result: { ok: true, value: { type: 'pick-directory', path: '/workspace/alpha' } },
+      })
+    })
+    expect(handler).toHaveBeenCalledOnce()
+    child.exit()
+    await supervisor.stop()
+  })
+
+  it('aborts native requests on child cancellation, handler removal, and shutdown', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+    const signals: AbortSignal[] = []
+    const handler = (_request: unknown, signal: AbortSignal) => {
+      signals.push(signal)
+      return new Promise<never>(() => {})
+    }
+    const remove = supervisor.serveNativeActions(handler)
+
+    child.receive({ type: 'native-request', id: 'native-cancel', request: { type: 'pick-directory' } })
+    child.receive({ type: 'cancel-native-request', id: 'native-cancel' })
+    expect(signals[0]?.aborted).toBe(true)
+
+    child.receive({ type: 'native-request', id: 'native-remove', request: { type: 'pick-directory' } })
+    remove()
+    expect(signals[1]?.aborted).toBe(true)
+
+    supervisor.serveNativeActions(handler)
+    child.receive({ type: 'native-request', id: 'native-stop', request: { type: 'pick-directory' } })
+    const stopping = supervisor.stop()
+    expect(signals[2]?.aborted).toBe(true)
+    child.exit()
+    await stopping
+  })
+
+  it('stops admitting child native requests before shutdown signals the process', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+    const handler = vi.fn(() => new Promise<never>(() => {}))
+    supervisor.serveNativeActions(handler)
+
+    const stopping = supervisor.stop()
+    child.receive({ type: 'native-request', id: 'native-late', request: { type: 'pick-directory' } })
+
+    expect(handler).not.toHaveBeenCalled()
+    child.exit()
+    await stopping
+  })
+
+  it('answers malformed, duplicate, and unavailable native requests without retaining them', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+
+    child.receive({ type: 'native-request', id: 'bad-path', request: { type: 'open-path', path: 3 } } as never)
+    await vi.waitFor(() => {
+      expect(child.sent.at(-1)).toMatchObject({
+        type: 'native-response', id: 'bad-path', result: { ok: false, error: { code: 'invalid-request' } },
+      })
+    })
+
+    const blocker = Promise.withResolvers<never>()
+    let duplicateSignal: AbortSignal | undefined
+    supervisor.serveNativeActions((_request, signal) => {
+      duplicateSignal = signal
+      return blocker.promise
+    })
+    child.receive({ type: 'native-request', id: 'duplicate', request: { type: 'pick-directory' } })
+    child.receive({ type: 'native-request', id: 'duplicate', request: { type: 'pick-directory' } })
+    await vi.waitFor(() => {
+      expect(child.sent.at(-1)).toMatchObject({
+        type: 'native-response', id: 'duplicate', result: { ok: false, error: { code: 'invalid-request' } },
+      })
+    })
+    expect(duplicateSignal?.aborted).toBe(true)
+
+    const unavailableChild = new FakeChild()
+    const unavailable = new DshSupervisor(unavailableChild)
+    unavailableChild.receive({ type: 'native-request', id: 'unavailable', request: { type: 'pick-directory' } })
+    await vi.waitFor(() => {
+      expect(unavailableChild.sent.at(-1)).toMatchObject({
+        type: 'native-response', id: 'unavailable', result: { ok: false, error: { code: 'unavailable' } },
+      })
+    })
+    child.exit()
+    await supervisor.stop()
+    unavailableChild.exit()
+    await unavailable.stop()
+  })
+
   it('closes every active stream when the child exits unexpectedly', async () => {
     const child = new FakeChild()
     const supervisor = new DshSupervisor(child)

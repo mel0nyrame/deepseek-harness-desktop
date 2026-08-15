@@ -24,7 +24,7 @@ export const inject = ['slots', 'workspaces']
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
-  const injected = (): NativeFlowInjected => ({ pick: () => ctx.workspaces.pickDirectory() })
+  const injected = (): NativeFlowInjected => ({ pick: signal => ctx.workspaces.pickDirectory(signal) })
   // Both declaration lifetimes must be live before the pair installs; the
   // generator makes the two registrations one transactional effect. The
   // outer/inner nesting order is arbitrary; neither hole has precedence.

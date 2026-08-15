@@ -278,6 +278,76 @@ describe('packaged desktop application', () => {
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'records native folder selection, path opening, and an actionable failure through the installed renderer',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-actions-'))
+      const framesDir = join(REPO_ROOT, '.playwright-mcp', 'gif-frames-issue8-native-actions')
+      await rm(framesDir, { recursive: true, force: true })
+      const hangKill = setTimeout(() => {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+      }, 180_000)
+      const { exitCode, captured } = await launchInstalledApp(
+        home,
+        ['--record-native-actions'],
+        { DSH_DESKTOP_FRAMES_DIR: framesDir },
+      )
+      clearTimeout(hangKill)
+
+      expect(exitCode, `native-actions recording exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+      for (const marker of [
+        'SMOKE_OK native-directory',
+        'SMOKE_OK native-open',
+        'SMOKE_OK native-failure',
+        'SMOKE_OK quit',
+      ]) {
+        expect(captured, `native-actions output must carry ${marker}`).toContain(marker)
+      }
+      const line = captured.split('\n').find(value => value.startsWith('NATIVE_ACTIONS_RECORDING '))
+      expect(line).toBeDefined()
+      const state = JSON.parse(line!.slice('NATIVE_ACTIONS_RECORDING '.length)) as {
+        framesDir: string
+        frames: string[]
+        workspace: { path: string; workspaceId: string; sessionId: string; visible: boolean }
+        picked: string[]
+        opened: string[]
+        failures: Array<{ path: string; message: string }>
+        success: { ok: boolean; value?: { opened?: boolean } }
+        failure: { ok: boolean; error?: { code?: string; message?: string } }
+      }
+      const workspacePath = join(home, 'native-actions-workspace')
+      const openedPath = join(workspacePath, 'opened.txt')
+      const missingPath = join(workspacePath, 'missing.txt')
+      expect(state.framesDir).toBe(framesDir)
+      expect(state.workspace).toMatchObject({ path: workspacePath, visible: true })
+      expect(state.workspace.workspaceId).not.toBe('')
+      expect(state.workspace.sessionId).not.toBe('')
+      expect(state.picked).toEqual([workspacePath])
+      expect(state.opened).toEqual([openedPath])
+      expect(state.failures).toEqual([{
+        path: missingPath,
+        message: `path is unavailable: ${missingPath}`,
+      }])
+      expect(state.success).toEqual({ ok: true, value: { opened: true } })
+      expect(state.failure.ok).toBe(false)
+      expect(state.failure.error?.code).toBe('internal')
+      expect(state.failure.error?.message).toContain(`path is unavailable: ${missingPath}`)
+      for (const label of ['directory-picked', 'path-opened', 'path-failure']) {
+        expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)
+      }
+      for (const name of state.frames) {
+        const path = join(framesDir, name)
+        expect(existsSync(path), `frame ${name} exists on disk`).toBe(true)
+        expect(statSync(path).size, `frame ${name} is a non-empty PNG`).toBeGreaterThan(100)
+      }
+      expect(captured).not.toContain('UnhandledPromiseRejectionWarning')
+      expect(captured).not.toContain('Object has been destroyed')
+      assertNoSurvivors()
+      child = undefined
+    },
+    240_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
     'records truthful recovery frames from the failed state through a recovered Session',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-desktop-packaged-recovery-'))

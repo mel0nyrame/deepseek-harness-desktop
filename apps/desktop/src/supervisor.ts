@@ -4,6 +4,8 @@ import { realpathSync, statSync } from 'node:fs'
 import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type {
   DesktopChildMessage,
+  DesktopNativeRequest,
+  DesktopNativeResult,
   DesktopParentMessage,
 } from '@deepseek-ai/dsh-desktop-app'
 import type { ProcessTreeLadder, ProcessTreeSnapshot } from './process-tree.ts'
@@ -11,7 +13,14 @@ import type { ProcessTreeLadder, ProcessTreeSnapshot } from './process-tree.ts'
 type ReadyMessage = Extract<DesktopChildMessage, { type: 'ready' }>
 type ResponseMessage = Extract<DesktopChildMessage, { type: 'response' }>
 type RequestErrorMessage = Extract<DesktopChildMessage, { type: 'request-error' }>
-type StreamMessage = Exclude<DesktopChildMessage, ReadyMessage | ResponseMessage | RequestErrorMessage>
+type NativeMessage = Extract<DesktopChildMessage, { type: 'native-request' | 'cancel-native-request' }>
+type StreamMessage = Exclude<DesktopChildMessage, ReadyMessage | ResponseMessage | RequestErrorMessage | NativeMessage>
+
+/** Electron-main implementation of the two native actions exposed to DSH. */
+export type DesktopNativeActionHandler = (
+  request: DesktopNativeRequest,
+  signal: AbortSignal,
+) => Promise<DesktopNativeResult>
 
 /** Child-process surface used by the supervisor and its tests. */
 export interface DshChild {
@@ -158,9 +167,28 @@ export function parseDesktopChildMessage(value: unknown, bundleRoot = process.cw
       return Object.hasOwn(value, 'message')
         ? { type: 'stream-message', id: value.id, message: value.message }
         : undefined
+    case 'native-request': {
+      if (!isRecord(value.request) || typeof value.request.type !== 'string') return undefined
+      if (value.request.type === 'pick-directory') {
+        return { type: 'native-request', id: value.id, request: { type: 'pick-directory' } }
+      }
+      if (value.request.type === 'open-path' && typeof value.request.path === 'string') {
+        return {
+          type: 'native-request', id: value.id,
+          request: { type: 'open-path', path: value.request.path },
+        }
+      }
+      return undefined
+    }
+    case 'cancel-native-request':
+      return { type: 'cancel-native-request', id: value.id }
     default:
       return undefined
   }
+}
+
+function malformedNativeRequestId(value: unknown): string | undefined {
+  return isRecord(value) && value.type === 'native-request' && isId(value.id) ? value.id : undefined
 }
 
 function errorOf(message: RequestErrorMessage): Error {
@@ -183,6 +211,8 @@ export class DshSupervisor {
   private readonly queuedSubscriptions = new Map<'mux' | 'host', string>()
   private readonly streamListeners = new Set<(message: StreamMessage) => void>()
   private readonly exitListeners = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>()
+  private readonly nativeActions = new Map<string, AbortController>()
+  private nativeActionHandler: DesktopNativeActionHandler | undefined
   private stopping: Promise<void> | undefined
   private settledReady = false
   private escalated = false
@@ -243,6 +273,17 @@ export class DshSupervisor {
       pending.reject(new Error(`desktop DSH request ${id} cancelled`))
     }
     this.cancelChildResource({ type: 'cancel-request', id })
+  }
+
+  /** Install the one Electron-main native-action handler for this child generation. */
+  serveNativeActions(handler: DesktopNativeActionHandler): () => void {
+    if (this.nativeActionHandler !== undefined) throw new Error('desktop native action handler is already installed')
+    this.nativeActionHandler = handler
+    return () => {
+      if (this.nativeActionHandler !== handler) return
+      this.nativeActionHandler = undefined
+      this.abortNativeActions()
+    }
   }
 
   /** Open one renderer-owned logical event stream. */
@@ -366,6 +407,14 @@ export class DshSupervisor {
   private readonly onMessage = (value: unknown): void => {
     const message = parseDesktopChildMessage(value, this.bundleRoot)
     if (message === undefined) {
+      const id = malformedNativeRequestId(value)
+      if (id !== undefined) {
+        this.respondNative(id, {
+          ok: false,
+          error: { code: 'invalid-request', message: 'desktop native request is malformed' },
+        })
+        return
+      }
       console.error('[desktop-supervisor] dropped malformed child IPC message')
       return
     }
@@ -389,6 +438,18 @@ export class DshSupervisor {
       pending.reject(errorOf(message))
       return
     }
+    if (message.type === 'native-request') {
+      this.handleNativeRequest(message)
+      return
+    }
+    if (message.type === 'cancel-native-request') {
+      const controller = this.nativeActions.get(message.id)
+      if (controller !== undefined) {
+        this.nativeActions.delete(message.id)
+        controller.abort()
+      }
+      return
+    }
     const subscription = this.subscriptions.get(message.id)
     if (subscription === undefined) return
     if (message.type === 'stream-end') {
@@ -406,6 +467,7 @@ export class DshSupervisor {
 
   private readonly handleChildExit = (code: number | null, signal: NodeJS.Signals | null): void => {
     this.stopTreeMonitor()
+    this.abortNativeActions()
     for (const listener of [...this.exitListeners]) {
       try {
         listener(code, signal)
@@ -420,6 +482,7 @@ export class DshSupervisor {
   }
 
   private readonly onError = (error: Error): void => {
+    this.abortNativeActions()
     this.rejectReady(error)
     this.failPending(error)
     this.closeStreams(error)
@@ -427,6 +490,7 @@ export class DshSupervisor {
   }
 
   private readonly onDisconnect = (): void => {
+    this.abortNativeActions()
     const error = new Error('desktop DSH child IPC channel disconnected')
     this.rejectReady(error)
     this.failPending(error)
@@ -459,7 +523,62 @@ export class DshSupervisor {
       this.failClosed()
       return
     }
+    if (message.type === 'native-response') {
+      this.failClosed()
+      return
+    }
     this.failClosed()
+  }
+
+  private handleNativeRequest(message: Extract<DesktopChildMessage, { type: 'native-request' }>): void {
+    const duplicate = this.nativeActions.get(message.id)
+    if (duplicate !== undefined) {
+      this.nativeActions.delete(message.id)
+      duplicate.abort()
+      this.respondNative(message.id, {
+        ok: false,
+        error: { code: 'invalid-request', message: `duplicate desktop native request id ${message.id}` },
+      })
+      return
+    }
+    const handler = this.nativeActionHandler
+    if (handler === undefined) {
+      this.respondNative(message.id, {
+        ok: false,
+        error: { code: 'unavailable', message: 'desktop native actions are unavailable' },
+      })
+      return
+    }
+    const controller = new AbortController()
+    this.nativeActions.set(message.id, controller)
+    void handler(message.request, controller.signal).then(
+      (result) => {
+        if (this.nativeActions.get(message.id) !== controller) return
+        this.nativeActions.delete(message.id)
+        this.respondNative(message.id, result)
+      },
+      (error: unknown) => {
+        if (this.nativeActions.get(message.id) !== controller) return
+        this.nativeActions.delete(message.id)
+        this.respondNative(message.id, controller.signal.aborted
+          ? { ok: false, error: { code: 'cancelled', message: 'desktop native action was cancelled' } }
+          : {
+            ok: false,
+            error: { code: 'failed', message: error instanceof Error ? error.message : String(error) },
+          })
+      },
+    )
+  }
+
+  private respondNative(id: string, result: DesktopNativeResult): void {
+    const sent = this.send({ type: 'native-response', id, result })
+    if (sent.kind === 'closed' || sent.kind === 'failed') this.failClosed()
+  }
+
+  private abortNativeActions(): void {
+    const controllers = [...this.nativeActions.values()]
+    this.nativeActions.clear()
+    for (const controller of controllers) controller.abort()
   }
 
   private publishStream(message: StreamMessage): void {
@@ -500,8 +619,12 @@ export class DshSupervisor {
   }
 
   private async stopOnce(): Promise<void> {
+    // Close command admission before aborting work or signaling the child: a
+    // late message during SIGTERM grace must not recreate an owned resource.
+    this.child.off('message', this.onMessage)
     this.failPending(new Error('desktop DSH child is stopping'))
     this.closeStreams()
+    this.abortNativeActions()
     // Quit can race startup: settle a pending ready wait so lifecycle.start()
     // observers never hang behind a child that stop() already owns.
     if (!this.settledReady) this.rejectReady(new Error('desktop DSH child did not become ready before shutdown'))

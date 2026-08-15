@@ -86,3 +86,56 @@ export async function discoverAcceptanceSession(
     await new Promise(resolveWait => setTimeout(resolveWait, 50))
   }
 }
+
+/**
+ * Discover the Workspace and exactly-one Session created by the native picker
+ * journey. Unlike {@link discoverAcceptanceSession}, the Workspace itself may
+ * still be landing when polling begins, so an absent matching path remains a
+ * transient state until the same bounded deadline.
+ * @param supervisor - the DSH child bridge.
+ * @param workspacePath - exact path returned by the recording picker.
+ * @returns the adopted Workspace id and the Session opened for it.
+ */
+export async function discoverAcceptanceWorkspaceSession(
+  supervisor: DshSupervisor,
+  workspacePath: string,
+): Promise<{ workspaceId: string; sessionId: string }> {
+  const deadline = Date.now() + 10_000
+  for (let attempt = 0; ; attempt += 1) {
+    const listed = await desktopRpc(supervisor, `accept-native-workspaces-${String(attempt)}`, 'workspace.list', {})
+    const itemsValue: unknown = listed['items']
+    if (!Array.isArray(itemsValue)) throw new Error('desktop acceptance: workspace.list returned no items')
+    let workspaceId: string | undefined
+    let listedSessionIds: unknown
+    for (const item of itemsValue as unknown[]) {
+      if (typeof item !== 'object' || item === null) continue
+      const view = item as { workspaceId?: unknown; path?: unknown; sessionIds?: unknown }
+      if (view.path !== workspacePath) continue
+      if (typeof view.workspaceId !== 'string') {
+        throw new Error('desktop acceptance: the picked workspace has no string id')
+      }
+      workspaceId = view.workspaceId
+      listedSessionIds = view.sessionIds
+      break
+    }
+    if (workspaceId !== undefined) {
+      if (!Array.isArray(listedSessionIds)) {
+        throw new Error('desktop acceptance: the picked workspace lists no session ids')
+      }
+      const sessionIds: unknown[] = listedSessionIds
+      if (sessionIds.some(id => typeof id !== 'string')) {
+        throw new Error('desktop acceptance: the picked workspace lists a non-string session id')
+      }
+      if (sessionIds.length > 1) {
+        throw new Error(
+          `desktop acceptance: expected the native pick journey to open exactly one session, found ${String(sessionIds.length)}`,
+        )
+      }
+      if (sessionIds.length === 1) return { workspaceId, sessionId: sessionIds[0] as string }
+    }
+    if (Date.now() > deadline) {
+      throw new Error(`desktop acceptance: native pick journey did not open ${workspacePath}`)
+    }
+    await new Promise(resolveWait => setTimeout(resolveWait, 50))
+  }
+}

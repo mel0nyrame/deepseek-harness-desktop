@@ -11,7 +11,7 @@ import { EventEmitter } from 'node:events'
 import { describe, expect, it, vi } from 'vitest'
 import type { DesktopChildMessage, DesktopParentMessage } from '@deepseek-ai/dsh-desktop-app'
 import { DshSupervisor, type DshChild } from '../src/supervisor.ts'
-import { discoverAcceptanceSession } from '../src/acceptance.ts'
+import { discoverAcceptanceSession, discoverAcceptanceWorkspaceSession } from '../src/acceptance.ts'
 
 class FakeChild extends EventEmitter implements DshChild {
   pid = undefined
@@ -136,5 +136,18 @@ describe('discoverAcceptanceSession', () => {
       result: { ok: false, error: { code: 'unavailable', message: 'store busy' } },
     }))
     await expect(discovery).rejects.toThrow('desktop workspace.list failed')
+  })
+})
+
+describe('discoverAcceptanceWorkspaceSession', () => {
+  it('resolves the workspace and exactly-one session adopted through the native picker', async () => {
+    const { supervisor, child } = await bootSupervisor()
+    const discovery = discoverAcceptanceWorkspaceSession(supervisor, '/tmp/acceptance-workspace')
+    expect(child.sent.at(-1)).toMatchObject({ type: 'request', id: 'accept-native-workspaces-0' })
+    answer(child, okWorkspaceList(['session-native']))
+    await expect(discovery).resolves.toEqual({
+      workspaceId: 'ws-accept',
+      sessionId: 'session-native',
+    })
   })
 })

@@ -1546,12 +1546,15 @@ importers:
       '@deepseek-ai/dsh-client-modules':
         specifier: workspace:^
         version: link:../../client/modules
+      '@deepseek-ai/dsh-client-ui-directory-picker-native':
+        specifier: workspace:^
+        version: link:../../client/ui-directory-picker-native
       '@deepseek-ai/dsh-host-apiproxy':
         specifier: workspace:^
         version: link:../../host/apiproxy
-      '@deepseek-ai/dsh-host-directory-picker-native':
+      '@deepseek-ai/dsh-host-directory-picker':
         specifier: workspace:^
-        version: link:../../host/directory-picker-native
+        version: link:../../host/directory-picker
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^

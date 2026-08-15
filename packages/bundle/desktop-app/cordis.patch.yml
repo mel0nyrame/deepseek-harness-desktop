@@ -14,14 +14,15 @@
   disabled: true
 
 # The auto picker resolves browse vs. native from the Web server; without one
-# it can never settle, so the desktop surface pins the native backend (its
-# capability seat stays `directoryPicker`, which the API gateway injects).
+# it can never settle. The desktop runtime itself provides the native
+# directoryPicker through its reverse Electron-main request owner, while this
+# renderless client half keeps the existing workspace flow.
 - id: directory-picker
   disabled: true
 
 - insert:
-    - id: directory-picker-native
-      name: '@deepseek-ai/dsh-host-directory-picker-native'
+    - id: directory-picker-native-ui
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
 
 - id: connection
   inject: []

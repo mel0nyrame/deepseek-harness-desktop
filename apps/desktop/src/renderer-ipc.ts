@@ -3,7 +3,9 @@
 import type { DesktopChildMessage, DesktopChildRequest } from '@deepseek-ai/dsh-desktop-app'
 
 type StreamMessage = Exclude<DesktopChildMessage,
-  Extract<DesktopChildMessage, { type: 'ready' | 'response' | 'request-error' }>>
+  Extract<DesktopChildMessage, {
+    type: 'ready' | 'response' | 'request-error' | 'native-request' | 'cancel-native-request'
+  }>>
 
 /** Stream lifecycle shape consumed by the context-isolated preload bridge. */
 export type RendererStreamEvent =

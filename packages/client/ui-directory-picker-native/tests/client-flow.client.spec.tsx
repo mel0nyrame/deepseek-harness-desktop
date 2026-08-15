@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach } from 'vitest'
+import { StrictMode } from 'react'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import type { DirectoryFlowOwnerProps } from '@deepseek-ai/dsh-client-ui-workspace/client'
 import { apply, inject } from '../src/client/index.ts'
@@ -144,14 +145,15 @@ describe('directory-picker-native client half', () => {
     b.declare()
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const entry = b.slots.entries(HOLES[0])[0]!
-    const injected = (entry.inject as () => { pick: () => Promise<string | null> })()
-    await expect(injected.pick()).resolves.toBe('/tmp/picked')
-    expect(b.pickDirectory).toHaveBeenCalledOnce()
+    const injected = (entry.inject as () => { pick: (signal: AbortSignal) => Promise<string | null> })()
+    const signal = new AbortController().signal
+    await expect(injected.pick(signal)).resolves.toBe('/tmp/picked')
+    expect(b.pickDirectory).toHaveBeenCalledWith(signal)
   })
 
   it('runs one pick per open edge and reports the path to the latest onPicked', async () => {
     let resolve!: (path: string | null) => void
-    const pick = vi.fn(() => new Promise<string | null>((settle) => { resolve = settle }))
+    const pick = vi.fn((_signal: AbortSignal) => new Promise<string | null>((settle) => { resolve = settle }))
     const first = owner()
     const view = render(<NativeDirectoryFlow {...first} pick={pick} />)
     expect(pick).toHaveBeenCalledOnce()
@@ -161,7 +163,7 @@ describe('directory-picker-native client half', () => {
     expect(pick).toHaveBeenCalledOnce()
     // Even a fresh injected face (re-registration re-runs the inject factory)
     // must not relaunch while the same request is still open.
-    const replacedPick = vi.fn(() => new Promise<string | null>(() => {}))
+    const replacedPick = vi.fn((_signal: AbortSignal) => new Promise<string | null>(() => {}))
     view.rerender(<NativeDirectoryFlow {...second} busy pick={replacedPick} />)
     expect(replacedPick).not.toHaveBeenCalled()
     await act(async () => { resolve('/tmp/project') })
@@ -169,13 +171,36 @@ describe('directory-picker-native client half', () => {
     expect(first.onPicked).not.toHaveBeenCalled()
   })
 
+  it('keeps one picker request across StrictMode effect replay and aborts it on unmount', async () => {
+    const signals: AbortSignal[] = []
+    const pick = vi.fn((signal: AbortSignal) => {
+      signals.push(signal)
+      return new Promise<string | null>(() => {})
+    })
+    const props = owner()
+    const view = render(<StrictMode><NativeDirectoryFlow {...props} pick={pick} /></StrictMode>)
+
+    expect(pick).toHaveBeenCalledOnce()
+    expect(signals[0]?.aborted).toBe(false)
+
+    view.unmount()
+    await act(async () => {})
+    expect(signals[0]?.aborted).toBe(true)
+  })
+
   it('discards a settlement that lands after the flow unmounted', async () => {
     let resolve!: (path: string | null) => void
-    const pick = vi.fn(() => new Promise<string | null>((settle) => { resolve = settle }))
+    let signal: AbortSignal | undefined
+    const pick = vi.fn((requestSignal: AbortSignal) => {
+      signal = requestSignal
+      return new Promise<string | null>((settle) => { resolve = settle })
+    })
     const props = owner()
     const view = render(<NativeDirectoryFlow {...props} pick={pick} />)
     expect(pick).toHaveBeenCalledOnce()
     view.unmount()
+    await act(async () => {})
+    expect(signal?.aborted).toBe(true)
     // The dead instance must neither adopt nor error; the owner's callbacks
     // stay untouched by the orphaned chooser's answer.
     await act(async () => { resolve('/tmp/late') })
@@ -185,7 +210,7 @@ describe('directory-picker-native client half', () => {
 
     // The failure arm is discarded the same way.
     let reject!: (reason: unknown) => void
-    const failing = vi.fn(() => new Promise<string | null>((_settle, rejectPick) => { reject = rejectPick }))
+    const failing = vi.fn((_signal: AbortSignal) => new Promise<string | null>((_settle, rejectPick) => { reject = rejectPick }))
     const late = owner()
     const failingView = render(<NativeDirectoryFlow {...late} pick={failing} />)
     failingView.unmount()
@@ -194,7 +219,7 @@ describe('directory-picker-native client half', () => {
   })
 
   it('reports null as cancellation and re-arms after the owner withdraws open', async () => {
-    const pick = vi.fn(async () => null as string | null)
+    const pick = vi.fn(async (_signal: AbortSignal) => null as string | null)
     const props = owner()
     const view = render(<NativeDirectoryFlow {...props} pick={pick} />)
     await act(async () => {})
@@ -209,20 +234,20 @@ describe('directory-picker-native client half', () => {
 
   it('folds pick failures into onError messages', async () => {
     const props = owner()
-    render(<NativeDirectoryFlow {...props} pick={vi.fn(async () => { throw new Error('no chooser installed') })} />)
+    render(<NativeDirectoryFlow {...props} pick={vi.fn(async (_signal: AbortSignal) => { throw new Error('no chooser installed') })} />)
     await act(async () => {})
     expect(props.onError).toHaveBeenCalledWith('no chooser installed')
 
     const nonError = owner()
-    render(<NativeDirectoryFlow {...nonError} pick={vi.fn(async () => { throw 'denied' })} />)
+    render(<NativeDirectoryFlow {...nonError} pick={vi.fn(async (_signal: AbortSignal) => { throw 'denied' })} />)
     await act(async () => {})
     expect(nonError.onError).toHaveBeenCalledWith('denied')
   })
 
   it('renders nothing while closed and while open', () => {
-    const closed = render(<NativeDirectoryFlow {...owner({ open: false })} pick={vi.fn(async () => null)} />)
+    const closed = render(<NativeDirectoryFlow {...owner({ open: false })} pick={vi.fn(async (_signal: AbortSignal) => null)} />)
     expect(closed.container.innerHTML).toBe('')
-    const opened = render(<NativeDirectoryFlow {...owner()} pick={vi.fn(async () => null)} />)
+    const opened = render(<NativeDirectoryFlow {...owner()} pick={vi.fn(async (_signal: AbortSignal) => null)} />)
     expect(opened.container.innerHTML).toBe('')
   })
 })
