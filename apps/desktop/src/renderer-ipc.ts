@@ -41,6 +41,7 @@ export function parseRendererRequest(value: unknown): DesktopChildRequest | unde
     || typeof value.url !== 'string'
     || !isDesktopAppUrl(value.url)
     || typeof value.method !== 'string'
+    || value.method.length === 0
     || !Array.isArray(value.headers)) return undefined
   const headers: Array<[string, string]> = []
   for (const header of value.headers) {
@@ -71,6 +72,26 @@ export function parseRendererSubscription(
 ): { id: string; stream: 'mux' | 'host' } | undefined {
   if (!isId(id) || (stream !== 'mux' && stream !== 'host')) return undefined
   return { id, stream }
+}
+
+/** Validate one main-to-preload stream lifecycle message before renderer delivery. */
+export function parseRendererStreamEvent(value: unknown): RendererStreamEvent | undefined {
+  if (!isRecord(value) || !isId(value.id) || typeof value.type !== 'string') return undefined
+  switch (value.type) {
+    case 'open':
+    case 'end':
+      return { type: value.type, id: value.id }
+    case 'message':
+      return Object.hasOwn(value, 'message')
+        ? { type: 'message', id: value.id, message: value.message }
+        : undefined
+    case 'error':
+      return typeof value.message === 'string'
+        ? { type: 'error', id: value.id, message: value.message }
+        : undefined
+    default:
+      return undefined
+  }
 }
 
 /** Translate child protocol names to the preload carrier's public vocabulary. */

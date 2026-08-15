@@ -113,7 +113,13 @@ async function launchChild(): Promise<World> {
   childProcess.stdout?.on('data', (chunk: Buffer) => { stdout.push(String(chunk)) })
   childProcess.stderr?.on('data', (chunk: Buffer) => { stdout.push(String(chunk)) })
   const child = childProcess as unknown as DshChild
-  return { home, process: childProcess, child, supervisor: new DshSupervisor(child, { startupTimeoutMs: 60_000 }), stdout }
+  return {
+    home,
+    process: childProcess,
+    child,
+    supervisor: new DshSupervisor(child, { startupTimeoutMs: 60_000, bundleRoot: REPO_ROOT }),
+    stdout,
+  }
 }
 
 async function unary(

@@ -1,7 +1,7 @@
 /** Narrow context-isolated renderer bridge. */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import type { RendererStreamEvent } from './renderer-ipc.ts'
+import { parseRendererStreamEvent, type RendererStreamEvent } from './renderer-ipc.ts'
 
 interface RendererRequest {
   readonly id: string
@@ -18,6 +18,23 @@ interface RendererResponse {
 }
 
 const boot: unknown = ipcRenderer.sendSync('dsh:boot')
+const streamListeners = new Set<(message: RendererStreamEvent) => void>()
+
+ipcRenderer.on('dsh:stream', (_event: unknown, value: unknown) => {
+  const message = parseRendererStreamEvent(value)
+  if (message === undefined) {
+    console.error('[desktop-preload] dropped malformed stream IPC message')
+    return
+  }
+  for (const listener of [...streamListeners]) {
+    try {
+      listener(message)
+    } catch (error) {
+      console.error('[desktop-preload] stream listener threw:', error)
+    }
+  }
+  ipcRenderer.send('dsh:stream-ack', message.id)
+})
 
 contextBridge.exposeInMainWorld('__DSH_BOOT__', boot)
 contextBridge.exposeInMainWorld('dshDesktop', {
@@ -26,8 +43,7 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   subscribe: (id: string, stream: 'mux' | 'host'): void => { ipcRenderer.send('dsh:subscribe', id, stream) },
   cancelSubscription: (id: string): void => { ipcRenderer.send('dsh:cancel-subscription', id) },
   onStream: (listener: (message: RendererStreamEvent) => void): (() => void) => {
-    const handler = (_event: unknown, message: RendererStreamEvent): void => { listener(message) }
-    ipcRenderer.on('dsh:stream', handler)
-    return () => { ipcRenderer.removeListener('dsh:stream', handler) }
+    streamListeners.add(listener)
+    return () => { streamListeners.delete(listener) }
   },
 })

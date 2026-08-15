@@ -1,5 +1,7 @@
 /** Electron-main ownership of one application-scoped DSH child. */
 
+import { realpathSync, statSync } from 'node:fs'
+import { extname, isAbsolute, relative, resolve, sep } from 'node:path'
 import type {
   DesktopChildMessage,
   DesktopParentMessage,
@@ -15,20 +17,23 @@ export interface DshChild {
   readonly connected: boolean
   readonly exitCode: number | null
   readonly signalCode: NodeJS.Signals | null
-  send(message: DesktopParentMessage): boolean
+  send(message: DesktopParentMessage, callback?: (error: Error | null) => void): boolean
   kill(signal?: NodeJS.Signals | number): boolean
   on(event: 'message', listener: (message: unknown) => void): this
   on(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this
   on(event: 'error', listener: (error: Error) => void): this
+  on(event: 'disconnect', listener: () => void): this
   off(event: 'message', listener: (message: unknown) => void): this
   off(event: 'exit', listener: (code: number | null, signal: NodeJS.Signals | null) => void): this
   off(event: 'error', listener: (error: Error) => void): this
+  off(event: 'disconnect', listener: () => void): this
 }
 
 /** Configured supervisor deadlines. */
 export interface SupervisorOptions {
   readonly startupTimeoutMs?: number
   readonly shutdownTimeoutMs?: number
+  readonly bundleRoot?: string
 }
 
 interface PendingRequest {
@@ -36,8 +41,117 @@ interface PendingRequest {
   reject(error: Error): void
 }
 
+interface SubscriptionState {
+  readonly stream: 'mux' | 'host'
+  cancelling: boolean
+}
+
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 15_000
+
+type SendResult =
+  | { readonly kind: 'accepted' | 'backpressured' }
+  | { readonly kind: 'closed' }
+  | { readonly kind: 'failed'; readonly error: Error }
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+function isId(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+function parseHeaders(value: unknown): Array<readonly [string, string]> | undefined {
+  if (!Array.isArray(value)) return undefined
+  const headers: Array<readonly [string, string]> = []
+  for (const header of value) {
+    if (!Array.isArray(header) || header.length !== 2
+      || typeof header[0] !== 'string' || typeof header[1] !== 'string') return undefined
+    headers.push([header[0], header[1]])
+  }
+  return headers
+}
+
+function bundlePathWithin(root: string, value: unknown): string | undefined {
+  if (typeof value !== 'string' || !isAbsolute(value) || extname(value) !== '.js') return undefined
+  try {
+    const canonicalRoot = realpathSync(root)
+    const canonicalPath = realpathSync(value)
+    const rel = relative(canonicalRoot, canonicalPath)
+    if (rel === '' || rel === '..' || rel.startsWith(`..${sep}`) || isAbsolute(rel)) return undefined
+    if (!statSync(canonicalPath).isFile()) return undefined
+    return canonicalPath
+  } catch (_error: unknown) {
+    // A missing, unreadable, or link-escaped file is invalid child wire input.
+    return undefined
+  }
+}
+
+function parseReadyMessage(value: Record<string, unknown>, bundleRoot: string): ReadyMessage | undefined {
+  if (!isRecord(value.graph) || typeof value.graph.rev !== 'string' || !Array.isArray(value.graph.entries)) return undefined
+  const entries: ReadyMessage['graph']['entries'] = []
+  for (const entry of value.graph.entries) {
+    if (!isRecord(entry)
+      || typeof entry.id !== 'string'
+      || typeof entry.url !== 'string'
+      || typeof entry.rev !== 'string'
+      || (entry.inject !== undefined
+        && (!Array.isArray(entry.inject) || entry.inject.some(item => typeof item !== 'string')))
+      || (entry.immediately !== undefined && typeof entry.immediately !== 'boolean')) return undefined
+    entries.push({
+      id: entry.id,
+      url: entry.url,
+      rev: entry.rev,
+      ...(entry.inject === undefined ? {} : { inject: [...entry.inject as string[]] }),
+      ...(entry.immediately === undefined ? {} : { immediately: entry.immediately }),
+    })
+  }
+  if (!Array.isArray(value.bundles)) return undefined
+  const bundles: ReadyMessage['bundles'][number][] = []
+  for (const bundle of value.bundles) {
+    if (!isRecord(bundle) || !isId(bundle.id)) return undefined
+    const path = bundlePathWithin(bundleRoot, bundle.path)
+    if (path === undefined) return undefined
+    bundles.push({ id: bundle.id, path })
+  }
+  const entryIds = entries.map(entry => entry.id)
+  const bundleIds = bundles.map(bundle => bundle.id)
+  if (new Set(entryIds).size !== entryIds.length
+    || new Set(bundleIds).size !== bundleIds.length
+    || entryIds.length !== bundleIds.length
+    || entryIds.some(id => !bundleIds.includes(id))) return undefined
+  return { type: 'ready', graph: { rev: value.graph.rev, entries }, bundles }
+}
+
+/** Validate one untrusted child-process message before correlation or stream dispatch. */
+export function parseDesktopChildMessage(value: unknown, bundleRoot = process.cwd()): DesktopChildMessage | undefined {
+  if (!isRecord(value) || typeof value.type !== 'string') return undefined
+  if (value.type === 'ready') return parseReadyMessage(value, resolve(bundleRoot))
+  if (!isId(value.id)) return undefined
+  switch (value.type) {
+    case 'response': {
+      const headers = parseHeaders(value.headers)
+      if (!Number.isInteger(value.status) || (value.status as number) < 100 || (value.status as number) > 599
+        || headers === undefined || typeof value.body !== 'string') return undefined
+      return { type: 'response', id: value.id, status: value.status as number, headers, body: value.body }
+    }
+    case 'request-error':
+    case 'stream-error':
+      return typeof value.message === 'string'
+        ? { type: value.type, id: value.id, message: value.message }
+        : undefined
+    case 'stream-open':
+    case 'stream-end':
+      return { type: value.type, id: value.id }
+    case 'stream-message':
+      return Object.hasOwn(value, 'message')
+        ? { type: 'stream-message', id: value.id, message: value.message }
+        : undefined
+    default:
+      return undefined
+  }
+}
 
 function errorOf(message: RequestErrorMessage): Error {
   return new Error(`desktop DSH request ${message.id} failed: ${message.message}`)
@@ -47,8 +161,11 @@ function errorOf(message: RequestErrorMessage): Error {
 export class DshSupervisor {
   private readonly startupTimeoutMs: number
   private readonly shutdownTimeoutMs: number
+  private readonly bundleRoot: string
   private readonly ready = Promise.withResolvers<ReadyMessage>()
   private readonly pending = new Map<string, PendingRequest>()
+  private readonly subscriptions = new Map<string, SubscriptionState>()
+  private readonly queuedSubscriptions = new Map<'mux' | 'host', string>()
   private readonly streamListeners = new Set<(message: StreamMessage) => void>()
   private stopping: Promise<void> | undefined
   private settledReady = false
@@ -56,9 +173,14 @@ export class DshSupervisor {
   constructor(private readonly child: DshChild, options: SupervisorOptions = {}) {
     this.startupTimeoutMs = options.startupTimeoutMs ?? DEFAULT_STARTUP_TIMEOUT_MS
     this.shutdownTimeoutMs = options.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS
+    this.bundleRoot = resolve(options.bundleRoot ?? process.cwd())
+    void this.ready.promise.catch((_error: unknown) => {
+      // Child failure can precede start(); start() remains the public observer.
+    })
     child.on('message', this.onMessage)
     child.on('exit', this.onExit)
     child.on('error', this.onError)
+    child.on('disconnect', this.onDisconnect)
   }
 
   /** Wait for the child composition and client graph to settle. */
@@ -78,24 +200,78 @@ export class DshSupervisor {
     if (this.pending.has(message.id)) return Promise.reject(new Error(`duplicate desktop request id ${message.id}`))
     if (!this.child.connected) return Promise.reject(new Error('desktop DSH child IPC channel is closed'))
     const result = Promise.withResolvers<ResponseMessage>()
+    void result.promise.catch((_error: unknown) => {
+      // A synchronous send failure may reject before the caller attaches await.
+    })
     this.pending.set(message.id, result)
-    this.send(message)
+    const sent = this.send(message)
+    if (sent.kind === 'closed' || sent.kind === 'failed') {
+      this.pending.delete(message.id)
+      result.reject(sent.kind === 'closed'
+        ? new Error('desktop DSH child IPC channel is closed')
+        : new Error(`desktop DSH child IPC send failed: ${sent.error.message}`))
+    }
     return result.promise
   }
 
   /** Forward cancellation for a renderer-owned unary call. */
   cancelRequest(id: string): void {
-    this.send({ type: 'cancel-request', id })
+    const pending = this.pending.get(id)
+    if (pending !== undefined) {
+      this.pending.delete(id)
+      pending.reject(new Error(`desktop DSH request ${id} cancelled`))
+    }
+    this.cancelChildResource({ type: 'cancel-request', id })
   }
 
   /** Open one renderer-owned logical event stream. */
   subscribe(id: string, stream: 'mux' | 'host'): void {
-    this.send({ type: 'subscribe', id, stream })
+    if (this.subscriptions.has(id)) {
+      this.cancelSubscription(id)
+      this.terminateRendererStream(id, 'duplicate subscription id')
+      return
+    }
+    if ([...this.queuedSubscriptions.values()].includes(id)) {
+      this.terminateRendererStream(id, 'duplicate subscription id')
+      return
+    }
+    const active = [...this.subscriptions.entries()].find(([, state]) => state.stream === stream)
+    if (active !== undefined) {
+      if (active[1].cancelling && !this.queuedSubscriptions.has(stream)) {
+        this.queuedSubscriptions.set(stream, id)
+        return
+      }
+      this.terminateRendererStream(id, `duplicate ${stream} subscription`)
+      return
+    }
+    this.openSubscription(id, stream)
   }
 
   /** Close one renderer-owned logical event stream. */
   cancelSubscription(id: string): void {
-    this.send({ type: 'cancel-subscription', id })
+    for (const [stream, queuedId] of this.queuedSubscriptions) {
+      if (queuedId === id) this.queuedSubscriptions.delete(stream)
+    }
+    const state = this.subscriptions.get(id)
+    if (state === undefined || state.cancelling) return
+    state.cancelling = true
+    this.cancelChildResource({ type: 'cancel-subscription', id })
+  }
+
+  /** Cancel every resource owned by a renderer generation that ended or reloaded. */
+  disconnectRenderer(): void {
+    const requestIds = [...this.pending.keys()]
+    const subscriptionIds = [...this.subscriptions.entries()]
+      .filter(([, state]) => !state.cancelling)
+      .map(([id]) => id)
+    for (const id of requestIds) this.cancelChildResource({ type: 'cancel-request', id })
+    for (const id of subscriptionIds) {
+      const state = this.subscriptions.get(id)
+      if (state !== undefined) state.cancelling = true
+      this.cancelChildResource({ type: 'cancel-subscription', id })
+    }
+    this.failPending(new Error('desktop renderer disconnected'))
+    this.queuedSubscriptions.clear()
   }
 
   /** Observe stream lifecycle messages for forwarding to the renderer. */
@@ -110,13 +286,57 @@ export class DshSupervisor {
     return this.stopping
   }
 
-  private send(message: DesktopParentMessage): void {
-    if (!this.child.connected) return
-    this.child.send(message)
+  private openSubscription(id: string, stream: 'mux' | 'host'): void {
+    this.subscriptions.set(id, { stream, cancelling: false })
+    const sent = this.send({ type: 'subscribe', id, stream })
+    if (sent.kind === 'closed' || sent.kind === 'failed') {
+      this.rejectSubscription(id, sent.kind === 'closed'
+        ? 'desktop DSH child IPC channel is closed'
+        : `desktop DSH child IPC send failed: ${sent.error.message}`)
+    }
+  }
+
+  private rejectSubscription(id: string, message: string): void {
+    this.subscriptions.delete(id)
+    this.terminateRendererStream(id, message)
+  }
+
+  private terminateRendererStream(id: string, message: string): void {
+    this.publishStream({ type: 'stream-error', id, message })
+    this.publishStream({ type: 'stream-end', id })
+  }
+
+  private cancelChildResource(message: Extract<DesktopParentMessage, { type: 'cancel-request' | 'cancel-subscription' }>): void {
+    const sent = this.send(message)
+    if (sent.kind === 'closed' || sent.kind === 'failed') this.failClosed()
+  }
+
+  private failClosed(): void {
+    void this.stop().catch((error: unknown) => {
+      console.error('[desktop-supervisor] fail-closed child shutdown failed:', error)
+    })
+  }
+
+  private send(message: DesktopParentMessage): SendResult {
+    if (!this.child.connected) return { kind: 'closed' }
+    try {
+      const accepted = this.child.send(message, (error) => {
+        if (error !== null) this.onSendError(message, error)
+      })
+      return { kind: accepted ? 'accepted' : 'backpressured' }
+    } catch (error: unknown) {
+      const failure = error instanceof Error ? error : new Error(String(error))
+      console.error('[desktop-supervisor] child IPC send failed:', failure)
+      return { kind: 'failed', error: failure }
+    }
   }
 
   private readonly onMessage = (value: unknown): void => {
-    const message = value as DesktopChildMessage
+    const message = parseDesktopChildMessage(value, this.bundleRoot)
+    if (message === undefined) {
+      console.error('[desktop-supervisor] dropped malformed child IPC message')
+      return
+    }
     if (message.type === 'ready') {
       if (this.settledReady) return
       this.settledReady = true
@@ -137,20 +357,100 @@ export class DshSupervisor {
       pending.reject(errorOf(message))
       return
     }
-    for (const listener of this.streamListeners) listener(message)
+    const subscription = this.subscriptions.get(message.id)
+    if (subscription === undefined) return
+    if (message.type === 'stream-end') {
+      this.subscriptions.delete(message.id)
+      if (!subscription.cancelling) this.publishStream(message)
+      const successor = this.queuedSubscriptions.get(subscription.stream)
+      if (successor !== undefined) {
+        this.queuedSubscriptions.delete(subscription.stream)
+        this.openSubscription(successor, subscription.stream)
+      }
+      return
+    }
+    if (!subscription.cancelling) this.publishStream(message)
   }
 
   private readonly onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
     const error = new Error(`desktop DSH child exited before shutdown completed (code ${String(code)}, signal ${String(signal)})`)
     if (this.stopping === undefined) this.rejectReady(error)
-    for (const pending of this.pending.values()) pending.reject(error)
-    this.pending.clear()
+    this.failPending(error)
+    this.closeStreams(this.stopping === undefined ? error : undefined)
   }
 
   private readonly onError = (error: Error): void => {
     this.rejectReady(error)
+    this.failPending(error)
+    this.closeStreams(error)
+    this.failClosed()
+  }
+
+  private readonly onDisconnect = (): void => {
+    const error = new Error('desktop DSH child IPC channel disconnected')
+    this.rejectReady(error)
+    this.failPending(error)
+    this.closeStreams(error)
+    this.failClosed()
+  }
+
+  private onSendError(message: DesktopParentMessage, error: Error): void {
+    console.error('[desktop-supervisor] child IPC send callback failed:', error)
+    if (message.type === 'request') {
+      const pending = this.pending.get(message.id)
+      if (pending === undefined) return
+      this.pending.delete(message.id)
+      pending.reject(new Error(`desktop DSH child IPC send failed: ${error.message}`))
+      return
+    }
+    if (message.type === 'subscribe') {
+      const subscription = this.subscriptions.get(message.id)
+      if (subscription !== undefined) {
+        if (subscription.cancelling) this.failClosed()
+        else this.rejectSubscription(message.id, `desktop DSH child IPC send failed: ${error.message}`)
+      }
+      return
+    }
+    if (message.type === 'cancel-subscription') {
+      if (this.subscriptions.has(message.id)) {
+        this.subscriptions.delete(message.id)
+        this.terminateRendererStream(message.id, `desktop DSH child IPC send failed: ${error.message}`)
+      }
+      this.failClosed()
+      return
+    }
+    this.failClosed()
+  }
+
+  private publishStream(message: StreamMessage): void {
+    for (const listener of [...this.streamListeners]) {
+      try {
+        listener(message)
+      } catch (error) {
+        console.error('[desktop-supervisor] stream listener threw:', error)
+      }
+    }
+  }
+
+  private failPending(error: Error): void {
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
+  }
+
+  private closeStreams(error?: Error): void {
+    const subscriptions = [...this.subscriptions.entries()]
+    const queued = [...this.queuedSubscriptions.values()]
+    this.subscriptions.clear()
+    this.queuedSubscriptions.clear()
+    for (const [id, state] of subscriptions) {
+      if (state.cancelling) continue
+      if (error === undefined) this.publishStream({ type: 'stream-end', id })
+      else this.terminateRendererStream(id, error.message)
+    }
+    for (const id of queued) {
+      if (error === undefined) this.publishStream({ type: 'stream-end', id })
+      else this.terminateRendererStream(id, error.message)
+    }
   }
 
   private rejectReady(error: Error): void {
@@ -160,6 +460,8 @@ export class DshSupervisor {
   }
 
   private async stopOnce(): Promise<void> {
+    this.failPending(new Error('desktop DSH child is stopping'))
+    this.closeStreams()
     if (this.child.exitCode !== null || this.child.signalCode !== null) {
       this.detach()
       return
@@ -190,6 +492,9 @@ export class DshSupervisor {
     this.child.off('message', this.onMessage)
     this.child.off('exit', this.onExit)
     this.child.off('error', this.onError)
+    this.child.off('disconnect', this.onDisconnect)
+    this.subscriptions.clear()
+    this.queuedSubscriptions.clear()
     this.streamListeners.clear()
   }
 }

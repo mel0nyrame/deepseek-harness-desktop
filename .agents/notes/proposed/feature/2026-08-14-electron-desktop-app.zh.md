@@ -156,4 +156,12 @@ Electron 会增加应用体积和内存使用。该决策接受此成本，因�
 - 本机 macOS 缺少屏幕录制与辅助功能自动化权限，因此录制帧来自 `webContents.capturePage()`：帧不含原生 traffic lights 图形，合成输入也无法像操作系统指针拖拽那样移动原生窗口。证据由帧与受检的已配置／已观测原生窗口状态共同构成；具备权限的机器可以用系统级捕获替换帧，而断言无需改动。
 - Electron 支持的接口已满足所需布局，因此未加入原生视觉效果 addon。
 
-问题 #5（载体加固：有界背压与 renderer 生命周期关闭）仍然开放，其验收标准继续适用。#3 打包切片中发布级的签名、公证与跨架构产物延后到后续工单。
+问题 #5 已交付载体加固切片：
+
+- [`DesktopApiClient`](../../../../packages/client/connection/src/client/desktop-api-client.ts) 每条逻辑流最多保留 256 个已解析 frame。溢出会清空队列、取消物理订阅并以错误终止；调用方取消会先丢弃排队 frame 再关闭。共享 zod wire schema 仍会在 Connection 分发前解析每个 server-request envelope 与 mux／Host payload。
+- desktop 子进程 runtime 会在业务分发前校验每条父进程命令。每条流都会等待子进程 IPC send callback 后再读取下一条 frame，因此原生 channel 背压会限制 in-flight 工作并保持已接受消息的顺序；传输故障会中止 source 并被报告，而不会被误称为背压。Electron main 会校验每条子进程消息，并且只接受解析为配置运行时根目录下真实 `.js` 文件的就绪握手 bundle 路径；preload 则会在交付 renderer 前再次校验生命周期通知。
+- Electron main 通过有界 relay 确认 renderer 交付，每条流只保留有限的 in-flight／排队窗口；溢出或重复的 open 通知会取消子进程订阅，并按顺序发出 `error`／`end` 关闭。preload 使用一个通知 dispatcher，每条事件只发送一次确认。每种逻辑 `mux` 与 `host` 流最多允许一个活跃订阅。
+- [`DshSupervisor`](../../../../apps/desktop/src/supervisor.ts) 持有 renderer 请求与订阅的关联关系。取消会立即释放关联；main-frame reload／导航、renderer 崩溃／销毁、子进程 IPC 断连／退出／报错、应用 stop 与启动失败都会结算各自持有的资源，不留下存活流或子进程。listener 异常由各自 dispatcher 内部隔离。
+- 沙箱化、context-isolated 的 renderer 仍然只接收窄 preload 桥，Web 产品保留 HTTP/WebSocket 载体且不引入 Electron 运行时依赖。这次仅传输层变化不新增模型可见输入或输出；Electron／Web 共享载体约定、聚焦的 client／runtime／preload／supervisor 测试、真实 desktop 组合以及安装态窗口 tracer 场景共同钉住该行为。
+
+问题 #6、#7 与 #8 仍分别负责交互一致性、Host 恢复和原生路径操作。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。

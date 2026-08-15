@@ -8,6 +8,12 @@
 
 `pnpm run dev:desktop`（仓库根目录）先构建工作区，再以开发模式启动 Electron 主进程：DSH 子进程通过 `apps/cli/lib/bin.js` 从源码树启动并运行在环境 Node 上，Web 前端由构建产物 `dist` 提供，退出时终止整个自有进程树。无密钥的开发版 tracer bullet（`apps/desktop/tests/real-composition.e2e.ts`）在不打开窗口的情况下覆盖同一链路。
 
+## 载体安全与生命周期
+
+`BrowserWindow` 保持 `contextIsolation: true`、`nodeIntegration: false` 和 `sandbox: true`。preload 只暴露启动、unary 请求／取消、流订阅／取消以及流通知操作。Electron main 只接受来自精确 `dsh://app` frame 的调用，并校验每个 payload；子进程到 main 的消息以及 main 到 preload 的生命周期通知会在关联请求或交付 renderer 前再次校验，就绪握手中的 bundle 路径还必须解析为配置的开发或打包运行时根目录下的真实 `.js` 文件。随后由现有 Connection zod schema 在客户端分发前校验 RPC envelope 与 mux／Host frame。
+
+每个 renderer 订阅最多保留 256 个已解析 frame。Electron main 会确认已交付的通知，并限制每条流 relay 的 in-flight 与排队状态；溢出或重复的 open 通知会取消物理订阅，并按顺序发出 error／end 关闭。preload 通过一个 dispatcher 分发每条已校验通知，并且只确认一次。renderer 溢出会清空队列、取消物理订阅，并以错误终止 iterator；调用方取消会立即丢弃排队 frame。子进程流泵会在读取下一条 frame 前等待每次 IPC send callback，因此原生 channel 背压会暂停有序 source，不会把已经接受的消息误判为丢失。main-frame reload／导航、renderer 崩溃或 renderer 销毁时，Electron main 会取消 renderer 持有的请求与流；子进程 IPC 断连、退出或报错会关闭所有活跃请求与流，应用退出或启动失败则会停止并等待子进程退出。
+
 ## 打包（macOS）
 
 `pnpm --filter @deepseek-ai/dsh-desktop run package` 会在 `apps/desktop/dist/mac<可选架构后缀>/DSH Desktop.app` 产出主机架构的无签名应用包，过程分五步（[`scripts/package.ts`](scripts/package.ts)）：

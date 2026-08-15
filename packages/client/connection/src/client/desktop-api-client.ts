@@ -40,6 +40,9 @@ export interface DesktopBridge {
   onStream(listener: (event: DesktopStreamEvent) => void): () => void
 }
 
+/** Maximum parsed frames retained for one renderer subscription. */
+export const DESKTOP_STREAM_QUEUE_LIMIT = 256
+
 type StreamItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' } | { kind: 'error'; error: Error }
 type Parser<F> = { parse(value: unknown): F }
 
@@ -132,11 +135,32 @@ export class DesktopApiClient extends AbstractApiClient {
   ): AsyncGenerator<RpcRequest<F>> {
     const id = crypto.randomUUID()
     const inbox: StreamItem<F>[] = []
+    let terminal: StreamItem<F> | undefined
     let wake: (() => void) | undefined
-    const enqueue = (item: StreamItem<F>): void => {
-      inbox.push(item)
-      wake?.()
+    const wakeReader = (): void => {
+      const reader = wake
       wake = undefined
+      reader?.()
+    }
+    const enqueue = (item: StreamItem<F>): void => {
+      if (terminal !== undefined) return
+      if (item.kind !== 'frame') {
+        terminal = item
+        wakeReader()
+        return
+      }
+      if (inbox.length >= DESKTOP_STREAM_QUEUE_LIMIT) {
+        inbox.length = 0
+        terminal = {
+          kind: 'error',
+          error: new Error(`desktop ${stream} stream queue limit of ${String(DESKTOP_STREAM_QUEUE_LIMIT)} frames exceeded`),
+        }
+        this.bridge.cancelSubscription(id)
+        wakeReader()
+        return
+      }
+      inbox.push(item)
+      wakeReader()
     }
     const unsubscribe = this.bridge.onStream((event) => {
       if (event.id !== id) return
@@ -161,10 +185,18 @@ export class DesktopApiClient extends AbstractApiClient {
         console.error(`[client-connection] dropping malformed desktop frame on ${stream}:`, error)
         return
       }
-      this.onEnvelope(full)
+      if (terminal !== undefined || inbox.length >= DESKTOP_STREAM_QUEUE_LIMIT) {
+        enqueue({ kind: 'frame', envelope: { rpcId: full.rpcId, payload: frame } })
+        return
+      }
       enqueue({ kind: 'frame', envelope: { rpcId: full.rpcId, payload: frame } })
+      this.onEnvelope(full)
     })
-    const handleAbort = (): void => { this.bridge.cancelSubscription(id) }
+    const handleAbort = (): void => {
+      this.bridge.cancelSubscription(id)
+      inbox.length = 0
+      enqueue({ kind: 'end' })
+    }
     signal.addEventListener('abort', handleAbort, { once: true })
     this.bridge.subscribe(id, stream)
     if (signal.aborted) handleAbort()
@@ -176,6 +208,8 @@ export class DesktopApiClient extends AbstractApiClient {
           if (item.kind === 'error') throw item.error
           yield item.envelope
         }
+        if (terminal?.kind === 'end') return
+        if (terminal?.kind === 'error') throw terminal.error
         await new Promise<void>((resolve) => { wake = resolve })
       }
     } finally {

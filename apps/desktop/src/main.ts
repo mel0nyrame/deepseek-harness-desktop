@@ -11,13 +11,14 @@ import {
   type IpcMainEvent, type IpcMainInvokeEvent,
 } from 'electron'
 import { DshSupervisor } from './supervisor.ts'
+import { RendererStreamRelay } from './renderer-stream-relay.ts'
 import {
   PACKAGED_CHILD_EXEC_ARGV,
   packagedChildEnv,
   packagedRuntimeLayout,
   parseSmokeInvocation,
 } from './packaged-runtime.ts'
-import { prepareSmokeProfile, runSmokeScenario } from './smoke.ts'
+import { prepareSmokeProfile, RECORDED_PROMPT, runSmokeScenario } from './smoke.ts'
 import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
 import {
   isDesktopAppUrl,
@@ -50,6 +51,7 @@ interface DesktopBoot {
 /** Spawn inputs shared by the development and packaged layouts. */
 interface DshChildOptions {
   readonly cliEntry: string
+  readonly bundleRoot: string
   readonly cwd: string
   readonly execPath: string
   readonly execArgv: readonly string[]
@@ -97,12 +99,9 @@ function registerAssetProtocol(webDist: string, bundles: ReadonlyMap<string, str
     if (type === undefined) return response
     const headers = new Headers(response.headers)
     headers.set('content-type', type)
-    // No CSP here for parity with the Web deployment, which serves the same
-    // client without one: the client kernel evaluates `!!js` config through
-    // `new Function`, so a strict header blanks the renderer. The renderer
-    // runs sandboxed, context-isolated, and without Node; the preload bridge
-    // is the security boundary. CSP hardening belongs to the carrier
-    // completion issue (#5).
+    // The shared client evaluates `!!js` config through `new Function`, so a
+    // strict CSP would blank both carriers. Renderer isolation and the narrow
+    // preload bridge remain the Electron carrier's security boundary.
     return new Response(response.body, { status: response.status, headers })
   })
 }
@@ -121,15 +120,20 @@ function spawnDshChild(options: DshChildOptions): { supervisor: DshSupervisor; c
   })
   child.stdout?.on('data', (chunk: Buffer) => { process.stdout.write(chunk) })
   child.stderr?.on('data', (chunk: Buffer) => { process.stderr.write(chunk) })
-  return { supervisor: new DshSupervisor(child), childPid: child.pid }
+  return {
+    supervisor: new DshSupervisor(child, { bundleRoot: options.bundleRoot }),
+    childPid: child.pid,
+  }
 }
 
 /** Development layout: the child runs from the source tree like `dsh --profile desktop`. */
 function developmentChildOptions(): DshChildOptions {
   const cli = resolve(packageDir('@deepseek-ai/dsh'), 'lib', 'bin.js')
+  const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
   return {
     cliEntry: cli,
-    cwd: resolve(fileURLToPath(new URL('../../..', import.meta.url))),
+    bundleRoot: repoRoot,
+    cwd: repoRoot,
     execPath: process.env.DSH_NODE_EXECUTABLE ?? 'node',
     execArgv: [],
     env: process.env,
@@ -148,6 +152,7 @@ function packagedChildOptions(smoke: boolean): DshChildOptions {
   const env = packagedChildEnv(process.env, layout.ptySpawnHelper)
   return {
     cliEntry: layout.cliEntry,
+    bundleRoot: layout.runtimeRoot,
     cwd: layout.childCwd,
     execPath: process.execPath,
     execArgv: PACKAGED_CHILD_EXEC_ARGV,
@@ -159,49 +164,101 @@ function packagedChildOptions(smoke: boolean): DshChildOptions {
 
 function senderIs(window: BrowserWindow, event: IpcMainEvent | IpcMainInvokeEvent): boolean {
   return event.sender === window.webContents
-    && event.senderFrame !== null
+    && event.senderFrame === window.webContents.mainFrame
     && isDesktopAppUrl(event.senderFrame.url)
 }
 
 function installIpc(window: BrowserWindow, supervisor: DshSupervisor, boot: DesktopBoot): () => void {
-  const assertSender = (event: IpcMainEvent | IpcMainInvokeEvent): void => {
+  const webContents = window.webContents
+  const senderAllowed = (event: IpcMainEvent): boolean => {
+    if (senderIs(window, event)) return true
+    console.error('[desktop-main] dropped IPC from an unknown sender')
+    return false
+  }
+  const assertInvokeSender = (event: IpcMainInvokeEvent): void => {
     if (!senderIs(window, event)) throw new Error('desktop IPC rejected an unknown sender')
   }
+  const relay = new RendererStreamRelay(
+    (message) => {
+      if (window.isDestroyed()) return false
+      try {
+        window.webContents.send('dsh:stream', message)
+        return true
+      } catch (error: unknown) {
+        console.error('[desktop-main] renderer stream send failed:', error)
+        return false
+      }
+    },
+    (id) => { supervisor.cancelSubscription(id) },
+  )
   ipcMain.on('dsh:boot', (event) => {
-    assertSender(event)
+    if (!senderAllowed(event)) return
     event.returnValue = boot
   })
   ipcMain.handle('dsh:request', (event, value: unknown) => {
-    assertSender(event)
+    assertInvokeSender(event)
     const request = parseRendererRequest(value)
     if (request === undefined) throw new Error('desktop IPC rejected a malformed request')
     return supervisor.request(request)
   })
   ipcMain.on('dsh:cancel-request', (event, value: unknown) => {
-    assertSender(event)
+    if (!senderAllowed(event)) return
     const id = parseRendererId(value)
-    if (id === undefined) return
+    if (id === undefined) {
+      console.error('[desktop-main] dropped malformed request cancellation')
+      return
+    }
     supervisor.cancelRequest(id)
   })
   ipcMain.on('dsh:subscribe', (event, idValue: unknown, streamValue: unknown) => {
-    assertSender(event)
+    if (!senderAllowed(event)) return
     const subscription = parseRendererSubscription(idValue, streamValue)
-    if (subscription === undefined) return
+    if (subscription === undefined) {
+      console.error('[desktop-main] dropped malformed subscription')
+      return
+    }
     supervisor.subscribe(subscription.id, subscription.stream)
   })
   ipcMain.on('dsh:cancel-subscription', (event, value: unknown) => {
-    assertSender(event)
+    if (!senderAllowed(event)) return
     const id = parseRendererId(value)
-    if (id === undefined) return
+    if (id === undefined) {
+      console.error('[desktop-main] dropped malformed subscription cancellation')
+      return
+    }
+    relay.clear(id)
     supervisor.cancelSubscription(id)
   })
+  ipcMain.on('dsh:stream-ack', (event, value: unknown) => {
+    if (!senderAllowed(event)) return
+    const id = parseRendererId(value)
+    if (id === undefined) {
+      console.error('[desktop-main] dropped malformed stream acknowledgement')
+      return
+    }
+    relay.ack(id)
+  })
+  const disconnectRenderer = (): void => {
+    relay.clearAll()
+    supervisor.disconnectRenderer()
+  }
+  const onNavigation = (): void => { disconnectRenderer() }
+  webContents.on('render-process-gone', disconnectRenderer)
+  webContents.on('destroyed', disconnectRenderer)
+  webContents.on('did-navigate', onNavigation)
   const stopStreams = supervisor.onStream((message) => {
-    if (!window.isDestroyed()) window.webContents.send('dsh:stream', toRendererStreamEvent(message))
+    relay.push(toRendererStreamEvent(message))
   })
   return () => {
     stopStreams()
+    relay.clearAll()
+    if (!webContents.isDestroyed()) {
+      webContents.off('render-process-gone', disconnectRenderer)
+      webContents.off('destroyed', disconnectRenderer)
+      webContents.off('did-navigate', onNavigation)
+    }
     ipcMain.removeHandler('dsh:request')
-    for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription']) {
+    for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription', 'dsh:stream-ack']) {
       ipcMain.removeAllListeners(channel)
     }
   }
@@ -211,68 +268,81 @@ let quitting: Promise<void> | undefined
 
 /** Boot the desktop window over a started supervisor. */
 async function bootWindow(supervisor: DshSupervisor, webDist: string): Promise<BrowserWindow> {
-  const ready = await supervisor.start()
-  const bundlePaths = new Map(ready.bundles.map(bundle => [tokenFor(bundle.id), bundle.path]))
-  const boot: DesktopBoot = {
-    rev: ready.graph.rev,
-    entries: ready.graph.entries.map(entry => ({
-      ...entry,
-      url: `${APP_ORIGIN}/bundle/${tokenFor(entry.id)}.js?rev=${entry.rev}`,
-    })),
-  }
-  registerAssetProtocol(webDist, bundlePaths)
-
-  const window = new BrowserWindow({
-    width: 1280,
-    height: 840,
-    minWidth: 900,
-    minHeight: 640,
-    ...desktopWindowOptions(process.platform),
-    webPreferences: {
-      preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  })
-  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-  window.webContents.on('will-navigate', (event, url) => {
-    if (!isDesktopAppUrl(url)) event.preventDefault()
-  })
-  const removeIpc = installIpc(window, supervisor, boot)
-  await window.loadURL(`${APP_ORIGIN}/index.html`)
-  await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
-  const applySurfaceState = (): void => {
-    const state = rendererSurfaceState(
-      nativeTheme.shouldUseDarkColors,
-      nativeTheme.prefersReducedTransparency,
-    )
-    void window.webContents.executeJavaScript(`
-      document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
-      document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
-    `).catch((error: unknown) => {
-      console.error(`desktop appearance update failed: ${String(error)}`)
-    })
-  }
-  applySurfaceState()
-  nativeTheme.on('updated', applySurfaceState)
-  window.once('closed', () => {
-    nativeTheme.off('updated', applySurfaceState)
-  })
-  app.on('before-quit', (event) => {
+  let removeIpc = (): void => {}
+  let window: BrowserWindow | undefined
+  const onBeforeQuit = (event: Electron.Event): void => {
     if (quitting !== undefined) return
     event.preventDefault()
+    removeIpc()
     quitting = (async () => {
-      removeIpc()
       await supervisor.stop().catch((error: unknown) => {
         console.error(`desktop DSH shutdown required force termination: ${String(error)}`)
       })
       app.quit()
     })()
-  })
+  }
+  app.on('before-quit', onBeforeQuit)
+  try {
+    const ready = await supervisor.start()
+    const bundlePaths = new Map(ready.bundles.map(bundle => [tokenFor(bundle.id), bundle.path]))
+    const boot: DesktopBoot = {
+      rev: ready.graph.rev,
+      entries: ready.graph.entries.map(entry => ({
+        ...entry,
+        url: `${APP_ORIGIN}/bundle/${tokenFor(entry.id)}.js?rev=${entry.rev}`,
+      })),
+    }
+    registerAssetProtocol(webDist, bundlePaths)
 
-  app.on('window-all-closed', () => { app.quit() })
-  return window
+    window = new BrowserWindow({
+      width: 1280,
+      height: 840,
+      minWidth: 900,
+      minHeight: 640,
+      ...desktopWindowOptions(process.platform),
+      webPreferences: {
+        preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: true,
+      },
+    })
+    const startedWindow = window
+    startedWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    startedWindow.webContents.on('will-navigate', (event, url) => {
+      if (!isDesktopAppUrl(url)) event.preventDefault()
+    })
+    removeIpc = installIpc(startedWindow, supervisor, boot)
+    await startedWindow.loadURL(`${APP_ORIGIN}/index.html`)
+    await startedWindow.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+    const applySurfaceState = (): void => {
+      const state = rendererSurfaceState(
+        nativeTheme.shouldUseDarkColors,
+        nativeTheme.prefersReducedTransparency,
+      )
+      void startedWindow.webContents.executeJavaScript(`
+      document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
+      document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
+    `).catch((error: unknown) => {
+        console.error(`desktop appearance update failed: ${String(error)}`)
+      })
+    }
+    applySurfaceState()
+    nativeTheme.on('updated', applySurfaceState)
+    startedWindow.once('closed', () => {
+      nativeTheme.off('updated', applySurfaceState)
+    })
+    app.on('window-all-closed', () => { app.quit() })
+    return startedWindow
+  } catch (error) {
+    app.off('before-quit', onBeforeQuit)
+    removeIpc()
+    if (window !== undefined && !window.isDestroyed()) window.destroy()
+    await supervisor.stop().catch((stopError: unknown) => {
+      console.error(`desktop startup cleanup failed to stop DSH: ${String(stopError)}`)
+    })
+    throw error
+  }
 }
 
 function onceWindowEvent(window: BrowserWindow, event: 'focus' | 'blur' | 'minimize' | 'restore'): Promise<void> {
@@ -337,6 +407,7 @@ async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
 
 const WORKSPACE_MENU = '[role="menu"] [role="menuitem"], [role="menu"] button, [role="listbox"] [role="option"]'
 const LIVE_COMPOSER = 'textarea:not([readonly]):not(:disabled)'
+const SETTLED_BASH_CARD = '[data-sample="bash"][data-state="ok"]'
 
 /** Pass the product's two named first-run gates through real pointer controls. */
 async function completeOnboarding(window: BrowserWindow): Promise<void> {
@@ -377,13 +448,15 @@ async function completeOnboarding(window: BrowserWindow): Promise<void> {
  * blank-session composer. Only real pointer input is used, because the
  * assembled client's own focus choreography outruns programmatic focus.
  */
-async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindow): Promise<void> {
+async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindow): Promise<string> {
   const workspaceDir = join(app.getPath('userData'), 'acceptance-workspace')
   await mkdir(workspaceDir, { recursive: true })
   const created = await desktopRpc(supervisor, 'accept-workspace', 'workspace.create', { path: workspaceDir })
   const workspace = created['workspace'] as Record<string, unknown>
   const workspaceId = String(workspace['workspaceId'])
-  await desktopRpc(supervisor, 'accept-session', 'session.create', { workspaceId })
+  const session = await desktopRpc(supervisor, 'accept-session', 'session.create', { workspaceId })
+  const sessionId = session['sessionId']
+  if (typeof sessionId !== 'string') throw new Error('desktop acceptance: session.create returned no session id')
   // The assembled workspace store loads its baseline once during client boot;
   // reload after adoption so the real picker observes the workspace created by
   // this acceptance run rather than an intentionally stale empty snapshot.
@@ -398,13 +471,21 @@ async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindo
   await waitForRenderer(window, "document.querySelector('textarea[aria-haspopup]') && !document.querySelector('textarea').disabled")
   // The trigger textarea is pointer-inert by design; its capsule card is the
   // pick target that opens the workspace picker.
-  await clickAt(window, '[data-composer-card]')
-  await waitForRenderer(window, `document.querySelector(${JSON.stringify(WORKSPACE_MENU)})`, 5_000)
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    await clickAt(window, '[data-composer-card]')
+    try {
+      await waitForRenderer(window, `document.querySelector(${JSON.stringify(WORKSPACE_MENU)})`, 2_000)
+      break
+    } catch (error) {
+      if (attempt === 2) throw error
+    }
+  }
   // The portaled menu pre-renders offscreen until placement; only click a
   // row whose measured box is actually on screen.
   await waitForRenderer(window, "(() => { const row = document.querySelector('[role=\"menu\"] [role=\"menuitem\"], [role=\"listbox\"] [role=\"option\"]'); if (row === null) return false; const box = row.getBoundingClientRect(); return box.width > 0 && box.height > 0 && box.top >= 0 && box.left >= 0; })()")
   await clickAt(window, '[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')
   await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})`)
+  return sessionId
 }
 
 /** Click the live composer for native focus and type through the real input-event path. */
@@ -430,6 +511,88 @@ async function typeIntoComposer(window: BrowserWindow): Promise<{ activeElement:
     })()`) as { activeElement: string; value: string }
   }
   throw new Error('desktop acceptance: keyboard input never reached the live composer')
+}
+
+/** Replace the live draft and submit it through the renderer's real Enter path. */
+async function submitRecordedPrompt(window: BrowserWindow): Promise<void> {
+  window.focus()
+  window.webContents.focus()
+  await clickAt(window, LIVE_COMPOSER)
+  const selected = await window.webContents.executeJavaScript(`(() => {
+    const textarea = document.querySelector(${JSON.stringify(LIVE_COMPOSER)});
+    if (!(textarea instanceof HTMLTextAreaElement)) return false;
+    textarea.select();
+    return document.activeElement === textarea && textarea.selectionStart === 0 && textarea.selectionEnd === textarea.value.length;
+  })()`) as boolean
+  if (!selected) throw new Error('desktop recording: the live composer draft could not be selected')
+  await window.webContents.insertText(RECORDED_PROMPT)
+  await waitForRenderer(
+    window,
+    `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ${JSON.stringify(RECORDED_PROMPT)}`,
+  )
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+  await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ''`)
+}
+
+interface RecordedHistoryEvent {
+  readonly type: string
+  readonly data?: unknown
+}
+
+/** Verify the replayed turn through durable history and its rendered bash card. */
+async function waitForRecordedTurn(
+  supervisor: DshSupervisor,
+  window: BrowserWindow,
+  sessionId: string,
+): Promise<void> {
+  const deadline = Date.now() + 60_000
+  let requestIndex = 0
+  let events: RecordedHistoryEvent[] = []
+  for (;;) {
+    requestIndex += 1
+    const history = await desktopRpc(supervisor, `record-history-${String(requestIndex)}`, 'session.history', {
+      sessionId,
+      maxMessages: 50,
+    })
+    const entries = history['events']
+    if (!Array.isArray(entries)) throw new Error('desktop recording: session.history returned no events')
+    events = entries.flatMap((entry): RecordedHistoryEvent[] => {
+      if (typeof entry !== 'object' || entry === null) return []
+      const event = (entry as { event?: unknown }).event
+      if (typeof event !== 'object' || event === null || typeof (event as { type?: unknown }).type !== 'string') return []
+      return [event as RecordedHistoryEvent]
+    })
+    const hasToolResult = events.some(event => event.type === 'tool/result')
+    const hasTurnEnd = events.some(event => event.type === 'turn/end')
+    const bashSettled = await window.webContents.executeJavaScript(
+      `Boolean(document.querySelector(${JSON.stringify(SETTLED_BASH_CARD)}))`,
+    ) as boolean
+    if (hasToolResult && hasTurnEnd && bashSettled) break
+    if (Date.now() > deadline) {
+      throw new Error(`desktop recording scenario did not settle; events: ${JSON.stringify(events).slice(0, 4000)}`)
+    }
+    await new Promise(resolveWait => setTimeout(resolveWait, 50))
+  }
+
+  const toolCall = events.find(event => event.type === 'tool/call') as { data?: { name?: unknown } } | undefined
+  if (toolCall?.data?.name !== 'bash') throw new Error('desktop recording: the replayed turn did not call bash')
+  const toolResult = events.find(event => event.type === 'tool/result') as {
+    data?: { message?: { content?: Array<{ type?: unknown; content?: unknown[] }> } }
+  } | undefined
+  const terminalText = toolResult?.data?.message?.content
+    ?.filter(part => part.type === 'tool-result')
+    .flatMap(part => part.content ?? [])
+    .filter(entry => typeof entry === 'object'
+      && entry !== null
+      && (entry as { type?: unknown }).type === 'text'
+      && typeof (entry as { text?: unknown }).text === 'string')
+    .map(entry => (entry as { text: string }).text)
+    .join('') ?? ''
+  if (!terminalText.includes('TERMINAL_OK')) {
+    throw new Error('desktop recording: the bash result did not contain TERMINAL_OK')
+  }
+  console.log('SMOKE_OK terminal')
 }
 
 /** Exercise the installed app's assembled renderer and visible native window. */
@@ -533,7 +696,6 @@ function parseReplayArg(argv: readonly string[]): string | undefined {
  */
 async function recordNativeWindow(
   supervisor: DshSupervisor,
-  childPid: number | undefined,
   webDist: string,
 ): Promise<void> {
   const framesDir = process.env.DSH_DESKTOP_FRAMES_DIR
@@ -587,7 +749,7 @@ async function recordNativeWindow(
     const dragAttemptBounds = window.getBounds()
     await capture('drag-strip-attempt')
 
-    await reachLiveComposer(supervisor, window)
+    const sessionId = await reachLiveComposer(supervisor, window)
     const keyboard = await typeIntoComposer(window)
     const controlBounds = window.getBounds()
     await capture('keyboard-typed')
@@ -618,7 +780,9 @@ async function recordNativeWindow(
       }
     })()
     try {
-      await runSmokeScenario(supervisor, childPid ?? process.pid)
+      console.log('SMOKE_OK session')
+      await submitRecordedPrompt(window)
+      await waitForRecordedTurn(supervisor, window, sessionId)
     } catch (error) {
       scenarioFailure = error instanceof Error ? error.message : String(error)
     } finally {
@@ -647,6 +811,7 @@ async function recordNativeWindow(
     window.destroy()
     await supervisor.stop()
   }
+  console.log('SMOKE_OK quit')
 }
 
 /** Print native and renderer state from a real BrowserWindow for automated acceptance. */
@@ -753,8 +918,8 @@ void app.whenReady().then(() => {
       const webDist = app.isPackaged
         ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
         : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
-      const { supervisor, childPid } = spawnDshChild(options)
-      await recordNativeWindow(supervisor, childPid, webDist)
+      const { supervisor } = spawnDshChild(options)
+      await recordNativeWindow(supervisor, webDist)
       app.exit(0)
       return
     }

@@ -248,6 +248,8 @@ describe('packaged desktop application', () => {
         scenarioFailure: string | null
       }
       expect(state.scenarioFailure).toBeNull()
+      expect(captured).not.toContain('UnhandledPromiseRejectionWarning')
+      expect(captured).not.toContain('Object has been destroyed')
       expect(state.framesDir).toBe(framesDir)
       expect(state.focus.slice(0, 3)).toEqual(['active', 'inactive', 'active'])
       expect(state.window.minimized).toBe(true)

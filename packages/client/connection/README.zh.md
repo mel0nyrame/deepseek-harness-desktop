@@ -8,7 +8,7 @@
 
 每个生产载体都向 `ConnectionController` 提供现有 `IApiClient` 接口，并通过 `tests/carrier-contract.client.ts` 中的可复用约定。该约定覆盖一元成功与业务错误信封、Client 对可响应 Host 请求的响应、彼此独立且有序的 mux 与 Host 流、`host.describe` 与两条流的打开信号均完成后的就绪（并保留已配置的缺失打开信号超时回退）、取消、畸形消息隔离、断线、有界订阅生命周期及清理。载体测试适配器只暴露逻辑流建立与投递、断线和存活订阅计数；约定不导入浏览器、网络、Electron 或 IPC primitive，因此非网络载体可原样应用。
 
-HTTP/WebSocket 适配器在 `tests/web-carrier-contract.client.spec.ts` 中运行该约定。载体专属测试继续负责请求信任、HTTP 状态映射、WebSocket 协商和 Host teardown 等物理 channel 行为。
+HTTP/WebSocket 适配器在 `tests/web-carrier-contract.client.spec.ts` 中运行该约定；Electron preload 适配器则在 `tests/desktop-carrier-contract.client.spec.ts` 中原样运行。每条 Electron 逻辑流最多保留 256 个已解析 frame。溢出会清空队列、取消物理订阅并暴露终止错误；调用方取消会立即丢弃排队 frame。适配器在分发前使用共享 zod wire schema 校验每个 server-request envelope 与 mux／Host payload，且不导入 Electron 运行时模块，因此 Web 构建保持原有 HTTP/WebSocket 路径。载体专属测试继续负责请求信任、HTTP 状态映射、WebSocket 协商、IPC 生命周期和 Host teardown 等物理 channel 行为。
 
 ## /api 浏览器信任栅栏
 

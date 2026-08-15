@@ -33,6 +33,8 @@ export const PACKAGED_CHILD_EXEC_ARGV: readonly string[] = ['--expose-internals'
 
 /** Paths a packaged application resolves from its bundle resources. */
 export interface PackagedRuntime {
+  /** Absolute root containing the deployed runtime's package files. */
+  readonly runtimeRoot: string
   /** Absolute path of the dsh CLI entry forked as the dedicated DSH child. */
   readonly cliEntry: string
   /** Absolute path of the prebuilt Web frontend dist. */
@@ -54,6 +56,7 @@ export interface PackagedRuntime {
 export function packagedRuntimeLayout(resourcesPath: string, userData: string): PackagedRuntime {
   const runtimeRoot = join(resourcesPath, RUNTIME_SUBDIR, 'node_modules')
   return {
+    runtimeRoot,
     cliEntry: join(runtimeRoot, CLI_ENTRY_REL),
     webDist: join(runtimeRoot, WEB_DIST_REL),
     ptySpawnHelper: join(runtimeRoot, PTY_HELPER_REL),

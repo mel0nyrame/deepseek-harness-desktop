@@ -22,7 +22,7 @@ export const inject = ['apiProxy', 'connection', 'clientModules', 'loader']
 /** Process-like IPC endpoint; tests substitute a deterministic in-memory peer. */
 export interface DesktopChildEndpoint {
   readonly connected: boolean
-  send(message: DesktopChildMessage): boolean
+  send(message: DesktopChildMessage, callback?: (error: Error | null) => void): boolean
   on(event: 'message', listener: (message: unknown) => void): this
   off(event: 'message', listener: (message: unknown) => void): this
 }
@@ -37,6 +37,19 @@ function isId(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0
 }
 
+function isDesktopAppUrl(value: string): boolean {
+  try {
+    const url = new URL(value)
+    return url.protocol === 'dsh:'
+      && url.hostname === 'app'
+      && url.port === ''
+      && url.username === ''
+      && url.password === ''
+  } catch {
+    return false
+  }
+}
+
 function parseParentMessage(value: unknown): DesktopParentMessage | undefined {
   if (!isRecord(value) || typeof value.type !== 'string' || !isId(value.id)) return undefined
   switch (value.type) {
@@ -48,7 +61,9 @@ function parseParentMessage(value: unknown): DesktopParentMessage | undefined {
         ? { type: 'subscribe', id: value.id, stream: value.stream }
         : undefined
     case 'request': {
-      if (typeof value.url !== 'string' || typeof value.method !== 'string' || !Array.isArray(value.headers)) return undefined
+      if (typeof value.url !== 'string' || !isDesktopAppUrl(value.url)
+        || typeof value.method !== 'string' || value.method.length === 0
+        || !Array.isArray(value.headers)) return undefined
       const headers: Array<readonly [string, string]> = []
       for (const header of value.headers) {
         if (!Array.isArray(header) || header.length !== 2
@@ -83,7 +98,10 @@ function fullFrame(frame: RpcRequest<Frame>): ServerRequest {
 export class DesktopHostRuntime {
   private readonly requestAborts = new Map<string, AbortController>()
   private readonly subscriptions = new Map<string, AbortController>()
+  private readonly subscriptionStreams = new Map<'mux' | 'host', string>()
+  private readonly requests = new Set<Promise<void>>()
   private readonly pumps = new Set<Promise<void>>()
+  private readyTask: Promise<void> | undefined
   /** The shared `/api` dispatcher this carrier serves unary requests through. */
   private readonly fetchHandler: { fetch(request: Request): Promise<Response> }
   private started = false
@@ -100,7 +118,9 @@ export class DesktopHostRuntime {
     if (this.started) return
     this.started = true
     this.endpoint.on('message', this.onMessage)
-    void this.announceReady()
+    this.readyTask = this.announceReady().catch((error: unknown) => {
+      this.ctx.logger.error(`desktop-app: ready announcement failed: ${String(error)}`)
+    })
   }
 
   /** Stop every request/stream and wait for source iterators to release. */
@@ -110,25 +130,56 @@ export class DesktopHostRuntime {
     this.endpoint.off('message', this.onMessage)
     for (const controller of this.requestAborts.values()) controller.abort()
     for (const controller of this.subscriptions.values()) controller.abort()
-    await Promise.all(this.pumps)
+    await Promise.all([...this.requests, ...this.pumps, ...(this.readyTask === undefined ? [] : [this.readyTask])])
+    this.readyTask = undefined
     this.requestAborts.clear()
     this.subscriptions.clear()
+    this.subscriptionStreams.clear()
   }
 
-  private send(message: DesktopChildMessage): void {
-    if (this.endpoint.connected) this.endpoint.send(message)
+  private send(message: DesktopChildMessage): Promise<void> {
+    return new Promise((resolveSend, reject) => {
+      if (!this.endpoint.connected) {
+        reject(new Error('desktop-app: child IPC channel is closed'))
+        return
+      }
+      let settled = false
+      const settle = (error: Error | null): void => {
+        if (settled) return
+        settled = true
+        if (error === null) resolveSend()
+        else reject(new Error(`desktop-app: child IPC send failed: ${error.message}`))
+      }
+      try {
+        // The callback is the drain signal when send() returns false; awaiting it
+        // retains at most one child-IPC notification per logical pump.
+        this.endpoint.send(message, settle)
+      } catch (error: unknown) {
+        settle(error instanceof Error ? error : new Error(String(error)))
+      }
+    })
+  }
+
+  private sendDetached(message: DesktopChildMessage): void {
+    void this.send(message).catch((error: unknown) => {
+      this.ctx.logger.error(`desktop-app: notification delivery failed: ${String(error)}`)
+    })
+  }
+
+  private isStarted(): boolean {
+    return this.started
   }
 
   private async announceReady(): Promise<void> {
     await this.ctx.loader.await()
-    if (!this.started) return
+    if (!this.isStarted()) return
     const graph = this.ctx.clientModules.graph()
     const bundles = graph.entries.map((entry) => {
       const path = this.ctx.clientModules.clientPath(entry.id)
       if (path === undefined) throw new Error(`desktop-app: missing client bundle path for ${entry.id}`)
       return { id: entry.id, path }
     })
-    this.send({ type: 'ready', graph, bundles })
+    await this.send({ type: 'ready', graph, bundles })
   }
 
   private readonly onMessage = (value: unknown): void => {
@@ -139,7 +190,11 @@ export class DesktopHostRuntime {
     }
     switch (message.type) {
       case 'request':
-        void this.handleRequest(message)
+        {
+          const request = this.handleRequest(message)
+          this.requests.add(request)
+          void request.finally(() => { this.requests.delete(request) })
+        }
         return
       case 'cancel-request':
         this.requestAborts.get(message.id)?.abort()
@@ -157,11 +212,12 @@ export class DesktopHostRuntime {
 
   private async handleRequest(message: Extract<DesktopParentMessage, { type: 'request' }>): Promise<void> {
     if (this.requestAborts.has(message.id)) {
-      this.send({ type: 'request-error', id: message.id, message: 'duplicate request id' })
+      this.sendDetached({ type: 'request-error', id: message.id, message: 'duplicate request id' })
       return
     }
     const controller = new AbortController()
     this.requestAborts.set(message.id, controller)
+    let reply: Extract<DesktopChildMessage, { type: 'response' | 'request-error' }>
     try {
       const source = new URL(message.url)
       const request = new Request(`http://127.0.0.1${source.pathname}${source.search}`, {
@@ -171,55 +227,91 @@ export class DesktopHostRuntime {
         signal: controller.signal,
       })
       const response = await this.fetchHandler.fetch(request)
-      this.send({
+      reply = {
         type: 'response',
         id: message.id,
         status: response.status,
         headers: [...response.headers.entries()],
         body: await response.text(),
-      })
+      }
     } catch (error) {
-      this.send({ type: 'request-error', id: message.id, message: String(error) })
+      reply = { type: 'request-error', id: message.id, message: String(error) }
     } finally {
       this.requestAborts.delete(message.id)
+    }
+    try {
+      await this.send(reply)
+    } catch (error: unknown) {
+      this.ctx.logger.error(`desktop-app: request reply delivery failed: ${String(error)}`)
     }
   }
 
   private openSubscription(id: string, stream: 'mux' | 'host'): void {
     if (this.subscriptions.has(id)) {
-      this.send({ type: 'stream-error', id, message: 'duplicate subscription id' })
+      this.rejectSubscription(id, 'duplicate subscription id')
+      return
+    }
+    if (this.subscriptionStreams.has(stream)) {
+      this.rejectSubscription(id, `desktop-app: duplicate ${stream} subscription`)
       return
     }
     const controller = new AbortController()
     this.subscriptions.set(id, controller)
+    this.subscriptionStreams.set(stream, id)
     const pump = stream === 'mux'
-      ? this.pump(id, this.ctx.apiProxy.events.mux({ rpcId: RpcId(randomUUID()), payload: {} }, controller.signal), controller)
-      : this.pump(id, this.ctx.apiProxy.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, controller.signal), controller)
+      ? this.pump(id, stream, this.ctx.apiProxy.events.mux({ rpcId: RpcId(randomUUID()), payload: {} }, controller.signal), controller)
+      : this.pump(id, stream, this.ctx.apiProxy.events.host({ rpcId: RpcId(randomUUID()), payload: {} }, controller.signal), controller)
     this.pumps.add(pump)
     void pump.finally(() => { this.pumps.delete(pump) })
   }
 
+  private rejectSubscription(id: string, message: string): void {
+    const controller = this.subscriptions.get(id)
+    if (controller !== undefined) controller.abort()
+    const rejection = (async () => {
+      try {
+        await this.send({ type: 'stream-error', id, message })
+        if (controller === undefined) await this.send({ type: 'stream-end', id })
+      } catch (error: unknown) {
+        this.ctx.logger.error(`desktop-app: subscription rejection delivery failed: ${String(error)}`)
+      }
+    })()
+    this.pumps.add(rejection)
+    void rejection.finally(() => { this.pumps.delete(rejection) })
+  }
+
   private async pump<F extends Frame>(
     id: string,
+    stream: 'mux' | 'host',
     frames: AsyncIterable<RpcRequest<F>>,
     controller: AbortController,
   ): Promise<void> {
     try {
-      const iterator = frames[Symbol.asyncIterator]()
-      let next = iterator.next()
-      this.send({ type: 'stream-open', id })
-      while (true) {
-        const item = await next
-        if (item.done) break
-        this.send({ type: 'stream-message', id, message: fullFrame(item.value) })
-        next = iterator.next()
+      await this.send({ type: 'stream-open', id })
+      for await (const frame of frames) {
+        await this.send({ type: 'stream-message', id, message: fullFrame(frame) })
       }
     } catch (error) {
-      if (!controller.signal.aborted) this.send({ type: 'stream-error', id, message: String(error) })
+      if (!controller.signal.aborted) {
+        try {
+          await this.send({
+            type: 'stream-error',
+            id,
+            message: error instanceof Error ? error.message : String(error),
+          })
+        } catch (sendError: unknown) {
+          this.ctx.logger.error(`desktop-app: stream error delivery failed: ${String(sendError)}`)
+        }
+      }
     } finally {
       controller.abort()
       this.subscriptions.delete(id)
-      this.send({ type: 'stream-end', id })
+      if (this.subscriptionStreams.get(stream) === id) this.subscriptionStreams.delete(stream)
+      try {
+        await this.send({ type: 'stream-end', id })
+      } catch (error: unknown) {
+        this.ctx.logger.error(`desktop-app: stream end delivery failed: ${String(error)}`)
+      }
     }
   }
 }

@@ -75,7 +75,7 @@ export function prepareSmokeProfile(replayFile: string, replayProviderDir: strin
   return home
 }
 
-const RECORDED_PROMPT = 'Use the bash tool to run exactly: echo TERMINAL_OK. Then reply with the single word DONE and stop.'
+export const RECORDED_PROMPT = 'Use the bash tool to run exactly: echo TERMINAL_OK. Then reply with the single word DONE and stop.'
 
 interface StreamRecord {
   readonly method: string

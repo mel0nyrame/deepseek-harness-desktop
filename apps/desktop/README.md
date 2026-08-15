@@ -8,6 +8,12 @@ Electron desktop application shell for the bundled DeepSeek Harness runtime. Ele
 
 `pnpm run dev:desktop` (repository root) builds the workspace and launches Electron main in development: the DSH child boots from the source tree through `apps/cli/lib/bin.js` on the ambient Node runtime, the Web frontend is served from the built `dist`, and quitting terminates the owned process tree. The keyless development tracer bullet (`apps/desktop/tests/real-composition.e2e.ts`) covers the same surface without a window.
 
+## Carrier security and lifecycle
+
+The `BrowserWindow` keeps `contextIsolation: true`, `nodeIntegration: false`, and `sandbox: true`. The preload exposes only boot, unary request/cancellation, stream subscription/cancellation, and stream-notification operations. Electron main accepts them only from exact `dsh://app` frames and validates every payload; child-to-main messages and main-to-preload lifecycle notifications are validated again before correlation or renderer delivery, and ready-handshake bundle paths must resolve to real `.js` files beneath the configured development or packaged runtime root. The existing Connection zod schemas then validate RPC envelopes and mux/Host frames before client dispatch.
+
+Each renderer subscription retains at most 256 parsed frames. Electron main acknowledges delivered notifications and bounds each stream's in-flight and queued relay state; overflow or a duplicate open notification cancels the physical subscription and emits an ordered error/end closure. The preload fans out each validated notification through one dispatcher and acknowledges it once. Renderer overflow clears its queue, cancels the physical subscription, and terminates the iterator with an error; caller cancellation discards queued frames immediately. The child stream pump awaits each IPC send callback before reading the next frame, so native-channel backpressure pauses the ordered source instead of reclassifying an accepted message as lost. Electron main cancels renderer-owned requests and streams on main-frame reload/navigation, renderer crash, or renderer destruction; child disconnect/exit/error closes every active request and stream, while application quit or startup failure stops and joins the child.
+
 ## Packaging (macOS)
 
 `pnpm --filter @deepseek-ai/dsh-desktop run package` produces an unsigned application bundle for the host architecture under `apps/desktop/dist/mac<optional-arch>/DSH Desktop.app` through five stages ([`scripts/package.ts`](scripts/package.ts)):

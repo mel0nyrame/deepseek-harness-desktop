@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   isDesktopAppUrl,
   parseRendererRequest,
+  parseRendererStreamEvent,
   parseRendererSubscription,
   toRendererStreamEvent,
 } from '../src/renderer-ipc.ts'
@@ -34,6 +35,8 @@ describe('desktop renderer IPC boundary', () => {
       .toBeUndefined()
     expect(parseRendererRequest({ id: 'request-1', url: 'https://evil.test/api', method: 'POST', headers: [] }))
       .toBeUndefined()
+    expect(parseRendererRequest({ id: 'request-1', url: 'dsh://app/api/session.list', method: '', headers: [] }))
+      .toBeUndefined()
     expect(parseRendererRequest({ id: 'request-1', url: 'dsh://app/api/session.list', method: 'POST', headers: [['x']] }))
       .toBeUndefined()
   })
@@ -50,5 +53,21 @@ describe('desktop renderer IPC boundary', () => {
       .toEqual({ type: 'error', id: 'stream-1', message: 'broken' })
     expect(toRendererStreamEvent({ type: 'stream-end', id: 'stream-1' }))
       .toEqual({ type: 'end', id: 'stream-1' })
+  })
+
+  it('validates lifecycle messages again at the preload boundary', () => {
+    expect(parseRendererStreamEvent({ type: 'open', id: 'stream-1' }))
+      .toEqual({ type: 'open', id: 'stream-1' })
+    expect(parseRendererStreamEvent({ type: 'message', id: 'stream-1', message: { seq: 1 } }))
+      .toEqual({ type: 'message', id: 'stream-1', message: { seq: 1 } })
+    expect(parseRendererStreamEvent({ type: 'error', id: 'stream-1', message: 'broken' }))
+      .toEqual({ type: 'error', id: 'stream-1', message: 'broken' })
+    expect(parseRendererStreamEvent({ type: 'end', id: 'stream-1' }))
+      .toEqual({ type: 'end', id: 'stream-1' })
+
+    expect(parseRendererStreamEvent({ type: 'open', id: '' })).toBeUndefined()
+    expect(parseRendererStreamEvent({ type: 'message', id: 'stream-1' })).toBeUndefined()
+    expect(parseRendererStreamEvent({ type: 'error', id: 'stream-1', message: 1 })).toBeUndefined()
+    expect(parseRendererStreamEvent({ type: 'other', id: 'stream-1' })).toBeUndefined()
   })
 })
