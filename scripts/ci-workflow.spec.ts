@@ -208,6 +208,40 @@ describe('CI workflow', () => {
   })
 })
 
+describe('Desktop release workflow', () => {
+  it('builds both architectures on dispatch and v* tags, without pull-request cost', () => {
+    const workflow = loadWorkflow('.github/workflows/desktop-release.yml')
+    expect(workflow.on).toEqual({ workflow_dispatch: null, push: { tags: ['v*'] } })
+    const job = workflowJob(workflow, 'desktop-artifacts')
+    if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.strategy.matrix.include)) {
+      throw new TypeError('Desktop release workflow must define an include matrix')
+    }
+    expect(job.strategy.matrix.include).toEqual([
+      { runner: 'macos-26-intel', arch: 'x64' },
+      { runner: 'macos-26', arch: 'arm64' },
+    ])
+    expect(job['timeout-minutes']).toBe(60)
+    if (!Array.isArray(job.steps)) throw new TypeError('Desktop release workflow must define steps')
+    const steps = job.steps.filter(isRecord)
+    const pnpmSetup = steps.find(step => typeof step.uses === 'string' && step.uses.startsWith('pnpm/action-setup@'))
+    expect(pnpmSetup).toMatchObject({ with: { dest: runnerPrivatePnpmDestination } })
+    const runs = steps.filter((step): step is Record<string, unknown> & { run: string } => typeof step.run === 'string')
+    expect(runs.map(step => step.run)).toContain('pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build')
+    expect(runs.map(step => step.run)).toContain('pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts')
+    const upload = steps.find(step => step.uses === 'actions/upload-artifact@v4')
+    expect(upload).toMatchObject({
+      with: {
+        name: 'dsh-desktop-${{ matrix.arch }}-dmg',
+        path: 'apps/desktop/dist/*.dmg',
+        'if-no-files-found': 'error',
+      },
+    })
+    // The PR lane already smokes one arm64 runner; this matrix doubles
+    // macOS runner minutes on a private repository, so it must stay off
+    // pull requests and branch pushes entirely.
+    expect(JSON.stringify(workflow.on)).not.toContain('pull_request')
+  })
+})
 describe('E2B e2e workflow', () => {
   it('is manual-only and fails loud before running the focused live suite', () => {
     const workflow = loadWorkflow('.github/workflows/e2b-e2e.yml')

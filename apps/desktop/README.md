@@ -24,15 +24,18 @@ The renderer keeps the existing task-level workspace and path-opening APIs; it r
 
 ## Packaging (macOS)
 
-`pnpm --filter @deepseek-ai/dsh-desktop run package` produces an unsigned application bundle for the host architecture under `apps/desktop/dist/mac<optional-arch>/DSH Desktop.app` through five stages ([`scripts/package.ts`](scripts/package.ts)):
+`pnpm --filter @deepseek-ai/dsh-desktop run package` produces an ad-hoc signed application bundle and dmg for the host architecture under `apps/desktop/dist/` through six stages ([`scripts/package.ts`](scripts/package.ts)):
 
 1. **Closure** — `pnpm run verify-runtime-closure` proves this package's dependency manifest supplies every required workspace peer.
 2. **Deploy** — a pnpm legacy deploy materializes the production runtime closure (the `dsh` CLI, every in-box plugin's built `lib`, the Web frontend `dist`, node-pty, and the keyless replay provider) into a symlink-free staging directory.
 3. **Electron restore** — when the pinned Electron distribution is missing (fresh installs fetch it through Electron's reviewed postinstall, `allowBuilds`), the package's own install script restores it before rebuild and validation.
 4. **Native rebuild** — node-pty is rebuilt against the pinned Electron version's ABI (`@electron/rebuild`), then validated by loading it inside the Electron binary; the macOS `spawn-helper` is staged beside the rebuilt addon with its executable bit.
-5. **Bundle** — electron-builder ([`electron-builder.yml`](electron-builder.yml)) assembles the `.app`: the asar carries only `lib/main.js` and the sandboxed preload, while the runtime closure ships as real files under `Contents/Resources/runtime/`.
+5. **Bundle** — electron-builder ([`electron-builder.yml`](electron-builder.yml)) assembles and ad-hoc signs (`identity: '-'`, no Apple credentials) the `.app` and the `.dmg`: the asar carries only `lib/main.js` and the sandboxed preload, while the runtime closure ships as real files under `Contents/Resources/runtime/`.
+6. **Evidence** — every produced artifact passes [`scripts/artifact-evidence.ts`](scripts/artifact-evidence.ts): `codesign --verify --deep --strict` proves the signature, `spctl --assess` records the Gatekeeper verdict, and `hdiutil verify` checks the dmg image.
 
 The installed application starts without a system Node.js or DSH CLI: Electron main forks the application binary itself as the DSH child (`ELECTRON_RUN_AS_NODE`), resolves the CLI, Web dist, and PTY helper from `Contents/Resources/runtime`, and hands the child its user-data directory as the working directory ([`src/packaged-runtime.ts`](src/packaged-runtime.ts) owns this layout). Native modules and the PTY helper therefore never sit inside an archive. The harness home stays the shared `~/.dsh`, so the packaged app and the CLI see the same sessions, profiles, and configuration.
+
+The ad-hoc signature has no identity behind it. Gatekeeper assesses only quarantine-flagged launches, so a locally built artifact opens unassessed while `spctl --assess` itself rejects every ad-hoc signature — the packaging pipeline records that verdict as evidence, and it becomes a hard gate once a Developer ID identity signs the artifacts. A downloaded copy carries `com.apple.quarantine`, shows the unidentified-developer gate, and needs the one-time right-click → Open (Homebrew cask delivery strips quarantine instead). Removing that gate for downloads requires Developer ID signing and notarization — paid Apple Developer Program credentials; `electron-builder.yml` documents the fields to fill when they exist. The packaging script builds the host architecture only, because node-pty rebuilds against the host ABI; the x64 artifact comes from the [`desktop-release.yml`](../../.github/workflows/desktop-release.yml) CI matrix (`macos-26-intel`).
 
 ## Native macOS window
 
@@ -44,7 +47,7 @@ The macOS `BrowserWindow` uses `hiddenInset` title-bar chrome, fixed inset traff
 
 ## Limitations
 
-- The tracer bullet ships unsigned and un-notarized; release-grade signed, notarized, cross-arch (x64) artifacts are a later ticket.
+- Artifacts ship ad-hoc signed and un-notarized: Gatekeeper assesses only quarantine-flagged launches, so locally built and cask-installed copies open unassessed, but a downloaded copy needs the one-time right-click → Open until Developer ID signing and notarization (paid Apple Developer Program) are wired in.
 - `--smoke` refuses to run without an explicit `DSH_HOME`, so it can never touch the machine owner's real `~/.dsh`.
 - Startup recovery does not repair the profile itself: `restart()` retries the same configuration, so a broken profile must be repaired before Restart can reach the running phase.
 - The crash-recovery ownership snapshot refreshes once per second, so a descendant created and orphaned entirely between refreshes can only be swept when its process group still identifies it.

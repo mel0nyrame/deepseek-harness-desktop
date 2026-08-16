@@ -1,0 +1,76 @@
+# Release-grade desktop artifacts: build, ad-hoc sign, verify, smoke-test,
+# and upload the macOS dmg for both architectures. This is not a pull-request
+# gate — the PR lane (desktop-packaged in ci.yml) already runs the packaged
+# smoke on one arm64 runner, and this matrix doubles the macOS runner
+# minutes — but the release path that produces the x64 artifact an arm64
+# development machine cannot build: the packaging script rebuilds node-pty
+# against the host architecture, so x64 needs an Intel runner.
+#
+# Triggers: workflow_dispatch and v* tags. Ad-hoc signing needs no secrets;
+# when a Developer ID certificate arrives, fill the identity/notarize wiring
+# documented in apps/desktop/electron-builder.yml and the packaging
+# pipeline's signature verification extends to the produced signature.
+name: Desktop release artifacts
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+  # Release runs must never report to the production telemetry endpoint
+  # baked into apps/cli/cordis.yml (AppCLIEntry disables the row when set).
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  desktop-artifacts:
+    name: desktop ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-26-intel
+            arch: x64
+          - runner: macos-26
+            arch: arm64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm run build
+
+      # Builds, stages, ad-hoc signs, and verifies (codesign + Gatekeeper +
+      # hdiutil) the .app and dmg for the runner's host architecture.
+      - name: Package the desktop application
+        run: pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build
+
+      - name: Run the keyless packaged-app smoke
+        env:
+          DSH_DESKTOP_SMOKE_REQUIRED: '1'
+        run: pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts
+
+      - name: Upload the dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: dsh-desktop-${{ matrix.arch }}-dmg
+          path: apps/desktop/dist/*.dmg
+          if-no-files-found: error

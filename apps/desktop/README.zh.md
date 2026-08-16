@@ -24,15 +24,18 @@ renderer 继续使用现有任务级 Workspace 与路径打开 API，不获得�
 
 ## 打包（macOS）
 
-`pnpm --filter @deepseek-ai/dsh-desktop run package` 会在 `apps/desktop/dist/mac<可选架构后缀>/DSH Desktop.app` 产出主机架构的无签名应用包，过程分五步（[`scripts/package.ts`](scripts/package.ts)）：
+`pnpm --filter @deepseek-ai/dsh-desktop run package` 会在 `apps/desktop/dist/` 产出主机架构的 ad-hoc 签名应用包与 dmg，过程分六步（[`scripts/package.ts`](scripts/package.ts)）：
 
 1. **闭包** — `pnpm run verify-runtime-closure` 证明本包的依赖清单提供了所有必需的工作区 peer。
 2. **部署** — pnpm legacy deploy 将生产运行时闭包（`dsh` CLI、所有内置插件构建出的 `lib`、Web 前端 `dist`、node-pty 以及无密钥回放提供器）物化到无符号链接的暂存目录。
 3. **Electron 恢复** — 当固定版本的 Electron 发行物缺失时（全新安装会通过 Electron 经过审查的 postinstall 下载，`allowBuilds`），由包自带的安装脚本在重建与验证前恢复它。
 4. **原生重建** — node-pty 按固定 Electron 版本的 ABI 重新编译（`@electron/rebuild`），随后在 Electron 二进制内加载验证；macOS 的 `spawn-helper` 与重建后的插件并排放置并保留可执行位。
-5. **打包** — electron-builder（[`electron-builder.yml`](electron-builder.yml)）组装 `.app`：asar 只携带 `lib/main.js` 与沙箱化 preload，运行时闭包以真实文件形式放在 `Contents/Resources/runtime/` 下。
+5. **打包** — electron-builder（[`electron-builder.yml`](electron-builder.yml)）组装并 ad-hoc 签名（`identity: '-'`，无需 Apple 凭据）`.app` 与 `.dmg`：asar 只携带 `lib/main.js` 与沙箱化 preload，运行时闭包以真实文件形式放在 `Contents/Resources/runtime/` 下。
+6. **证据** — 每个产出的制品都通过 [`scripts/artifact-evidence.ts`](scripts/artifact-evidence.ts)：`codesign --verify --deep --strict` 证明签名有效，`spctl --assess` 记录 Gatekeeper 的评估结果，`hdiutil verify` 校验 dmg 镜像。
 
 安装后的应用不依赖系统 Node.js 或 DSH CLI 即可启动：Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从 `Contents/Resources/runtime` 解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程作为工作目录（该布局由 [`src/packaged-runtime.ts`](src/packaged-runtime.ts) 定义）。因此原生模块与 PTY helper 永远不会位于归档内。harness 主目录仍为共享的 `~/.dsh`，打包应用与 CLI 看到相同的会话、profile 与配置。
+
+ad-hoc 签名背后没有身份。Gatekeeper 只评估带 quarantine 属性的启动，因此本地构建的制品打开时不被评估，而 `spctl --assess` 本身会拒绝一切 ad-hoc 签名——打包管线把该结论记录为证据，接入 Developer ID 身份签名后它会变成硬门禁。下载的副本带有 `com.apple.quarantine`，会显示无法验证开发者的大门，需要一次性右键 → 打开（Homebrew cask 分发会剥离 quarantine）。要让下载副本也零警告，需要 Developer ID 签名与公证——即付费 Apple Developer Program 凭据；`electron-builder.yml` 记录了凭据到位后要填写的字段。打包脚本只构建主机架构，因为 node-pty 按主机 ABI 重建；x64 制品由 [`desktop-release.yml`](../../.github/workflows/desktop-release.yml) 的 CI 矩阵（`macos-26-intel`）产出。
 
 ## macOS 原生窗口
 
@@ -44,7 +47,7 @@ macOS `BrowserWindow` 使用 `hiddenInset` 标题栏、固定内嵌位置的 tra
 
 ## 限制
 
-- tracer bullet 目前无签名、未公证；发布级的签名、公证与跨架构（x64）产物属于后续工单。
+- 制品目前为 ad-hoc 签名、未公证：Gatekeeper 只评估带 quarantine 属性的启动，因此本地构建与 cask 安装的副本打开时不被评估，但下载的副本需要一次性右键 → 打开，直到接入 Developer ID 签名与公证（付费 Apple Developer Program）。
 - `--smoke` 在未显式指定 `DSH_HOME` 时拒绝运行，因此绝不会触碰机器主人的真实 `~/.dsh`。
 - 启动恢复本身不会修复 profile：`restart()` 会以同一配置重试，因此必须先修复损坏的 profile，Restart 才能进入 running 状态。
 - 崩溃恢复的进程归属快照每秒刷新一次，因此完全在两次刷新之间创建并失去父进程的后代，只能在进程组仍可识别它时被清扫。

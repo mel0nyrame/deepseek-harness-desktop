@@ -144,7 +144,7 @@ Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因�
 
 问题 #3 已交付打包应用切片：
 
-- `pnpm --filter @deepseek-ai/dsh-desktop run package` 通过四个阶段（[`scripts/package.ts`](../../../../apps/desktop/scripts/package.ts)）产出主机架构的无签名 macOS 应用包：闭包校验（`verify-runtime-closure` 现在同时检查两个部署清单）、将生产运行时闭包 pnpm legacy deploy 到无符号链接的暂存目录、按 Electron ABI 重建 node-pty 并在 Electron 二进制内加载验证、以及 electron-builder 组装（[`electron-builder.yml`](../../../../apps/desktop/electron-builder.yml)）。
+- `pnpm --filter @deepseek-ai/dsh-desktop run package` 通过六个阶段（[`scripts/package.ts`](../../../../apps/desktop/scripts/package.ts)）产出主机架构的 ad-hoc 签名 macOS 应用包与 dmg：闭包校验（`verify-runtime-closure` 现在同时检查两个部署清单）、将生产运行时闭包 pnpm legacy deploy 到无符号链接的暂存目录、按 Electron ABI 重建 node-pty 并在 Electron 二进制内加载验证、electron-builder 组装与 ad-hoc 签名（[`electron-builder.yml`](../../../../apps/desktop/electron-builder.yml)），以及签名／Gatekeeper／镜像证据门禁（[`artifact-evidence.ts`](../../../../apps/desktop/scripts/artifact-evidence.ts)）。跨架构产物由 [`desktop-release.yml`](../../../../.github/workflows/desktop-release.yml) 的 CI 矩阵产出。
 - 安装布局把 shell 放在 asar 内，整个运行时闭包以真实文件放在 `Contents/Resources/runtime/` 下；Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从该闭包解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程（[`packaged-runtime.ts`](../../../../apps/desktop/src/packaged-runtime.ts) 定义该契约）。全程不依赖系统 Node.js 或 DSH CLI。
 - keyless 打包应用冒烟测试（`apps/desktop/tests/packaged-smoke.e2e.ts`）以 `--smoke` 启动安装后的应用包，在捆绑运行时上重跑 tracer bullet，断言零退出码与自有进程树的静默；失败路径用例给它一个缺失的 replay 文件，断言场景以非零退出码判负时同样静默。macOS CI 任务先打包，并把应用包缺失变成硬失败。
 - 桌面包清单兼任部署根清单：其依赖列表即打包运行时闭包，由 `verify-runtime-closure` 强制校验。
@@ -181,4 +181,4 @@ Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因�
 - desktop profile 挂载无渲染的原生选择器 client half，由子进程运行时提供能力，因此 Web 部署保留现有 native／browse 组合。ApiProxy 路径打开器接收产品 shell adapter，无需把 Host 路径解析或业务分发移入 Electron main。
 - 聚焦的处理器、协议、supervisor、client runtime 与无渲染 flow 测试钉住校验和清理。安装态 `--record-native-actions` 旅程保留真实窗口、preload、ApiProxy、反向 IPC、Workspace 接纳与 Session 导航，只替换确定性的对话框／shell primitive，并记录选中的 Workspace、成功打开和不可用路径失败；Workspace 发现使用 Host 的 canonical realpath，而不是选择器返回的 macOS 原始别名。
 
-问题 #6 仍负责交互一致性。发布级签名、公证以及 arm64／x64 产物仍属于问题 #9。
+问题 #6 已完成交互一致性并关闭。问题 #9 已交付 ad-hoc 签名这一档（[发布签名 note](../../implemented/process/2026-08-16-desktop-release-artifact-signing.md)）；Developer ID 公证由问题 #28 跟踪，受 Apple Developer Program 凭据阻塞。

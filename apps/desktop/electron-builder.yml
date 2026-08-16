@@ -23,12 +23,34 @@ extraResources:
   - from: node_modules
     to: runtime/node_modules
 mac:
-  # The tracer bullet ships unsigned; release-grade signing and notarization
-  # are out of scope until the artifact ticket.
-  identity: null
+  # Ad-hoc signing ('-') needs no Apple credentials: the produced bundle and
+  # dmg carry valid code signatures and 'codesign --verify --deep --strict'
+  # passes. Gatekeeper assesses only quarantine-flagged launches, so a
+  # locally built copy opens unassessed, while spctl itself rejects every
+  # ad-hoc signature — the packaging pipeline records that verdict as
+  # evidence rather than a gate (flipping identity below turns it into a hard
+  # gate). A downloaded copy carries com.apple.quarantine, so Gatekeeper
+  # shows the unidentified-developer gate until the one-time right-click ->
+  # Open; only Developer ID signing plus notarization removes that gate for
+  # downloaded artifacts.
+  identity: '-'
+  # The hardened runtime would reject the ELECTRON_RUN_AS_NODE child loading
+  # the rebuilt node-pty addon unless an entitlements file grants
+  # com.apple.security.cs.disable-library-validation, so ad-hoc builds run
+  # without it. When Developer ID credentials arrive, flip this back to true
+  # together with an entitlements file (allow-jit and
+  # disable-library-validation) and fill the notarize block below.
+  hardenedRuntime: false
   category: public.app-category.developer-tools
   target:
+    - dmg
     - dir
   artifactName: ${productName}-${version}-${arch}.${ext}
   extendInfo:
     NSHighResolutionCapable: true
+  # Developer ID signing and notarization require a paid Apple Developer
+  # Program membership (App Store Connect API key or Apple ID plus an
+  # app-specific password); no free substitute exists. When credentials
+  # exist, replace identity with the certificate name and uncomment:
+  # notarize:
+  #   teamId: <APPLE_TEAM_ID>

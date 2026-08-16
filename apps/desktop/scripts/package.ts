@@ -9,8 +9,16 @@
  * electron-builder assembles the .app with the shell in the asar and the whole
  * runtime closure as real files under `Contents/Resources/runtime`, because
  * child processes and native loading need filesystem paths no archive can
- * provide. Release-grade signed/notarized artifacts and cross-arch builds are
- * later tickets; this slice builds the host architecture only.
+ * provide. The assembled bundle and dmg are ad-hoc signed
+ * (electron-builder.yml documents the identity decision), and every produced
+ * artifact must pass the signature and image-integrity gates of
+ * scripts/artifact-evidence.ts while its Gatekeeper verdict is recorded —
+ * modern macOS rejects every ad-hoc signature via spctl, so the verdict
+ * becomes a hard gate only once a Developer ID identity signs the artifacts.
+ * Developer ID notarization needs paid Apple Developer Program credentials
+ * (the yml carries the wiring); cross-arch artifacts come from the CI matrix
+ * in .github/workflows/desktop-release.yml. This script builds the host
+ * architecture only.
  */
 
 import { spawn } from 'node:child_process'
@@ -23,6 +31,7 @@ import { parseArgs } from 'node:util'
 import { build, type Configuration } from 'electron-builder'
 import { rebuild } from '@electron/rebuild'
 import yaml from 'js-yaml'
+import { discoverArtifacts, signEvidenceSteps } from './artifact-evidence.ts'
 
 const require = createRequire(import.meta.url)
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -51,7 +60,9 @@ class PackageCli {
   ) {}
 
   static parse(argv: string[]): PackageCli {
-    let values: { skipBuild?: boolean; dryRun?: boolean; help?: boolean }
+    // parseArgs reports values under the declared option names, so the
+    // hyphenated flags must be read with the same keys they were given.
+    let values: Record<string, string | boolean | undefined>
     try {
       values = parseArgs({
         args: argv,
@@ -66,11 +77,11 @@ class PackageCli {
       console.error(PackageCli.usage())
       process.exit(1)
     }
-    if (values.help) {
+    if (values['help'] === true) {
       console.log(PackageCli.usage())
       process.exit(0)
     }
-    return new PackageCli(values.skipBuild ?? false, values.dryRun ?? false)
+    return new PackageCli(values['skip-build'] === true, values['dry-run'] === true)
   }
 
   private static usage(): string {
@@ -81,7 +92,7 @@ class PackageCli {
       '  --dry-run     print every command and filesystem change without executing.',
       '  --help        print this help.',
       '',
-      `Stages the runtime closure in ${STAGING} and writes the .app under ${OUT_DIR}.`,
+      `Stages the runtime closure in ${STAGING} and writes the signed .app and dmg under ${OUT_DIR}.`,
     ].join('\n')
   }
 }
@@ -340,19 +351,47 @@ class DesktopPackageBuild {
         electronDist: this.electronDist(),
       },
     })
-    // The mac dir target reports no stable artifact path, and its output
-    // directory carries an architecture suffix on non-x64 hosts; discover
-    // the produced bundle instead.
-    const appPaths: string[] = []
-    for (const entry of await readdir(OUT_DIR)) {
-      if (!entry.startsWith('mac')) continue
-      const candidate = join(OUT_DIR, entry, 'DSH Desktop.app')
-      if (existsSync(candidate)) appPaths.push(candidate)
+    // electron-builder reports no stable artifact path, and the dir
+    // target's output directory carries an architecture suffix on non-x64
+    // hosts; discover the produced bundle and dmg instead.
+    const artifacts = discoverArtifacts(await readdir(OUT_DIR), OUT_DIR)
+    if (artifacts.length === 0) {
+      throw new Error(`dsh-desktop package: no product after electron-builder; inspect ${OUT_DIR}.`)
     }
-    if (appPaths.length === 0) {
-      throw new Error(`dsh-desktop package: no .app product after electron-builder; inspect ${OUT_DIR}.`)
+    return artifacts
+  }
+
+  /** Verify each produced artifact's signature and record its Gatekeeper verdict. */
+  async verifySigning(products: string[]): Promise<void> {
+    if (process.platform !== 'darwin') {
+      console.log('dsh-desktop package: skipping signing verification (macOS only)')
+      return
     }
-    return appPaths
+    const config = yaml.load(await readFile(BUILDER_CONFIG, 'utf8')) as Configuration
+    const identity = config.mac?.identity
+    // Gatekeeper rejects every ad-hoc signature via spctl on modern macOS —
+    // even an unquarantined local build — while launch itself is only
+    // assessed for quarantine-flagged downloads. The verdict is recorded
+    // evidence under ad-hoc signing and becomes a hard gate once a real
+    // Developer ID identity signs the artifacts.
+    const enforceGatekeeper = identity !== undefined && identity !== null && identity !== '-'
+    for (const artifact of products) {
+      for (const step of signEvidenceSteps(artifact, enforceGatekeeper)) {
+        if (this.cli.dryRun) {
+          console.log(`dsh-desktop package: [dry-run] ${formatCommand(step.command, [...step.args])}`)
+          continue
+        }
+        try {
+          await this.run(step.label, step.command, [...step.args])
+        } catch (error) {
+          // The expected verdict under ad-hoc signing: Gatekeeper rejects the
+          // signature via spctl, and the pipeline records it as evidence
+          // instead of failing the build.
+          if (step.required) throw error
+          console.warn(`dsh-desktop package: ${step.label} rejected the artifact (recorded as evidence): ${error instanceof Error ? error.message : String(error)}`)
+        }
+      }
+    }
   }
 
   printProducts(products: string[]): void {
@@ -402,7 +441,9 @@ async function main(): Promise<void> {
   await pipeline.restoreElectronDist()
   await pipeline.rebuildPty()
   await pipeline.validateRuntime()
-  pipeline.printProducts(await pipeline.package())
+  const products = await pipeline.package()
+  await pipeline.verifySigning(products)
+  pipeline.printProducts(products)
 }
 
 await main()
