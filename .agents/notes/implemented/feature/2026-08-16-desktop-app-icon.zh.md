@@ -12,7 +12,7 @@ Status: implemented
 
 以官方鱼 logo 配浅色圆角底交付，维护者在三个候选方案中选定：
 
-- **官方几何** — `build/icon.svg` 内嵌精确的 FishLogo path（viewBox `0 0 23.16 17.04`），放大到 600×441，置于 1024×1024 的浅色圆角底上（白→#F1F4F8 渐变，圆角半径 230px）。
+- **官方几何** — `build/icon.svg` 内嵌精确的 FishLogo path（viewBox `0 0 23.16 17.04`），在 1024×1024 的浅色圆角底上形成 720×528 的黑色像素边界（白→#F1F4F8 渐变，圆角半径 230px）。标志放大到原尺寸的 120%，以改善 Dock 与 Finder 中的辨识度，同时在最窄一侧保留 152px 安全留白。
 - **确定性栅格化** — `scripts/icon.ts` 用 sharp（apps/desktop 的 devDependency）渲染出 1024×1024 的 `build/icon.png`；SVG 源文件与 PNG 都提交进仓库，CI 直接消费 PNG、从不现场栅格化。
 - **构建器接线** — `electron-builder.yml` 设置 `mac.icon: build/icon.png`；electron-builder 把 PNG 转成 `Contents/Resources/icon.icns` 并让 `CFBundleIconFile` 指向它。
 - **证据门禁** — `scripts/artifact-evidence.ts` 里的 `hasCustomBundleIcon`：产出的 bundle 必须同时包含 `Contents/Resources/icon.icns` 与精确的 `<string>icon.icns</string>` plist 引用（整标签匹配避免 `electron.icns` 以子串方式蒙混过关）。仍携带默认图标时打包管线直接失败。`apps/desktop/tests/package.spec.ts` 有单元测试覆盖。

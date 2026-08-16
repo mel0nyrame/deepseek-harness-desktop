@@ -12,7 +12,7 @@ The desktop bundle had no application icon: `electron-builder.yml` declared no `
 
 Ship the official fish on a light rounded tile, chosen by the maintainer among three candidate treatments:
 
-- **Official geometry** — `build/icon.svg` embeds the exact FishLogo path (viewBox `0 0 23.16 17.04`) scaled to 600×441 on a 1024×1024 light rounded tile (white→#F1F4F8 gradient, 230px corner radius).
+- **Official geometry** — `build/icon.svg` embeds the exact FishLogo path (viewBox `0 0 23.16 17.04`) scaled to a 720×528 black-pixel bound on a 1024×1024 light rounded tile (white→#F1F4F8 gradient, 230px corner radius). The 120% mark scale improves Dock and Finder recognition while retaining a 152px safe margin at the narrowest edge.
 - **Deterministic rasterization** — `scripts/icon.ts` renders `build/icon.png` (1024×1024) with sharp, an apps/desktop devDependency; both the SVG source and the PNG are committed, so CI consumes the PNG and never rasterizes.
 - **Builder wiring** — `electron-builder.yml` sets `mac.icon: build/icon.png`; electron-builder converts the PNG into `Contents/Resources/icon.icns` and points `CFBundleIconFile` at it.
 - **Evidence gate** — `hasCustomBundleIcon` in `scripts/artifact-evidence.ts`: a produced bundle must contain `Contents/Resources/icon.icns` AND the exact `<string>icon.icns</string>` plist reference (the full-tag match keeps `electron.icns` from passing as a substring). The packaging pipeline fails the build when the default icon ships. Unit-tested in `apps/desktop/tests/package.spec.ts`.
