@@ -31,7 +31,7 @@ import { parseArgs } from 'node:util'
 import { build, type Configuration } from 'electron-builder'
 import { rebuild } from '@electron/rebuild'
 import yaml from 'js-yaml'
-import { discoverArtifacts, signEvidenceSteps } from './artifact-evidence.ts'
+import { discoverArtifacts, gatekeeperIsHardGate, signEvidenceSteps } from './artifact-evidence.ts'
 
 const require = createRequire(import.meta.url)
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -333,8 +333,7 @@ class DesktopPackageBuild {
   }
 
   /** Assemble the macOS application bundle from the staged closure. */
-  async package(): Promise<string[]> {
-    const config = yaml.load(await readFile(BUILDER_CONFIG, 'utf8')) as Configuration
+  async package(config: Configuration): Promise<string[]> {
     await mkdir(OUT_DIR, { recursive: true })
     if (this.cli.dryRun) {
       console.log(`dsh-desktop package: [dry-run] electron-builder projectDir=${STAGING} output=${OUT_DIR}`)
@@ -362,19 +361,17 @@ class DesktopPackageBuild {
   }
 
   /** Verify each produced artifact's signature and record its Gatekeeper verdict. */
-  async verifySigning(products: string[]): Promise<void> {
+  async verifySigning(products: string[], identity: string | null | undefined): Promise<void> {
     if (process.platform !== 'darwin') {
       console.log('dsh-desktop package: skipping signing verification (macOS only)')
       return
     }
-    const config = yaml.load(await readFile(BUILDER_CONFIG, 'utf8')) as Configuration
-    const identity = config.mac?.identity
     // Gatekeeper rejects every ad-hoc signature via spctl on modern macOS —
     // even an unquarantined local build — while launch itself is only
     // assessed for quarantine-flagged downloads. The verdict is recorded
     // evidence under ad-hoc signing and becomes a hard gate once a real
     // Developer ID identity signs the artifacts.
-    const enforceGatekeeper = identity !== undefined && identity !== null && identity !== '-'
+    const enforceGatekeeper = gatekeeperIsHardGate(identity)
     for (const artifact of products) {
       for (const step of signEvidenceSteps(artifact, enforceGatekeeper)) {
         if (this.cli.dryRun) {
@@ -385,9 +382,11 @@ class DesktopPackageBuild {
           await this.run(step.label, step.command, [...step.args])
         } catch (error) {
           // The expected verdict under ad-hoc signing: Gatekeeper rejects the
-          // signature via spctl, and the pipeline records it as evidence
-          // instead of failing the build.
+          // signature via spctl (a non-zero exit), and the pipeline records
+          // it as evidence instead of failing the build. A spawn failure
+          // means the check never ran and must fail the build.
           if (step.required) throw error
+          if (error instanceof Error && error.message.includes('failed to spawn')) throw error
           console.warn(`dsh-desktop package: ${step.label} rejected the artifact (recorded as evidence): ${error instanceof Error ? error.message : String(error)}`)
         }
       }
@@ -441,8 +440,9 @@ async function main(): Promise<void> {
   await pipeline.restoreElectronDist()
   await pipeline.rebuildPty()
   await pipeline.validateRuntime()
-  const products = await pipeline.package()
-  await pipeline.verifySigning(products)
+  const builderConfig = yaml.load(await readFile(BUILDER_CONFIG, 'utf8')) as Configuration
+  const products = await pipeline.package(builderConfig)
+  await pipeline.verifySigning(products, builderConfig.mac?.identity)
   pipeline.printProducts(products)
 }
 

@@ -66,10 +66,22 @@ jobs:
       - name: Package the desktop application
         run: pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build
 
-      - name: Run the keyless packaged-app smoke
+      # The smoke targets the artifact mounted from the produced dmg — the
+      # install-or-mount launch the release criteria require — not the
+      # workspace .app.
+      - name: Mount the dmg and run the keyless packaged-app smoke
         env:
           DSH_DESKTOP_SMOKE_REQUIRED: '1'
-        run: pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts
+        run: |
+          dmg="$(ls apps/desktop/dist/*.dmg | head -1)"
+          mount="$(hdiutil attach -nobrowse -readonly "$dmg" | grep -o '/Volumes/.*' | head -1)"
+          echo "DSH_DESKTOP_DMG_MOUNT=$mount" >> "$GITHUB_ENV"
+          DSH_DESKTOP_APP_DIR="$mount/DSH Desktop.app" pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts
+
+      - name: Detach the dmg
+        if: always()
+        run: |
+          if [ -n "$DSH_DESKTOP_DMG_MOUNT" ]; then hdiutil detach "$DSH_DESKTOP_DMG_MOUNT" || true; fi
 
       - name: Upload the dmg
         uses: actions/upload-artifact@v4

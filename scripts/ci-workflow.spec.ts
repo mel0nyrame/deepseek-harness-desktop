@@ -227,7 +227,18 @@ describe('Desktop release workflow', () => {
     expect(pnpmSetup).toMatchObject({ with: { dest: runnerPrivatePnpmDestination } })
     const runs = steps.filter((step): step is Record<string, unknown> & { run: string } => typeof step.run === 'string')
     expect(runs.map(step => step.run)).toContain('pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build')
-    expect(runs.map(step => step.run)).toContain('pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts')
+    expect(runs.some(step => step.run.includes('pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts'))).toBe(true)
+    // The smoke targets the artifact mounted from the produced dmg — the
+    // install-or-mount launch the release criteria require — not the
+    // workspace .app, and the mount is always detached.
+    const mountSmoke = steps.find(step => step.name === 'Mount the dmg and run the keyless packaged-app smoke')
+    if (!mountSmoke || typeof mountSmoke.run !== 'string') {
+      throw new TypeError('Desktop release workflow must mount the dmg before the smoke')
+    }
+    expect(mountSmoke.run).toContain('hdiutil attach -nobrowse -readonly "$dmg"')
+    expect(mountSmoke.run).toContain('DSH_DESKTOP_APP_DIR="$mount/DSH Desktop.app"')
+    const detach = steps.find(step => step.name === 'Detach the dmg')
+    expect(detach).toMatchObject({ if: 'always()' })
     const upload = steps.find(step => step.uses === 'actions/upload-artifact@v4')
     expect(upload).toMatchObject({
       with: {

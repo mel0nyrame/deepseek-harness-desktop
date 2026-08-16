@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { discoverArtifacts, signEvidenceSteps } from '../scripts/artifact-evidence.ts'
+import { discoverArtifacts, gatekeeperIsHardGate, signEvidenceSteps } from '../scripts/artifact-evidence.ts'
 
 describe('macOS artifact evidence', () => {
   it('gates application bundles through codesign and enforces Gatekeeper under Developer ID signing', () => {
@@ -62,6 +62,18 @@ describe('macOS artifact evidence', () => {
       ['dmg integrity', true],
       ['dmg gatekeeper assessment', false],
     ])
+  })
+
+  describe('gatekeeperIsHardGate', () => {
+    it('records the verdict as evidence for unsigned and ad-hoc identities', () => {
+      expect(gatekeeperIsHardGate(undefined)).toBe(false)
+      expect(gatekeeperIsHardGate(null)).toBe(false)
+      expect(gatekeeperIsHardGate('-')).toBe(false)
+    })
+
+    it('enforces the verdict once a Developer ID identity signs', () => {
+      expect(gatekeeperIsHardGate('Developer ID Application: DeepSeek (TEAM1234)')).toBe(true)
+    })
   })
 
   describe('discoverArtifacts', () => {

@@ -47,7 +47,7 @@ The macOS `BrowserWindow` uses `hiddenInset` title-bar chrome, fixed inset traff
 
 ## Limitations
 
-- Artifacts ship ad-hoc signed and un-notarized: Gatekeeper assesses only quarantine-flagged launches, so locally built and cask-installed copies open unassessed, but a downloaded copy needs the one-time right-click → Open until Developer ID signing and notarization (paid Apple Developer Program) are wired in.
+- Artifacts ship ad-hoc signed and un-notarized: a downloaded copy needs the one-time right-click → Open until Developer ID signing and notarization (paid Apple Developer Program) are wired in.
 - `--smoke` refuses to run without an explicit `DSH_HOME`, so it can never touch the machine owner's real `~/.dsh`.
 - Startup recovery does not repair the profile itself: `restart()` retries the same configuration, so a broken profile must be repaired before Restart can reach the running phase.
 - The crash-recovery ownership snapshot refreshes once per second, so a descendant created and orphaned entirely between refreshes can only be swept when its process group still identifies it.

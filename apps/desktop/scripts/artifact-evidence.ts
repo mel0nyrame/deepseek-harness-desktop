@@ -9,6 +9,9 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
+/** The electron-builder identity that opts into credential-free ad-hoc signing. */
+export const AD_HOC_IDENTITY = '-'
+
 /** One release-artifact check for a produced macOS artifact. */
 export interface SignEvidenceStep {
   readonly label: string
@@ -27,6 +30,16 @@ export interface SignEvidenceStep {
  * hard gate only once Developer ID signing lands and a downloaded copy
  * must open without the unidentified-developer gate.
  */
+/**
+ * Whether the Gatekeeper verdict is a hard gate for the configured signing
+ * identity: spctl rejects ad-hoc (and unsigned) artifacts on modern macOS, so
+ * their verdict is recorded evidence, while a named Developer ID identity
+ * enforces it.
+ */
+export function gatekeeperIsHardGate(identity: string | null | undefined): boolean {
+  return identity !== undefined && identity !== null && identity !== AD_HOC_IDENTITY
+}
+
 export function signEvidenceSteps(artifact: string, enforceGatekeeper: boolean): SignEvidenceStep[] {
   if (artifact.endsWith('.dmg')) {
     return [

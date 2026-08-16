@@ -47,7 +47,7 @@ macOS `BrowserWindow` 使用 `hiddenInset` 标题栏、固定内嵌位置的 tra
 
 ## 限制
 
-- 制品目前为 ad-hoc 签名、未公证：Gatekeeper 只评估带 quarantine 属性的启动，因此本地构建与 cask 安装的副本打开时不被评估，但下载的副本需要一次性右键 → 打开，直到接入 Developer ID 签名与公证（付费 Apple Developer Program）。
+- 制品目前为 ad-hoc 签名、未公证：下载的副本需要一次性右键 → 打开，直到接入 Developer ID 签名与公证（付费 Apple Developer Program）。
 - `--smoke` 在未显式指定 `DSH_HOME` 时拒绝运行，因此绝不会触碰机器主人的真实 `~/.dsh`。
 - 启动恢复本身不会修复 profile：`restart()` 会以同一配置重试，因此必须先修复损坏的 profile，Restart 才能进入 running 状态。
 - 崩溃恢复的进程归属快照每秒刷新一次，因此完全在两次刷新之间创建并失去父进程的后代，只能在进程组仍可识别它时被清扫。
