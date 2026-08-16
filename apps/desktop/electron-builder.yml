@@ -12,9 +12,11 @@ npmRebuild: false
 nodeGypRebuild: false
 buildDependenciesFromSource: false
 # This pipeline never publishes: the CI workflow uploads the dmg as a run
-# artifact. Without this, electron-builder auto-detects the GitHub provider on
-# Actions runners and demands a GH_TOKEN while building the dmg update info.
-publish: never
+# artifact. null short-circuits electron-builder's publish manager before any
+# provider auto-detection — on Actions runners a bare config (or GITHUB_TOKEN
+# in the environment) would otherwise resolve a GitHub publisher and demand
+# credentials while building the dmg update info.
+publish: null
 # The asar carries only the Electron shell: the bundled main entry and the
 # sandboxed preload. Everything else ships as real files under
 # Contents/Resources/runtime (see extraResources), because the DSH child

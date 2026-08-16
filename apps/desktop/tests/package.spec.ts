@@ -11,10 +11,10 @@ const BUILDER_YML = fileURLToPath(new URL('../electron-builder.yml', import.meta
 describe('macOS artifact evidence', () => {
   it('keeps the builder ad-hoc signed, dmg-delivered, and unpublishing', async () => {
     const config = yaml.load(await readFile(BUILDER_YML, 'utf8')) as {
-      publish: string
+      publish: null
       mac: { identity: string; hardenedRuntime: boolean; target: string[] }
     }
-    expect(config.publish).toBe('never')
+    expect(config.publish).toBeNull()
     expect(config.mac.identity).toBe('-')
     expect(config.mac.hardenedRuntime).toBe(false)
     expect(config.mac.target).toEqual(['dmg', 'dir'])
