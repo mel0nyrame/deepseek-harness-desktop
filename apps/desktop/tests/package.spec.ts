@@ -1,10 +1,25 @@
-import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import yaml from 'js-yaml'
 import { afterEach, describe, expect, it } from 'vitest'
 import { discoverArtifacts, gatekeeperIsHardGate, signEvidenceSteps } from '../scripts/artifact-evidence.ts'
 
+const BUILDER_YML = fileURLToPath(new URL('../electron-builder.yml', import.meta.url))
+
 describe('macOS artifact evidence', () => {
+  it('keeps the builder ad-hoc signed, dmg-delivered, and unpublishing', async () => {
+    const config = yaml.load(await readFile(BUILDER_YML, 'utf8')) as {
+      publish: string
+      mac: { identity: string; hardenedRuntime: boolean; target: string[] }
+    }
+    expect(config.publish).toBe('never')
+    expect(config.mac.identity).toBe('-')
+    expect(config.mac.hardenedRuntime).toBe(false)
+    expect(config.mac.target).toEqual(['dmg', 'dir'])
+  })
+
   it('gates application bundles through codesign and enforces Gatekeeper under Developer ID signing', () => {
     const steps = signEvidenceSteps('/out/mac-arm64/DSH Desktop.app', true)
     expect(steps).toEqual([
