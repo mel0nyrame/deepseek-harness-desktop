@@ -31,7 +31,7 @@ import { parseArgs } from 'node:util'
 import { build, type Configuration } from 'electron-builder'
 import { rebuild } from '@electron/rebuild'
 import yaml from 'js-yaml'
-import { discoverArtifacts, gatekeeperIsHardGate, hasCustomBundleIcon, signEvidenceSteps } from './artifact-evidence.ts'
+import { discoverArtifacts, gatekeeperIsHardGate, hasCustomBundleIcon, signEvidenceSteps, type SignEvidenceStep } from './artifact-evidence.ts'
 
 const require = createRequire(import.meta.url)
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -412,7 +412,7 @@ class DesktopPackageBuild {
           continue
         }
         try {
-          await this.run(step.label, step.command, [...step.args])
+          await this.runEvidenceStep(step)
         } catch (error) {
           // The expected verdict under ad-hoc signing: Gatekeeper rejects the
           // signature via spctl (a non-zero exit), and the pipeline records
@@ -424,6 +424,33 @@ class DesktopPackageBuild {
         }
       }
     }
+  }
+
+  /**
+   * Run one evidence step; hard gates retry twice because a freshly built
+   * bundle can fail `codesign --verify` with "code has no resources but
+   * signature indicates they must be present" while the signing daemon or
+   * the image build still touches it on a busy runner — the observed PR
+   * lane failure that never reproduced on the release legs. A settled
+   * re-verification is the same evidence; all attempts failing fails the
+   * build.
+   */
+  private async runEvidenceStep(step: SignEvidenceStep): Promise<void> {
+    const attempts = step.required ? 3 : 1
+    let lastError: unknown
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        await this.run(step.label, step.command, [...step.args])
+        return
+      } catch (error) {
+        lastError = error
+        if (attempt < attempts) {
+          console.warn(`dsh-desktop package: ${step.label} attempt ${attempt}/${attempts} failed; re-verifying: ${error instanceof Error ? error.message : String(error)}`)
+          await new Promise(resolveWait => setTimeout(resolveWait, 1_500))
+        }
+      }
+    }
+    throw lastError
   }
 
   printProducts(products: string[]): void {
