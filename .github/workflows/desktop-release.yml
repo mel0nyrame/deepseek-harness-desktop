@@ -19,6 +19,9 @@ on:
 
 permissions:
   contents: read
+  # upload-artifact needs the actions scope; the restrictive block resets
+  # everything else to none, which is the intent for this matrix.
+  actions: write
 
 env:
   PRIMARY_NODE_VERSION: '24'

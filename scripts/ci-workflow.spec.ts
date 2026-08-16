@@ -236,6 +236,9 @@ describe('Desktop release workflow', () => {
         'if-no-files-found': 'error',
       },
     })
+    // upload-artifact must hold the actions scope: the restrictive
+    // permissions block resets every unspecified scope to none.
+    expect(workflow.permissions).toMatchObject({ contents: 'read', actions: 'write' })
     // The PR lane already smokes one arm64 runner; this matrix doubles
     // macOS runner minutes on a private repository, so it must stay off
     // pull requests and branch pushes entirely.
