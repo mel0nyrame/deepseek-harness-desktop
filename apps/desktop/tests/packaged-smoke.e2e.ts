@@ -289,6 +289,9 @@ describe('packaged desktop application', () => {
       expect(state.keyboard).toEqual({ activeElement: 'TEXTAREA', value: 'KEYBOARD_OK' })
       // Synthetic drag input cannot move a native window without OS pointer
       // permissions; the frames and computed regions carry the product claim.
+      // The baseline is the bounds macOS granted at launch: displays shorter
+      // than the requested rect (the CI arm64 runner's work area) clamp the
+      // window, and the granted position is what the attempt must not change.
       expect(state.window.dragAttemptBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
       for (const label of [

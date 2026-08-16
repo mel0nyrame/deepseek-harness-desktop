@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-16-desktop-window-granted-bounds-baseline.md
+2026-08-16-desktop-window-granted-bounds-baseline.md: 1ecf49c8c2388f4ce647f4dcfbf6e26ce9a06d8e
+2026-08-16-desktop-window-granted-bounds-baseline.zh.md: 93cb61487f305834e964c5f3764273cff354da0c

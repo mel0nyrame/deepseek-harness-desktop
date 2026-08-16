@@ -1163,8 +1163,7 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     throw new Error(`desktop acceptance: Host did not reach the running phase (${lifecycle.phase})`)
   }
   const focus: string[] = []
-  const initialBounds = { x: 120, y: 120, width: 960, height: 700 }
-  window.setBounds(initialBounds)
+  window.setBounds({ x: 120, y: 120, width: 960, height: 700 })
   window.show()
   window.focus()
   focus.push('active')
@@ -1183,6 +1182,11 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     window.focus()
     await focused
 
+    // The baseline for the no-move claim is the bounds macOS granted at
+    // launch, not the requested rect: displays shorter than the request (the
+    // CI arm64 runner's work area) clamp it, and the granted bounds are the
+    // truthful starting position the drag attempt must leave untouched.
+    const initialBounds = window.getBounds()
     const dragged = new Promise<void>((resolveMove) => { window.once('move', () => { resolveMove() }) })
     window.webContents.sendInputEvent({ type: 'mouseDown', x: 480, y: 20, button: 'left', clickCount: 1 })
     window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
@@ -1313,8 +1317,7 @@ async function recordNativeWindow(
   }
   const recorder = createFrameRecorder(window, framesDir)
   const focus: string[] = []
-  const initialBounds = { x: 120, y: 120, width: 960, height: 700 }
-  window.setBounds(initialBounds)
+  window.setBounds({ x: 120, y: 120, width: 960, height: 700 })
   window.show()
   window.focus()
   focus.push('active')
@@ -1341,7 +1344,11 @@ async function recordNativeWindow(
     await recorder.capture('active')
 
     // Synthetic input exercises the drag strip without OS-level pointer
-    // permissions; the evidence line records the resulting bounds.
+    // permissions; the evidence line records the resulting bounds against the
+    // bounds macOS actually granted — displays shorter than the requested
+    // rect (the CI arm64 runner) clamp it, and that granted position is the
+    // truthful baseline the attempt must leave unchanged.
+    const initialBounds = window.getBounds()
     window.webContents.sendInputEvent({ type: 'mouseDown', x: 480, y: 20, button: 'left', clickCount: 1 })
     window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
     window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 60, button: 'left', clickCount: 1 })
