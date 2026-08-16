@@ -82,6 +82,7 @@ describe('connection client apply', () => {
       cancelRequest: () => undefined,
       subscribe: () => undefined,
       cancelSubscription: () => undefined,
+      ackStream: () => undefined,
       onStream: () => () => undefined,
     }
     const handle = await mount()

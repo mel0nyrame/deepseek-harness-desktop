@@ -5,6 +5,7 @@ import {
   packagedChildEnv,
   packagedRuntimeLayout,
   parseSmokeInvocation,
+  parseSmokeReopenInvocation,
   RUNTIME_SUBDIR,
 } from '../src/packaged-runtime.ts'
 
@@ -58,13 +59,36 @@ describe('smoke invocation parsing', () => {
     expect(parseSmokeInvocation(['/bin/app', '--smoke-replay', '/f.jsonl'])).toBeUndefined()
   })
 
-  it('parses the smoke flag with its replay file', () => {
+  it('parses the smoke flag with its replay file and child replays', () => {
     expect(parseSmokeInvocation(['/bin/app', '--smoke', '--smoke-replay', '/f.jsonl']))
-      .toEqual({ replayFile: '/f.jsonl' })
+      .toEqual({ replayFile: '/f.jsonl', childReplays: [] })
+    expect(parseSmokeInvocation([
+      '/bin/app', '--smoke', '--smoke-replay', '/f.jsonl',
+      '--smoke-child-replay', '/q.jsonl', '--smoke-child-replay', '/a.jsonl',
+    ])).toEqual({ replayFile: '/f.jsonl', childReplays: ['/q.jsonl', '/a.jsonl'] })
   })
 
   it('rejects a replay flag without a following path', () => {
-    expect(parseSmokeInvocation(['/bin/app', '--smoke', '--smoke-replay'])).toEqual({})
-    expect(parseSmokeInvocation(['/bin/app', '--smoke', '--smoke-replay', '--other'])).toEqual({})
+    expect(parseSmokeInvocation(['/bin/app', '--smoke', '--smoke-replay']))
+      .toEqual({ childReplays: [] })
+    expect(parseSmokeInvocation(['/bin/app', '--smoke', '--smoke-replay', '--other']))
+      .toEqual({ childReplays: [] })
+  })
+})
+
+describe('smoke reopen invocation parsing', () => {
+  it('ignores ordinary application launches', () => {
+    expect(parseSmokeReopenInvocation(['/bin/app'])).toBeUndefined()
+    expect(parseSmokeReopenInvocation(['/bin/app', '--smoke-home', '/tmp/home'])).toBeUndefined()
+  })
+
+  it('parses the reopen flag with its home', () => {
+    expect(parseSmokeReopenInvocation(['/bin/app', '--smoke-reopen', '--smoke-home', '/tmp/home']))
+      .toEqual({ home: '/tmp/home' })
+  })
+
+  it('reports the reopen flag without a usable home so the boot path can fail loudly', () => {
+    expect(parseSmokeReopenInvocation(['/bin/app', '--smoke-reopen'])).toEqual({ home: undefined })
+    expect(parseSmokeReopenInvocation(['/bin/app', '--smoke-reopen', '--smoke-home'])).toEqual({ home: undefined })
   })
 })

@@ -104,6 +104,7 @@ function parseParentMessage(value: unknown): DesktopParentMessage | undefined {
   switch (value.type) {
     case 'cancel-request':
     case 'cancel-subscription':
+    case 'stream-ack':
       return { type: value.type, id: value.id }
     case 'subscribe':
       return value.stream === 'mux' || value.stream === 'host'
@@ -307,6 +308,8 @@ export class DesktopHostRuntime {
   private readonly requestAborts = new Map<string, AbortController>()
   private readonly subscriptions = new Map<string, AbortController>()
   private readonly subscriptionStreams = new Map<'mux' | 'host', string>()
+  /** Per-pump frame-ack credits; an ack may legally arrive before its waiter. */
+  private readonly streamAckState = new Map<string, { credits: number; waiter: (() => void) | undefined }>()
   private readonly requests = new Set<Promise<void>>()
   private readonly pumps = new Set<Promise<void>>()
   private readyTask: Promise<void> | undefined
@@ -343,11 +346,34 @@ export class DesktopHostRuntime {
     this.requestAborts.clear()
     this.subscriptions.clear()
     this.subscriptionStreams.clear()
+    this.streamAckState.clear()
   }
 
   private sendDetached(message: DesktopChildMessage): void {
     void sendChildMessage(this.endpoint, message).catch((error: unknown) => {
       this.ctx.logger.error(`desktop-app: notification delivery failed: ${String(error)}`)
+    })
+  }
+
+  /** Wait for Electron main's frame acknowledgement, or fail on cancellation. */
+  private waitForStreamAck(id: string, controller: AbortController): Promise<void> {
+    if (controller.signal.aborted) return Promise.reject(errorFrom(controller.signal.reason))
+    const state = this.streamAckState.get(id) ?? { credits: 0, waiter: undefined }
+    if (state.credits > 0) {
+      state.credits -= 1
+      return Promise.resolve()
+    }
+    return new Promise<void>((resolve, reject) => {
+      const onAbort = (): void => {
+        if (state.waiter !== undefined) state.waiter = undefined
+        reject(errorFrom(controller.signal.reason))
+      }
+      controller.signal.addEventListener('abort', onAbort, { once: true })
+      state.waiter = () => {
+        controller.signal.removeEventListener('abort', onAbort)
+        resolve()
+      }
+      this.streamAckState.set(id, state)
     })
   }
 
@@ -389,6 +415,23 @@ export class DesktopHostRuntime {
         return
       case 'cancel-subscription':
         this.subscriptions.get(message.id)?.abort()
+        return
+      case 'stream-ack':
+        {
+          // An acknowledgement for a subscription whose pump is gone (a late
+          // terminal ack) must not mint a retained credit entry.
+          if (!this.subscriptions.has(message.id)) return
+          const state = this.streamAckState.get(message.id)
+          if (state === undefined) {
+            this.streamAckState.set(message.id, { credits: 1, waiter: undefined })
+          } else if (state.waiter !== undefined) {
+            const waiter = state.waiter
+            state.waiter = undefined
+            waiter()
+          } else {
+            state.credits += 1
+          }
+        }
         return
       case 'native-response':
         // DesktopNativeActions owns reverse-response correlation on the same endpoint.
@@ -478,6 +521,10 @@ export class DesktopHostRuntime {
       await sendChildMessage(this.endpoint, { type: 'stream-open', id })
       for await (const frame of frames) {
         await sendChildMessage(this.endpoint, { type: 'stream-message', id, message: fullFrame(frame) })
+        // End-to-end backpressure: Electron main acknowledges each frame only
+        // after the renderer's relay accepted it, so a slow consumer paces the
+        // ordered source instead of overflowing a bounded relay queue.
+        await this.waitForStreamAck(id, controller)
       }
     } catch (error) {
       if (!controller.signal.aborted) {
@@ -494,6 +541,7 @@ export class DesktopHostRuntime {
     } finally {
       controller.abort()
       this.subscriptions.delete(id)
+      this.streamAckState.delete(id)
       if (this.subscriptionStreams.get(stream) === id) this.subscriptionStreams.delete(stream)
       try {
         await sendChildMessage(this.endpoint, { type: 'stream-end', id })

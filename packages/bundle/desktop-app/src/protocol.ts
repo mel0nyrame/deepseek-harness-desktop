@@ -40,6 +40,7 @@ export type DesktopParentMessage =
   | { readonly type: 'subscribe'; readonly id: string; readonly stream: 'mux' | 'host' }
   | { readonly type: 'cancel-subscription'; readonly id: string }
   | { readonly type: 'native-response'; readonly id: string; readonly result: DesktopNativeResult }
+  | { readonly type: 'stream-ack'; readonly id: string }
 
 /** Built client artifact paired with one manifest row. */
 export interface DesktopClientBundle {

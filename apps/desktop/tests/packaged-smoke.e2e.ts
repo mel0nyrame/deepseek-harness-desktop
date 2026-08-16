@@ -38,7 +38,29 @@ function findAppPath(): string | undefined {
 const APP_PATH = process.env.DSH_DESKTOP_APP_DIR ?? findAppPath() ?? join(REPO_ROOT, 'apps', 'desktop', 'dist', 'mac', 'DSH Desktop.app')
 const APP_BINARY = join(APP_PATH, 'Contents', 'MacOS', 'DSH Desktop')
 const REPLAY_FIXTURE = join(REPO_ROOT, 'examples', 'acp-agent', 'tests', 'snapshots', 'bash-tool-turn', 'session.jsonl')
+const QUESTION_FIXTURE = join(REPO_ROOT, 'apps', 'web', 'tests', 'snapshots', 'question-composer', 'session.jsonl')
+const APPROVAL_FIXTURE = join(REPO_ROOT, 'apps', 'web', 'tests', 'snapshots', 'approval-composer', 'session.jsonl')
 const REQUIRED = process.env.DSH_DESKTOP_SMOKE_REQUIRED === '1'
+
+/** Copy the three recorded fixtures into one launch home and return their paths. */
+async function seedReplayFixtures(home: string): Promise<{ replay: string; question: string; approval: string }> {
+  const replay = join(home, 'replay.jsonl')
+  const question = join(home, 'question-replay.jsonl')
+  const approval = join(home, 'approval-replay.jsonl')
+  await copyFile(REPLAY_FIXTURE, replay)
+  await copyFile(QUESTION_FIXTURE, question)
+  await copyFile(APPROVAL_FIXTURE, approval)
+  return { replay, question, approval }
+}
+
+/** Full interaction-parity smoke argument list: the primary fixture plus its two children. */
+function smokeArgs(fixtures: { replay: string; question: string; approval: string }): string[] {
+  return [
+    '--smoke-replay', fixtures.replay,
+    '--smoke-child-replay', fixtures.question,
+    '--smoke-child-replay', fixtures.approval,
+  ]
+}
 
 describe('packaged desktop application', () => {
   let home: string | undefined
@@ -209,26 +231,27 @@ describe('packaged desktop application', () => {
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
-    'records truthful real-app frames of window interaction, appearance, and the tracer bullet',
+    'records truthful real-app frames of window interaction, appearance, and the interaction-parity turns',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-recording-'))
-      const framesDir = join(REPO_ROOT, '.playwright-mcp', 'gif-frames-issue4-native')
+      const framesDir = join(REPO_ROOT, '.playwright-mcp', 'gif-frames-issue6-interaction')
       // One storyboard is one evidence run: start from a fresh frame root.
       await rm(framesDir, { recursive: true, force: true })
-      const replayFile = join(home, 'replay.jsonl')
-      await copyFile(REPLAY_FIXTURE, replayFile)
+      const fixtures = await seedReplayFixtures(home)
       const hangKill = setTimeout(() => {
         if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
-      }, 120_000)
+      }, 300_000)
       const { exitCode, captured } = await launchInstalledApp(
         home,
-        ['--record-native-window', '--smoke-replay', replayFile],
+        ['--record-native-window', ...smokeArgs(fixtures)],
         { DSH_DESKTOP_FRAMES_DIR: framesDir },
       )
       clearTimeout(hangKill)
 
       expect(exitCode, `native recording exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
-      for (const marker of ['SMOKE_OK session', 'SMOKE_OK terminal', 'SMOKE_OK quit']) {
+      for (const marker of [
+        'SMOKE_OK session', 'SMOKE_OK terminal', 'SMOKE_OK question', 'SMOKE_OK approval', 'SMOKE_OK quit',
+      ]) {
         expect(captured, `recording output must carry ${marker}`).toContain(marker)
       }
       const line = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_RECORDING '))
@@ -245,9 +268,18 @@ describe('packaged desktop application', () => {
           restored: boolean
         }
         keyboard: { activeElement: string; value: string }
+        questionSessionId: string
+        approvalSessionId: string
+        approvalFile: string
         scenarioFailure: string | null
       }
       expect(state.scenarioFailure).toBeNull()
+      expect(state.questionSessionId).not.toBe('')
+      expect(state.approvalSessionId).not.toBe('')
+      expect(state.questionSessionId).not.toBe(state.approvalSessionId)
+      // The escalated write lands in the acceptance workspace under the
+      // application's own user-data directory, not the harness home.
+      expect(state.approvalFile.endsWith(join('acceptance-workspace', 'notes.txt'))).toBe(true)
       expect(captured).not.toContain('UnhandledPromiseRejectionWarning')
       expect(captured).not.toContain('Object has been destroyed')
       expect(state.framesDir).toBe(framesDir)
@@ -262,6 +294,7 @@ describe('packaged desktop application', () => {
       for (const label of [
         'launch', 'inactive', 'active', 'drag-strip-attempt', 'keyboard-typed',
         'restored', 'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+        'question-pending', 'question-settled', 'approval-pending', 'approval-settled',
       ]) {
         expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)
       }
@@ -411,16 +444,19 @@ describe('packaged desktop application', () => {
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
-    'runs the keyless tracer bullet on the installed bundle and quits quiescent',
+    'runs the keyless interaction-parity scenario on the installed bundle and quits quiescent',
     async () => {
       home = await mkdtemp(join(tmpdir(), 'dsh-desktop-packaged-'))
-      const replayFile = join(home, 'replay.jsonl')
-      await copyFile(REPLAY_FIXTURE, replayFile)
+      const fixtures = await seedReplayFixtures(home)
 
-      const { exitCode, captured } = await launchInstalledApp(home, ['--smoke', '--smoke-replay', replayFile])
+      const { exitCode, captured } = await launchInstalledApp(home, ['--smoke', ...smokeArgs(fixtures)])
 
       expect(exitCode, `packaged smoke exited ${String(exitCode)}; output:\n${captured.slice(0, 4000)}`).toBe(0)
-      for (const marker of ['SMOKE_OK ready', 'SMOKE_OK no-tcp-listener', 'SMOKE_OK session', 'SMOKE_OK terminal', 'SMOKE_OK quit', 'SMOKE_PASS']) {
+      for (const marker of [
+        'SMOKE_OK ready', 'SMOKE_OK no-tcp-listener', 'SMOKE_OK workspace', 'SMOKE_OK session',
+        'SMOKE_OK terminal', 'SMOKE_OK question', 'SMOKE_OK approval', 'SMOKE_OK reconstruction',
+        'SMOKE_OK quit', 'SMOKE_PASS',
+      ]) {
         expect(captured, `packaged smoke output must carry ${marker}`).toContain(marker)
       }
       expect(captured).not.toContain('desktop smoke failed')
@@ -432,6 +468,35 @@ describe('packaged desktop application', () => {
       child = undefined
     },
     300_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'reopens the durable Workspace and Sessions a second launch created',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-reopen-'))
+      const fixtures = await seedReplayFixtures(home)
+
+      const first = await launchInstalledApp(home, ['--smoke', ...smokeArgs(fixtures)])
+      expect(first.exitCode, `first launch exited ${String(first.exitCode)}; output:\n${first.captured.slice(0, 4000)}`).toBe(0)
+
+      // The second launch boots the SAME durable home: the workspace and the
+      // three sessions must reconstruct from the existing persistence without
+      // any model call.
+      const second = await launchInstalledApp(home, ['--smoke-reopen', '--smoke-home', home])
+      expect(second.exitCode, `reopen launch exited ${String(second.exitCode)}; output:\n${second.captured.slice(0, 4000)}`).toBe(0)
+      for (const marker of [
+        'SMOKE_OK reopen-ready', 'SMOKE_OK reopen-sessions', 'SMOKE_OK reopen-workspace',
+        'SMOKE_OK reopen-terminal-history', 'SMOKE_OK reopen-approval-history',
+        'SMOKE_OK reopen-quit', 'SMOKE_PASS',
+      ]) {
+        expect(second.captured, `reopen output must carry ${marker}`).toContain(marker)
+      }
+      expect(second.captured).not.toContain('desktop smoke reopen failed')
+
+      assertNoSurvivors()
+      child = undefined
+    },
+    600_000,
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(

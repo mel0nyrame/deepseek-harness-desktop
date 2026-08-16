@@ -6,13 +6,13 @@
 
 ## 开发
 
-`pnpm run dev:desktop`（仓库根目录）先构建工作区，再以开发模式启动 Electron 主进程：DSH 子进程通过 `apps/cli/lib/bin.js` 从源码树启动并运行在环境 Node 上，Web 前端由构建产物 `dist` 提供，退出时终止整个自有进程树。无密钥的开发版 tracer bullet（`apps/desktop/tests/real-composition.e2e.ts`）在不打开窗口的情况下覆盖同一链路。
+`pnpm run dev:desktop`（仓库根目录）先构建工作区，再以开发模式启动 Electron 主进程：DSH 子进程通过 `apps/cli/lib/bin.js` 从源码树启动并运行在环境 Node 上，Web 前端由构建产物 `dist` 提供，退出时终止整个自有进程树。无密钥的开发版交互等价场景（`apps/desktop/tests/real-composition.e2e.ts`）在不打开窗口的情况下驱动同一链路：一个持久 Workspace、三个 Session——有序终端流、经载体作答的提问、经载体作答的沙箱升级审批——以及从持久 Session 日志重建全部模型可见输入。
 
 ## 载体安全与生命周期
 
 `BrowserWindow` 保持 `contextIsolation: true`、`nodeIntegration: false` 和 `sandbox: true`。preload 只暴露启动、unary 请求／取消、流订阅／取消以及流通知操作。Electron main 只接受来自精确 `dsh://app` frame 的调用，并校验每个 payload；子进程到 main 的消息以及 main 到 preload 的生命周期通知会在关联请求或交付 renderer 前再次校验，就绪握手中的 bundle 路径还必须解析为配置的开发或打包运行时根目录下的真实 `.js` 文件。随后由现有 Connection zod schema 在客户端分发前校验 RPC envelope 与 mux／Host frame。
 
-每个 renderer 订阅最多保留 256 个已解析 frame。Electron main 会确认已交付的通知，并限制每条流 relay 的 in-flight 与排队状态；溢出或重复的 open 通知会取消物理订阅，并按顺序发出 error／end 关闭。preload 通过一个 dispatcher 分发每条已校验通知，并且只确认一次。renderer 溢出会清空队列、取消物理订阅，并以错误终止 iterator；调用方取消会立即丢弃排队 frame。子进程流泵会在读取下一条 frame 前等待每次 IPC send callback，因此原生 channel 背压会暂停有序 source，不会把已经接受的消息误判为丢失。main-frame reload／导航、renderer 崩溃或 renderer 销毁时，Electron main 会取消 renderer 持有的请求与流；子进程 IPC 断连、退出或报错会关闭所有活跃请求与流，应用退出或启动失败则会停止并等待子进程退出。
+每个 renderer 订阅最多保留 256 个已解析 frame。消费方客户端只在取走每个已交付 frame 之后才确认它（生命周期 open／end 事件在到达时即确认），Electron main 把该确认转发给子进程，同时限制每条流 relay 的 in-flight 与排队状态——frame 上界是安全网，真实 renderer 消费才是节制有序 source 的节流。溢出或重复的 open 通知会取消物理订阅，并按顺序发出 error／end 关闭；renderer 溢出会清空队列、取消物理订阅，并以错误终止 iterator。调用方取消会立即丢弃排队 frame。子进程流泵会在读取下一条 frame 前等待每次 IPC send callback 以及逐 frame 确认，因此原生 channel 背压会暂停有序 source，不会把已经接受的消息误判为丢失。main-frame reload／导航、renderer 崩溃或 renderer 销毁时，Electron main 会取消 renderer 持有的请求与流；子进程 IPC 断连、退出或报错会关闭所有活跃请求与流，应用退出或启动失败则会停止并等待子进程退出。
 
 ## 原生桌面操作
 
@@ -40,7 +40,7 @@ macOS `BrowserWindow` 使用 `hiddenInset` 标题栏、固定内嵌位置的 tra
 
 ## 打包产物验收
 
-`apps/desktop/tests/packaged-smoke.e2e.ts` 以六种模式启动安装后的应用包。`--inspect-native-window` 创建真实 `BrowserWindow`，并报告标题栏、traffic lights、透明度、vibrancy、焦点、拖动区域、外观与降低透明度状态，供自动化断言。`--accept-native-window` 在装配好的渲染器上打开可见窗口，断言 active → inactive → active 焦点切换、最小化/恢复、标题区域拖动输入尝试、44 像素标题区域布局且内容不被遮挡、计算得到的 drag/no-drag 区域，以及真实输入框的键盘路径。`--record-native-window --smoke-replay <file>` 配合 `DSH_DESKTOP_FRAMES_DIR` 录制真实渲染器帧：启动、焦点切换、标题区域拖动尝试、键盘操作、最小化/恢复、明暗外观与装配 UI 中回放的 tracer 回合，并在结束后把 `nativeTheme.themeSource` 恢复为进入录制模式时的值。`--record-native-actions` 配合 `DSH_DESKTOP_FRAMES_DIR` 保留真实安装态窗口、preload、ApiProxy、子进程反向 IPC、Workspace 接纳与 Session 导航，只替换为确定性的对话框／shell primitive；它会记录已接纳 Workspace 及结构化的成功与可操作失败证据，因为 renderer capture 无法包含原生对话框。`--record-recovery --smoke-replay <file>` 配合 `DSH_DESKTOP_FRAMES_DIR` 会植入损坏的 desktop profile，录制失败状态页、受控重启与恢复后装配 UI 中回放 terminal 回合的真实渲染器帧，随后干净退出。`--smoke --smoke-replay <file>` 断言完整的无密钥 tracer bullet——创建 Session、由终端执行的 `echo TERMINAL_OK` 工具回合及其有序流式事件、无 TCP 监听、干净退出——并确认没有残留的自有进程。应用包缺失时该用例自跳过；macOS CI 任务会先打包并设置 `DSH_DESKTOP_SMOKE_REQUIRED=1`，把缺失变成硬失败。
+`apps/desktop/tests/packaged-smoke.e2e.ts` 以七种模式启动安装后的应用包。`--inspect-native-window` 创建真实 `BrowserWindow`，并报告标题栏、traffic lights、透明度、vibrancy、焦点、拖动区域、外观与降低透明度状态，供自动化断言。`--accept-native-window` 在装配好的渲染器上打开可见窗口，断言 active → inactive → active 焦点切换、最小化/恢复、标题区域拖动输入尝试、44 像素标题区域布局且内容不被遮挡、计算得到的 drag/no-drag 区域，以及真实输入框的键盘路径。`--record-native-window --smoke-replay <file> [--smoke-child-replay <file> …]` 配合 `DSH_DESKTOP_FRAMES_DIR` 录制真实渲染器帧：启动、焦点切换、标题区域拖动尝试、键盘操作、最小化/恢复、明暗外观、装配 UI 中回放的 terminal 回合，以及通过装配好的提问面板与审批面板作答的提问回合与审批回合，并在结束后把 `nativeTheme.themeSource` 恢复为进入录制模式时的值。`--record-native-actions` 配合 `DSH_DESKTOP_FRAMES_DIR` 保留真实安装态窗口、preload、ApiProxy、子进程反向 IPC、Workspace 接纳与 Session 导航，只替换为确定性的对话框／shell primitive；它会记录已接纳 Workspace 及结构化的成功与可操作失败证据，因为 renderer capture 无法包含原生对话框。`--record-recovery --smoke-replay <file>` 配合 `DSH_DESKTOP_FRAMES_DIR` 会植入损坏的 desktop profile，录制失败状态页、受控重启与恢复后装配 UI 中回放 terminal 回合的真实渲染器帧，随后干净退出。`--smoke --smoke-replay <file> [--smoke-child-replay <file> …]` 断言完整的无密钥交互等价场景——持久 Workspace 的创建与幂等重开、由终端执行的 `echo TERMINAL_OK` 工具回合及其有序流式事件、经载体作答的提问回合与沙箱升级审批回合、从持久 Session 日志重建全部模型可见输入、无 TCP 监听、干净退出——并确认没有残留的自有进程。第二次以 `--smoke-reopen --smoke-home <dir>` 启动同一持久主目录，断言 Workspace 与三个 Session 无需任何模型调用即从现有持久化中重建。应用包缺失时该用例自跳过；macOS CI 任务会先打包并设置 `DSH_DESKTOP_SMOKE_REQUIRED=1`，把缺失变成硬失败。
 
 ## 限制
 

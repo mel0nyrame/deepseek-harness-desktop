@@ -13,7 +13,11 @@ interface RendererStreamState {
 /**
  * Bounded, acknowledged forwarding between the supervisor and one renderer.
  * The relay owns only transport state; the supervisor remains the owner of the
- * child subscription and receives cancellation through the callback.
+ * child subscription and receives cancellation through the callback. In the
+ * paced carrier the child sends one frame per renderer consumption
+ * acknowledgement, so the in-flight and queue bounds are defense-in-depth
+ * rather than the steady-state throttle: a broken ack path trips them instead
+ * of buffering without bound.
  */
 export class RendererStreamRelay {
   private readonly streams = new Map<string, RendererStreamState>()

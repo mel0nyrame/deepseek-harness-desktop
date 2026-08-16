@@ -131,6 +131,8 @@ export async function createDesktopCarrierContractHarness(): Promise<CarrierCont
       opened.delete(id)
       publish({ type: 'end', id })
     },
+    ackStream() {},
+
     onStream(listener) {
       listeners.add(listener)
       return () => { listeners.delete(listener) }

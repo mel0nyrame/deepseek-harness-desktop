@@ -1,7 +1,7 @@
 /** Electron desktop entry: development shell and packaged application. */
 
 import { fork } from 'node:child_process'
-import { mkdirSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { mkdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { basename, dirname, extname, join, relative, resolve, sep } from 'node:path'
@@ -25,8 +25,12 @@ import {
   packagedChildEnv,
   packagedRuntimeLayout,
   parseSmokeInvocation,
+  parseSmokeReopenInvocation,
 } from './packaged-runtime.ts'
-import { prepareBrokenProfile, prepareSmokeProfile, RECORDED_PROMPT, runSmokeScenario } from './smoke.ts'
+import {
+  APPROVAL_FILE, APPROVAL_PROMPT, prepareBrokenProfile, prepareSmokeProfile, QUESTION_ANSWER,
+  QUESTION_PROMPT, RECORDED_PROMPT, runSmokeReopen, runSmokeScenario, toolResultText,
+} from './smoke.ts'
 import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
 import { createNativeActionHandler, type DesktopNativePlatform } from './native-actions.ts'
 import {
@@ -357,7 +361,7 @@ function installIpc(
       console.error('[desktop-main] dropped malformed subscription')
       return
     }
-    maybeSupervisor()?.subscribe(subscription.id, subscription.stream)
+    maybeSupervisor()?.subscribe(subscription.id, subscription.stream, { relayed: true })
   })
   ipcMain.on('dsh:cancel-subscription', (event, value: unknown) => {
     if (!senderAllowed(event)) return
@@ -377,6 +381,9 @@ function installIpc(
       return
     }
     relay.ack(id)
+    // The preload acknowledgement completes the renderer round-trip; forward
+    // it to the child so its pump may send the next frame.
+    maybeSupervisor()?.ackStream(id)
   })
   ipcMain.handle('dsh:recovery', (event, value: unknown) => {
     if (!statusSenderAllowed(event)) throw new Error('desktop IPC rejected an unknown recovery sender')
@@ -753,8 +760,12 @@ async function completeOnboarding(window: BrowserWindow): Promise<void> {
  * and the composer submits to the minted id while the driver polls the
  * pre-created one). This journey therefore returns the session the real pick
  * opened, discovered through the durable workspace view.
+ * @returns the opened session plus the workspace id the acceptance run adopted.
  */
-async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindow): Promise<string> {
+async function reachLiveComposer(
+  supervisor: DshSupervisor,
+  window: BrowserWindow,
+): Promise<{ sessionId: string; workspaceId: string }> {
   const workspaceDir = join(app.getPath('userData'), 'acceptance-workspace')
   await mkdir(workspaceDir, { recursive: true })
   const created = await desktopRpc(supervisor, 'accept-workspace', 'workspace.create', { path: workspaceDir })
@@ -793,7 +804,8 @@ async function reachLiveComposer(supervisor: DshSupervisor, window: BrowserWindo
   await waitForRenderer(window, "(() => { const row = document.querySelector('[role=\"menu\"] [role=\"menuitem\"], [role=\"listbox\"] [role=\"option\"]'); if (row === null) return false; const box = row.getBoundingClientRect(); return box.width > 0 && box.height > 0 && box.top >= 0 && box.left >= 0; })()")
   await clickAt(window, '[role="menu"] [role="menuitem"], [role="listbox"] [role="option"]')
   await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})`)
-  return discoverAcceptanceSession(supervisor, workspaceId)
+  const sessionId = await discoverAcceptanceSession(supervisor, workspaceId)
+  return { sessionId, workspaceId }
 }
 
 /** Adopt a fresh Workspace through the real native-picker UI and open its Session. */
@@ -849,8 +861,15 @@ async function typeIntoComposer(window: BrowserWindow): Promise<{ activeElement:
   throw new Error('desktop acceptance: keyboard input never reached the live composer')
 }
 
-/** Replace the live draft and submit it through the renderer's real Enter path. */
-async function submitRecordedPrompt(window: BrowserWindow): Promise<void> {
+/**
+ * Replace the live draft and submit it through the renderer's real Enter path.
+ * A takeover prompt (question or approval) replaces the composer instead of
+ * clearing it, so the settle check accepts the takeover surface too.
+ * @param window - the assembled renderer window.
+ * @param prompt - the exact prompt text to submit.
+ * @param takeover - whether the prompt takes the composer over (question/approval).
+ */
+async function submitRecordedPrompt(window: BrowserWindow, prompt: string, takeover = false): Promise<void> {
   for (let attempt = 0; attempt < 3; attempt += 1) {
     window.focus()
     window.webContents.focus()
@@ -870,11 +889,11 @@ async function submitRecordedPrompt(window: BrowserWindow): Promise<void> {
       return document.activeElement === textarea && textarea.selectionStart === 0 && textarea.selectionEnd === textarea.value.length;
     })()`) as boolean
     if (!selected) throw new Error('desktop recording: the live composer draft could not be selected')
-    await window.webContents.insertText(RECORDED_PROMPT)
+    await window.webContents.insertText(prompt)
     try {
       await waitForRenderer(
         window,
-        `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ${JSON.stringify(RECORDED_PROMPT)}`,
+        `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ${JSON.stringify(prompt)}`,
         2_000,
       )
       break
@@ -897,7 +916,11 @@ async function submitRecordedPrompt(window: BrowserWindow): Promise<void> {
   }
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
-  await waitForRenderer(window, `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ''`)
+  const cleared = `document.querySelector(${JSON.stringify(LIVE_COMPOSER)})?.value === ''`
+  const expectation = takeover
+    ? `(${cleared}) || Boolean(document.querySelector('[data-question-key], [data-approval-key]'))`
+    : cleared
+  await waitForRenderer(window, expectation)
 }
 
 interface RecordedHistoryEvent {
@@ -905,13 +928,33 @@ interface RecordedHistoryEvent {
   readonly data?: unknown
 }
 
-/** Verify the replayed turn through durable history and its rendered bash card. */
-async function waitForRecordedTurn(
+/** One replayed turn's settlement contract: tool, tool output, and renderer surface. */
+interface TurnExpectation {
+  /** The tool the replayed turn must call at least once. */
+  readonly toolName: string
+  /** Required substring in the turn's tool-result text (when set). */
+  readonly toolResultContains?: string
+  /** DOM selector that must exist once the turn settles. */
+  readonly settledSelector?: string
+  /** DOM selector that must be gone once the turn settles. */
+  readonly goneSelector?: string
+}
+
+/**
+ * Verify one replayed turn through durable history and the rendered surface.
+ * The turn must end cleanly (a `turn/end` whose reason is `completed`): a
+ * replay underrun — an auxiliary call stealing the session's replay cursor,
+ * for example — surfaces as an errored turn and fails here instead of
+ * passing silently.
+ * @returns the turn's history events.
+ */
+async function waitForTurnCompleted(
   supervisor: DshSupervisor,
   window: BrowserWindow,
   sessionId: string,
-): Promise<void> {
-  const deadline = Date.now() + 60_000
+  expectation: TurnExpectation,
+): Promise<RecordedHistoryEvent[]> {
+  const deadline = Date.now() + 120_000
   let requestIndex = 0
   let events: RecordedHistoryEvent[] = []
   for (;;) {
@@ -929,35 +972,187 @@ async function waitForRecordedTurn(
       return [event as RecordedHistoryEvent]
     })
     const hasToolResult = events.some(event => event.type === 'tool/result')
-    const hasTurnEnd = events.some(event => event.type === 'turn/end')
-    const bashSettled = await window.webContents.executeJavaScript(
-      `Boolean(document.querySelector(${JSON.stringify(SETTLED_BASH_CARD)}))`,
-    ) as boolean
-    if (hasToolResult && hasTurnEnd && bashSettled) break
+    const turnEnd = events.findLast(event => event.type === 'turn/end')
+    const reason = (turnEnd?.data as { reason?: { kind?: unknown } } | undefined)?.reason
+    const settledDom = expectation.settledSelector === undefined
+      || await window.webContents.executeJavaScript(
+        `Boolean(document.querySelector(${JSON.stringify(expectation.settledSelector)}))`,
+      ) as boolean
+    const goneDom = expectation.goneSelector === undefined
+      || !(await window.webContents.executeJavaScript(
+        `Boolean(document.querySelector(${JSON.stringify(expectation.goneSelector)}))`,
+      ) as boolean)
+    if (hasToolResult && reason?.kind === 'completed' && settledDom && goneDom) break
     if (Date.now() > deadline) {
       throw new Error(`desktop recording scenario did not settle; events: ${JSON.stringify(events).slice(0, 4000)}`)
     }
     await new Promise(resolveWait => setTimeout(resolveWait, 50))
   }
-
-  const toolCall = events.find(event => event.type === 'tool/call') as { data?: { name?: unknown } } | undefined
-  if (toolCall?.data?.name !== 'bash') throw new Error('desktop recording: the replayed turn did not call bash')
-  const toolResult = events.find(event => event.type === 'tool/result') as {
-    data?: { message?: { content?: Array<{ type?: unknown; content?: unknown[] }> } }
-  } | undefined
-  const terminalText = toolResult?.data?.message?.content
-    ?.filter(part => part.type === 'tool-result')
-    .flatMap(part => part.content ?? [])
-    .filter(entry => typeof entry === 'object'
-      && entry !== null
-      && (entry as { type?: unknown }).type === 'text'
-      && typeof (entry as { text?: unknown }).text === 'string')
-    .map(entry => (entry as { text: string }).text)
-    .join('') ?? ''
-  if (!terminalText.includes('TERMINAL_OK')) {
-    throw new Error('desktop recording: the bash result did not contain TERMINAL_OK')
+  if (!events.some(event => event.type === 'tool/call'
+    && (event.data as { name?: unknown } | undefined)?.name === expectation.toolName)) {
+    throw new Error(`desktop recording: the replayed turn did not call ${expectation.toolName}`)
   }
-  console.log('SMOKE_OK terminal')
+  if (expectation.toolResultContains !== undefined) {
+    const resultText = toolResultText(events)
+    if (!resultText.includes(expectation.toolResultContains)) {
+      throw new Error(
+        `desktop recording: the tool result did not contain ${expectation.toolResultContains}; actual: ${JSON.stringify(resultText)}`,
+      )
+    }
+  }
+  return events
+}
+
+/** Measured center of the first element a finder expression selects, or null. */
+async function matchingPoint(
+  window: BrowserWindow,
+  finder: string,
+): Promise<{ x: number; y: number } | null> {
+  return await window.webContents.executeJavaScript(`(() => {
+    const el = (${finder});
+    if (el === null || el === undefined) return null;
+    const box = el.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+}
+
+/** Click one measured point with real pointer input. */
+function clickPoint(window: BrowserWindow, point: { x: number; y: number }): void {
+  window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+}
+
+/** Wait for the element a finder expression selects, then click it with real pointer input. */
+async function clickMatching(window: BrowserWindow, finder: string, description: string): Promise<void> {
+  await waitForRenderer(window, `(${finder}) !== null`, 60_000)
+  const point = await matchingPoint(window, finder)
+  if (point === null) throw new Error(`desktop recording: ${description} has no clickable element`)
+  clickPoint(window, point)
+}
+
+/**
+ * Start a new blank session through the product's own New session action (the
+ * sidebar header button), then discover the id the product minted. The
+ * desktop window boots with the workspace sidebar collapsed, so the journey
+ * opens it through its real toggle first. The minted session becomes the
+ * product's current session, so the composer lands on it directly — no row
+ * click, and no race with the client's own mint.
+ */
+async function startSessionThroughProduct(
+  supervisor: DshSupervisor,
+  window: BrowserWindow,
+  workspaceId: string,
+  rpcId: string,
+): Promise<string> {
+  const before = await workspaceSessionIds(supervisor, workspaceId)
+  if (await window.webContents.executeJavaScript(
+    'document.querySelector(\'[aria-label="Open sidebar"]\') !== null',
+  ) as boolean) {
+    await clickAt(window, '[aria-label="Open sidebar"]')
+  }
+  // The sidebar's own New session action (its header button) mints the
+  // session through the shared startSession flow: it resolves the current
+  // session's Workspace, reuses or creates its blank session, and navigates
+  // there — the same gesture a desktop user makes.
+  await waitForRenderer(window, 'document.querySelector(\'[aria-label="New session"]\') !== null', 15_000)
+  // The sidebar header button sits in a clipped hover-reveal strip where
+  // synthetic pointer hit-testing is unreliable; the element's own click
+  // event runs the product's real handler (startSession) and navigation —
+  // the same gesture fidelity the Web question test uses for its answer.
+  const clicked = await window.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('[aria-label=\\\"New session\\\"]'); if (el === null) return false; el.click(); return true })()",
+  ) as boolean
+  if (!clicked) throw new Error('desktop recording: the New session action never appeared')
+  await waitForRenderer(window, `Boolean(document.querySelector(${JSON.stringify(LIVE_COMPOSER)}))`, 15_000)
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const after = await workspaceSessionIds(supervisor, workspaceId)
+    const added = after.filter(id => !before.includes(id))
+    if (added.length > 1) {
+      throw new Error(`desktop recording: the New session action minted ${String(added.length)} sessions`)
+    }
+    if (added.length === 1) return added[0] as string
+    if (Date.now() > deadline) {
+      throw new Error(
+        `desktop recording: the New session action minted no discoverable session (${rpcId}); before: ${JSON.stringify(before)} after: ${JSON.stringify(after)}`,
+      )
+    }
+    await new Promise(resolveWait => setTimeout(resolveWait, 200))
+  }
+}
+
+/** The acceptance workspace's accounted session ids, in list order. */
+async function workspaceSessionIds(supervisor: DshSupervisor, workspaceId: string): Promise<string[]> {
+  const listed = await desktopRpc(supervisor, `record-workspace-${workspaceId}-${Math.random()}`, 'workspace.list', {})
+  const items = listed['items'] as Array<Record<string, unknown>>
+  const workspace = items.find(item => item['workspaceId'] === workspaceId)
+  const sessionIds = workspace?.['sessionIds']
+  if (!Array.isArray(sessionIds) || sessionIds.some(id => typeof id !== 'string')) {
+    throw new Error('desktop recording: workspace.list returned no session ids for the acceptance workspace')
+  }
+  return sessionIds as string[]
+}
+
+/** Switch the active session to Read Only through the shipped access-mode chip. */
+async function switchAccessModeReadOnly(window: BrowserWindow): Promise<void> {
+  await clickAt(window, '[aria-label^="Access mode"]')
+  await clickMatching(
+    window,
+    "[...document.querySelectorAll('[role=\"menuitem\"]')]"
+      + ".find(candidate => candidate.textContent?.trim() === 'Read Only') ?? null",
+    'the Read Only menu item',
+  )
+  await waitForRenderer(window, "document.querySelector('[aria-label=\"Access mode, current: Read Only\"]') !== null", 15_000)
+}
+
+/** Answer the assembled question composer: Blue plus custom text, submitted with Enter. */
+async function answerQuestionComposer(window: BrowserWindow): Promise<void> {
+  await clickMatching(
+    window,
+    "document.querySelector('[data-question-key]') === null ? null : "
+      + "[...document.querySelector('[data-question-key]').querySelectorAll('[role=\"checkbox\"], [role=\"radio\"]')]"
+      + ".find(candidate => candidate.textContent?.includes('Blue') === true) ?? null",
+    'the Blue option',
+  )
+  await waitForRenderer(window, "(() => { const composer = document.querySelector('[data-question-key]'); "
+    + "const option = composer === null ? undefined : [...composer.querySelectorAll('[role=\"checkbox\"]')]"
+    + ".find(candidate => candidate.textContent?.includes('Blue') === true); "
+    + "return option?.getAttribute('aria-checked') === 'true' })()", 5_000)
+  await clickMatching(
+    window,
+    "document.querySelector('[data-question-key]') === null ? null : "
+      + "document.querySelector('[data-question-key] input:not([type=\"checkbox\"]), [data-question-key] textarea, [data-question-key] [role=\"textbox\"]')",
+    'the custom answer textbox',
+  )
+  // Synthetic pointer input does not move focus into the takeover textbox, so
+  // the custom text is filled through the element's own input event (the same
+  // gesture the Web question test performs with Playwright's fill), then the
+  // answer is submitted through the real Enter key path.
+  const filled = await window.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector('[data-question-key] input:not([type="checkbox"]), [data-question-key] textarea, [data-question-key] [role="textbox"]');
+    if (el === null) return false;
+    el.focus();
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    const setter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+    setter?.call(el, 'Include accessibility notes');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    return el.value === 'Include accessibility notes';
+  })()`) as boolean
+  if (!filled) throw new Error('desktop recording: the custom answer text did not land in the textbox')
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Enter' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Enter' })
+}
+
+/** Click Allow once in the assembled approval panel. */
+async function allowApprovalOnce(window: BrowserWindow): Promise<void> {
+  await clickMatching(
+    window,
+    "document.querySelector('[data-approval-key]') === null ? null : "
+      + "[...document.querySelector('[data-approval-key]').querySelectorAll('button')]"
+      + ".find(candidate => candidate.textContent?.trim() === 'Allow once') ?? null",
+    'the Allow once button',
+  )
 }
 
 /** Exercise the installed app's assembled renderer and visible native window. */
@@ -1072,13 +1267,25 @@ function currentSupervisor(lifecycle: DesktopLifecycle): DshSupervisor {
 }
 
 /** Parse the `--smoke-replay <file>` value of a recording invocation. */
-function parseReplayArg(argv: readonly string[]): string | undefined {
+interface ReplayInvocation {
+  readonly replayFile?: string
+  readonly childReplays: string[]
+}
+
+/** Parse `--smoke-replay <file>` and repeated `--smoke-child-replay <file>` arguments. */
+function parseReplayInvocation(argv: readonly string[]): ReplayInvocation {
+  let replayFile: string | undefined
+  const childReplays: string[] = []
   for (let index = 0; index < argv.length; index += 1) {
-    if (argv[index] !== '--smoke-replay') continue
+    const arg = argv[index]
+    if (arg !== '--smoke-replay' && arg !== '--smoke-child-replay') continue
     const value = argv[index + 1]
-    if (typeof value === 'string' && value !== '' && !value.startsWith('-')) return value
+    if (typeof value !== 'string' || value === '' || value.startsWith('-')) continue
+    if (arg === '--smoke-replay') replayFile = value
+    else childReplays.push(value)
+    index += 1
   }
-  return undefined
+  return { ...(replayFile === undefined ? {} : { replayFile }), childReplays }
 }
 
 /**
@@ -1141,7 +1348,7 @@ async function recordNativeWindow(
     const dragAttemptBounds = window.getBounds()
     await recorder.capture('drag-strip-attempt')
 
-    const sessionId = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    const { sessionId, workspaceId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
     const keyboard = await typeIntoComposer(window)
     const controlBounds = window.getBounds()
     await recorder.capture('keyboard-typed')
@@ -1173,8 +1380,13 @@ async function recordNativeWindow(
     })()
     try {
       console.log('SMOKE_OK session')
-      await submitRecordedPrompt(window)
-      await waitForRecordedTurn(currentSupervisor(lifecycle), window, sessionId)
+      await submitRecordedPrompt(window, RECORDED_PROMPT)
+      await waitForTurnCompleted(currentSupervisor(lifecycle), window, sessionId, {
+        toolName: 'bash',
+        toolResultContains: 'TERMINAL_OK',
+        settledSelector: SETTLED_BASH_CARD,
+      })
+      console.log('SMOKE_OK terminal')
     } catch (error) {
       scenarioFailure = error instanceof Error ? error.message : String(error)
     } finally {
@@ -1182,6 +1394,47 @@ async function recordNativeWindow(
     }
     await poll
     await recorder.capture('tracer-settled')
+
+    // Interaction parity through the assembled renderer: the question turn is
+    // answered in the real question composer, and the approval turn switches
+    // the real access-mode chip, waits for the real approval panel, and clicks
+    // Allow once — the same user gestures the Web product serves.
+    const supervisor = currentSupervisor(lifecycle)
+    const questionSessionId = await startSessionThroughProduct(supervisor, window, workspaceId, 'record-question-session')
+    console.log('SMOKE_OK question-session')
+    await submitRecordedPrompt(window, QUESTION_PROMPT, true)
+    await waitForRenderer(window, "document.querySelector('[data-question-key]') !== null", 60_000)
+    await recorder.capture('question-pending')
+    await answerQuestionComposer(window)
+    await waitForTurnCompleted(supervisor, window, questionSessionId, {
+      toolName: 'ask_user_question',
+      toolResultContains: JSON.stringify(QUESTION_ANSWER),
+      goneSelector: '[data-question-key]',
+    })
+    console.log('SMOKE_OK question')
+    await recorder.capture('question-settled')
+
+    const approvalSessionId = await startSessionThroughProduct(supervisor, window, workspaceId, 'record-approval-session')
+    await switchAccessModeReadOnly(window)
+    console.log('SMOKE_OK approval-session')
+    // A stale notes.txt from an earlier run must not satisfy the assertion:
+    // remove it so the escalated write is the only source of the file.
+    const approvalFile = join(app.getPath('userData'), 'acceptance-workspace', APPROVAL_FILE)
+    rmSync(approvalFile, { force: true })
+    await submitRecordedPrompt(window, APPROVAL_PROMPT, true)
+    await waitForRenderer(window, "document.querySelector('[data-approval-key]') !== null", 120_000)
+    await recorder.capture('approval-pending')
+    await allowApprovalOnce(window)
+    await waitForTurnCompleted(supervisor, window, approvalSessionId, {
+      toolName: 'bash',
+      settledSelector: SETTLED_BASH_CARD,
+      goneSelector: '[data-approval-key]',
+    })
+    if (!existsSync(approvalFile) || !readFileSync(approvalFile, 'utf8').trim().startsWith('tok63z')) {
+      throw new Error('desktop recording: the escalated command did not write notes.txt into the workspace')
+    }
+    console.log('SMOKE_OK approval')
+    await recorder.capture('approval-settled')
 
     console.log(`NATIVE_WINDOW_RECORDING ${JSON.stringify({
       framesDir,
@@ -1195,6 +1448,9 @@ async function recordNativeWindow(
         restored: !window.isMinimized(),
       },
       keyboard,
+      questionSessionId,
+      approvalSessionId,
+      approvalFile,
       scenarioFailure,
     })}`)
   } finally {
@@ -1263,14 +1519,19 @@ async function recordRecovery(
     // Return to a usable Session state over the fresh generation.
     await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
     await completeOnboarding(window)
-    const sessionId = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    const { sessionId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
     const keyboard = await typeIntoComposer(window)
     await recorder.capture('session-recovered')
     console.log('SMOKE_OK session')
 
     try {
-      await submitRecordedPrompt(window)
-      await waitForRecordedTurn(currentSupervisor(lifecycle), window, sessionId)
+      await submitRecordedPrompt(window, RECORDED_PROMPT)
+      await waitForTurnCompleted(currentSupervisor(lifecycle), window, sessionId, {
+        toolName: 'bash',
+        toolResultContains: 'TERMINAL_OK',
+        settledSelector: SETTLED_BASH_CARD,
+      })
+      console.log('SMOKE_OK terminal')
     } catch (error) {
       scenarioFailure = error instanceof Error ? error.message : String(error)
     }
@@ -1456,7 +1717,9 @@ async function bootSmoke(lifecycle: DesktopLifecycle): Promise<number> {
     }
     const current = lifecycle.current()
     if (current === undefined) throw new Error('desktop smoke: no DSH generation after start')
-    await runSmokeScenario(current.supervisor, current.childPid ?? process.pid)
+    const home = process.env.DSH_HOME ?? ''
+    if (home === '') throw new Error('desktop smoke requires an explicit DSH_HOME')
+    await runSmokeScenario(current.supervisor, current.childPid ?? process.pid, home)
     const report = await lifecycle.stop()
     if (!report.quiescent) {
       console.error(`SMOKE_QUIT_FAILED ${JSON.stringify(report.failure)}`)
@@ -1469,6 +1732,48 @@ async function bootSmoke(lifecycle: DesktopLifecycle): Promise<number> {
     console.error(`desktop smoke failed: ${error instanceof Error ? error.message : String(error)}`)
     // A stop failure is secondary to the scenario verdict already in hand, so
     // report it by name instead of masking the original error.
+    const report = await lifecycle.stop()
+    if (!report.quiescent) {
+      console.error(`SMOKE_QUIT_FAILED ${JSON.stringify(report.failure)}`)
+    }
+    return 1
+  }
+}
+
+/**
+ * Keyless reopen mode: the second packaged launch over the first launch's
+ * durable home. Runs the reopen assertions without a window or a model call
+ * and exits with the scenario's verdict.
+ * @param lifecycle - the supervised Host lifecycle.
+ * @param home - the harness home whose durable records are reopened.
+ */
+async function bootSmokeReopen(lifecycle: DesktopLifecycle, home: string): Promise<number> {
+  try {
+    // The reopen assertions compare durable records the child reads from its
+    // own DSH_HOME: a divergent --smoke-home would silently assert a foreign
+    // directory, so reject the mismatch up front.
+    if (process.env.DSH_HOME !== home) {
+      throw new Error(
+        `desktop smoke reopen: --smoke-home ${home} does not match DSH_HOME ${process.env.DSH_HOME ?? '<unset>'}`,
+      )
+    }
+    await lifecycle.start()
+    if (lifecycle.phase !== 'running') {
+      throw new Error(`desktop smoke reopen: Host did not reach the running phase (${lifecycle.phase})`)
+    }
+    const current = lifecycle.current()
+    if (current === undefined) throw new Error('desktop smoke reopen: no DSH generation after start')
+    await runSmokeReopen(current.supervisor, home)
+    const report = await lifecycle.stop()
+    if (!report.quiescent) {
+      console.error(`SMOKE_QUIT_FAILED ${JSON.stringify(report.failure)}`)
+      return 1
+    }
+    console.log('SMOKE_OK reopen-quit')
+    console.log('SMOKE_PASS')
+    return 0
+  } catch (error) {
+    console.error(`desktop smoke reopen failed: ${error instanceof Error ? error.message : String(error)}`)
     const report = await lifecycle.stop()
     if (!report.quiescent) {
       console.error(`SMOKE_QUIT_FAILED ${JSON.stringify(report.failure)}`)
@@ -1492,8 +1797,11 @@ void app.whenReady().then(() => {
     const nativeActionsRecording = process.argv.includes('--record-native-actions')
     const recoveryRecording = process.argv.includes('--record-recovery')
     const smoke = parseSmokeInvocation(process.argv)
+    const smokeReopen = parseSmokeReopenInvocation(process.argv)
+    const headlessBoot = smoke !== undefined || smokeReopen !== undefined
+      || recording || nativeActionsRecording || recoveryRecording
     const options = app.isPackaged
-      ? packagedChildOptions(smoke !== undefined || recording || nativeActionsRecording || recoveryRecording)
+      ? packagedChildOptions(headlessBoot)
       : developmentChildOptions()
     const lifecycle = new DesktopLifecycle({
       spawn: () => spawnDshChild(options),
@@ -1503,7 +1811,8 @@ void app.whenReady().then(() => {
       ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).webDist
       : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
     registerAssetProtocol(webDist)
-    const headless = smoke !== undefined || acceptance || recording || nativeActionsRecording || recoveryRecording
+    const headless = smoke !== undefined || smokeReopen !== undefined || acceptance
+      || recording || nativeActionsRecording || recoveryRecording
     installQuitOwner(lifecycle, () => currentWindow, headless)
 
     if (nativeActionsRecording) {
@@ -1522,8 +1831,8 @@ void app.whenReady().then(() => {
     }
 
     if (recording || recoveryRecording) {
-      const replayFile = parseReplayArg(process.argv)
-      if (replayFile === undefined) {
+      const replay = parseReplayInvocation(process.argv)
+      if (replay.replayFile === undefined) {
         console.error('desktop recording requires --smoke-replay <file>')
         app.exit(1)
         return
@@ -1534,11 +1843,11 @@ void app.whenReady().then(() => {
       const replayProvider = app.isPackaged
         ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
         : packageDir('@deepseek-ai/dsh-llm-replay')
-      if (recording) prepareSmokeProfile(replayFile, replayProvider)
+      if (recording) prepareSmokeProfile(replay.replayFile, replayProvider, replay.childReplays)
       else prepareBrokenProfile()
       try {
         if (recording) await recordNativeWindow(lifecycle)
-        else await recordRecovery(lifecycle, replayFile, replayProvider)
+        else await recordRecovery(lifecycle, replay.replayFile, replayProvider)
       } catch (error) {
         console.error(`desktop recording failed: ${error instanceof Error ? error.message : String(error)}`)
         await lifecycle.stop().catch((stopError: unknown) => {
@@ -1565,8 +1874,20 @@ void app.whenReady().then(() => {
       const replayProvider = app.isPackaged
         ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
         : packageDir('@deepseek-ai/dsh-llm-replay')
-      prepareSmokeProfile(replayFile, replayProvider)
+      prepareSmokeProfile(replayFile, replayProvider, smoke.childReplays)
       app.exit(await bootSmoke(lifecycle))
+      return
+    }
+    if (smokeReopen !== undefined) {
+      if (smokeReopen.home === undefined) {
+        console.error('desktop smoke reopen requires --smoke-home <dir>')
+        app.exit(1)
+        return
+      }
+      // The first launch already seeded the profile (bundles, keyless replay
+      // patch, and the replay-provider fallback link); the reopen launch boots
+      // that exact durable home untouched.
+      app.exit(await bootSmokeReopen(lifecycle, smokeReopen.home))
       return
     }
     if (acceptance) {

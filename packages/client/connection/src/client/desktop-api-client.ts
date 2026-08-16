@@ -37,6 +37,12 @@ export interface DesktopBridge {
   cancelRequest(id: string): void
   subscribe(id: string, stream: DesktopStream): void
   cancelSubscription(id: string): void
+  /**
+   * Signal that one delivered stream event has been observed: frames are
+   * acknowledged only after the consumer takes them, while lifecycle events
+   * (open/end/error) are acknowledged as soon as they arrive.
+   */
+  ackStream(id: string): void
   onStream(listener: (event: DesktopStreamEvent) => void): () => void
 }
 
@@ -134,7 +140,9 @@ export class DesktopApiClient extends AbstractApiClient {
     onOpen?: () => void,
   ): AsyncGenerator<RpcRequest<F>> {
     const id = crypto.randomUUID()
-    const inbox: StreamItem<F>[] = []
+    // Lifecycle items never enter the inbox: enqueue routes end/error to
+    // `terminal`, so the inbox holds only un-consumed frames.
+    const inbox: RpcRequest<F>[] = []
     let terminal: StreamItem<F> | undefined
     let wake: (() => void) | undefined
     const wakeReader = (): void => {
@@ -159,13 +167,14 @@ export class DesktopApiClient extends AbstractApiClient {
         wakeReader()
         return
       }
-      inbox.push(item)
+      inbox.push(item.envelope)
       wakeReader()
     }
     const unsubscribe = this.bridge.onStream((event) => {
       if (event.id !== id) return
       if (event.type === 'open') {
         onOpen?.()
+        this.bridge.ackStream(id)
         return
       }
       if (event.type === 'end') {
@@ -203,13 +212,20 @@ export class DesktopApiClient extends AbstractApiClient {
     try {
       while (true) {
         while (inbox.length > 0) {
-          const item = inbox.shift() as StreamItem<F>
-          if (item.kind === 'end') return
-          if (item.kind === 'error') throw item.error
-          yield item.envelope
+          const item = inbox.shift() as RpcRequest<F>
+          yield item
+          // The consumer finished this frame and asked for the next one: only
+          // now is the frame consumed, so only now may the child send more.
+          this.bridge.ackStream(id)
         }
-        if (terminal?.kind === 'end') return
-        if (terminal?.kind === 'error') throw terminal.error
+        if (terminal?.kind === 'end') {
+          this.bridge.ackStream(id)
+          return
+        }
+        if (terminal?.kind === 'error') {
+          this.bridge.ackStream(id)
+          throw terminal.error
+        }
         await new Promise<void>((resolve) => { wake = resolve })
       }
     } finally {

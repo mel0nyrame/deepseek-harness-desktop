@@ -38,6 +38,54 @@ describe('desktop DSH supervisor', () => {
     await expect(stopping).resolves.toBeUndefined()
   })
 
+  it('auto-acknowledges each frame of a headless subscription so the child pump is not blocked', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+    supervisor.subscribe('stream-1', 'mux')
+
+    child.receive({ type: 'stream-open', id: 'stream-1' })
+    expect(child.sent).not.toContainEqual({ type: 'stream-ack', id: 'stream-1' })
+
+    child.receive({ type: 'stream-message', id: 'stream-1', message: { chunk: 'one' } })
+    expect(child.sent.at(-1)).toEqual({ type: 'stream-ack', id: 'stream-1' })
+    child.exit()
+    await supervisor.stop()
+  })
+
+  it('leaves a relayed subscription unpaced until the renderer relay acknowledges', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+    supervisor.subscribe('stream-1', 'mux', { relayed: true })
+
+    child.receive({ type: 'stream-open', id: 'stream-1' })
+    child.receive({ type: 'stream-message', id: 'stream-1', message: { chunk: 'one' } })
+    expect(child.sent).not.toContainEqual({ type: 'stream-ack', id: 'stream-1' })
+
+    supervisor.ackStream('stream-1')
+    expect(child.sent.at(-1)).toEqual({ type: 'stream-ack', id: 'stream-1' })
+    child.exit()
+    await supervisor.stop()
+  })
+
+  it('carries relayed pacing through a queued replacement subscription', async () => {
+    const child = new FakeChild()
+    const supervisor = new DshSupervisor(child)
+    supervisor.subscribe('mux-1', 'mux', { relayed: true })
+    supervisor.cancelSubscription('mux-1')
+    supervisor.subscribe('mux-2', 'mux', { relayed: true })
+
+    child.receive({ type: 'stream-end', id: 'mux-1' })
+    expect(child.sent.at(-1)).toEqual({ type: 'subscribe', id: 'mux-2', stream: 'mux' })
+
+    child.receive({ type: 'stream-message', id: 'mux-2', message: { chunk: 'one' } })
+    expect(child.sent).not.toContainEqual({ type: 'stream-ack', id: 'mux-2' })
+
+    supervisor.ackStream('mux-2')
+    expect(child.sent.at(-1)).toEqual({ type: 'stream-ack', id: 'mux-2' })
+    child.exit()
+    await supervisor.stop()
+  })
+
   it('resolves an escalated shutdown once the stubborn child dies to SIGKILL', async () => {
     vi.useFakeTimers()
     try {

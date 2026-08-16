@@ -85,19 +85,24 @@ export function packagedChildEnv(env: NodeJS.ProcessEnv, ptySpawnHelper: string)
 
 /** Parsed `--smoke` invocation driving the keyless packaged tracer bullet. */
 export interface SmokeInvocation {
-  /** Absolute path of the recorded replay session; required in smoke mode. */
+  /** Absolute path of the primary recorded replay session; required in smoke mode. */
   readonly replayFile?: string
+  /** Additional recorded sessions bound to later live sessions, in order. */
+  readonly childReplays: readonly string[]
 }
 
 /**
  * Parse the application arguments for a smoke invocation. Packaged smoke runs
- * come from the outer test harness: `--smoke --smoke-replay <file>`.
+ * come from the outer test harness: `--smoke --smoke-replay <file>` plus
+ * optional repeated `--smoke-child-replay <file>` arguments for the later
+ * live sessions.
  * @param argv - the raw `process.argv`.
  * @returns the invocation when `--smoke` is present, otherwise undefined.
  */
 export function parseSmokeInvocation(argv: readonly string[]): SmokeInvocation | undefined {
   let smoke = false
   let replayFile: string | undefined
+  const childReplays: string[] = []
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === '--smoke') {
@@ -110,7 +115,50 @@ export function parseSmokeInvocation(argv: readonly string[]): SmokeInvocation |
         replayFile = value
         index += 1
       }
+      continue
+    }
+    if (arg === '--smoke-child-replay') {
+      const value = argv[index + 1]
+      if (typeof value === 'string' && value !== '' && !value.startsWith('-')) {
+        childReplays.push(value)
+        index += 1
+      }
     }
   }
-  return smoke ? { ...(replayFile === undefined ? {} : { replayFile }) } : undefined
+  return smoke ? { childReplays, ...(replayFile === undefined ? {} : { replayFile }) } : undefined
+}
+
+/** Parsed `--smoke-reopen` invocation: assert durable reopen without a model. */
+export interface SmokeReopenInvocation {
+  /** The harness home whose durable records the reopen launch asserts. */
+  readonly home?: string
+}
+
+/**
+ * Parse the application arguments for a reopen invocation:
+ * `--smoke-reopen --smoke-home <dir>` (the second packaged launch). A present
+ * `--smoke-reopen` without a usable `--smoke-home` still yields an invocation
+ * whose `home` is undefined, so the boot path can fail loudly instead of
+ * falling through to an ordinary windowed launch.
+ * @param argv - the raw `process.argv`.
+ * @returns the invocation when `--smoke-reopen` is present, otherwise undefined.
+ */
+export function parseSmokeReopenInvocation(argv: readonly string[]): SmokeReopenInvocation | undefined {
+  let reopen = false
+  let home: string | undefined
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === '--smoke-reopen') {
+      reopen = true
+      continue
+    }
+    if (arg === '--smoke-home') {
+      const value = argv[index + 1]
+      if (typeof value === 'string' && value !== '' && !value.startsWith('-')) {
+        home = value
+        index += 1
+      }
+    }
+  }
+  return reopen ? { ...(home === undefined ? {} : { home }) } : undefined
 }

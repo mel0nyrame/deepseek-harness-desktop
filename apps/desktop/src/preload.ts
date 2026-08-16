@@ -26,6 +26,9 @@ ipcRenderer.on('dsh:stream', (_event: unknown, value: unknown) => {
     console.error('[desktop-preload] dropped malformed stream IPC message')
     return
   }
+  // No acknowledgement here: the consuming client acknowledges each event
+  // only after it has processed it, so Electron main paces the DSH child on
+  // real renderer consumption instead of on synchronous dispatch.
   for (const listener of [...streamListeners]) {
     try {
       listener(message)
@@ -33,7 +36,6 @@ ipcRenderer.on('dsh:stream', (_event: unknown, value: unknown) => {
       console.error('[desktop-preload] stream listener threw:', error)
     }
   }
-  ipcRenderer.send('dsh:stream-ack', message.id)
 })
 
 contextBridge.exposeInMainWorld('__DSH_BOOT__', boot)
@@ -42,6 +44,7 @@ contextBridge.exposeInMainWorld('dshDesktop', {
   cancelRequest: (id: string): void => { ipcRenderer.send('dsh:cancel-request', id) },
   subscribe: (id: string, stream: 'mux' | 'host'): void => { ipcRenderer.send('dsh:subscribe', id, stream) },
   cancelSubscription: (id: string): void => { ipcRenderer.send('dsh:cancel-subscription', id) },
+  ackStream: (id: string): void => { ipcRenderer.send('dsh:stream-ack', id) },
   onStream: (listener: (message: RendererStreamEvent) => void): (() => void) => {
     streamListeners.add(listener)
     return () => { streamListeners.delete(listener) }

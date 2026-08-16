@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest'
 import type { RendererStreamEvent } from '../src/renderer-ipc.ts'
 
 interface ExposedDesktopBridge {
+  ackStream(id: string): void
   onStream(listener: (event: RendererStreamEvent) => void): () => void
 }
 
@@ -49,7 +50,7 @@ describe('desktop preload stream bridge', () => {
     bridge = electron.exposed['dshDesktop'] as ExposedDesktopBridge
   })
 
-  it('fans out one validated notification and acknowledges it exactly once', () => {
+  it('fans out one validated notification and defers acknowledgement to the consuming client', () => {
     const received: RendererStreamEvent[] = []
     const stopThrowing = bridge.onStream(() => { throw new Error('listener failed') })
     const stopRecording = bridge.onStream((event) => { received.push(event) })
@@ -57,6 +58,9 @@ describe('desktop preload stream bridge', () => {
     electron.emit('dsh:stream', { type: 'open', id: 'stream-1' })
 
     expect(received).toEqual([{ type: 'open', id: 'stream-1' }])
+    expect(electron.sent.filter(message => message.channel === 'dsh:stream-ack')).toEqual([])
+
+    bridge.ackStream('stream-1')
     expect(electron.sent.filter(message => message.channel === 'dsh:stream-ack')).toEqual([
       { channel: 'dsh:stream-ack', values: ['stream-1'] },
     ])

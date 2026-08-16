@@ -60,6 +60,8 @@ interface PendingRequest {
 
 interface SubscriptionState {
   readonly stream: 'mux' | 'host'
+  /** Whether a renderer relay owns the pacing acks (headless callers auto-ack). */
+  readonly relayed: boolean
   cancelling: boolean
 }
 
@@ -208,7 +210,7 @@ export class DshSupervisor {
   private readonly ready = Promise.withResolvers<ReadyMessage>()
   private readonly pending = new Map<string, PendingRequest>()
   private readonly subscriptions = new Map<string, SubscriptionState>()
-  private readonly queuedSubscriptions = new Map<'mux' | 'host', string>()
+  private readonly queuedSubscriptions = new Map<'mux' | 'host', { id: string; relayed: boolean }>()
   private readonly streamListeners = new Set<(message: StreamMessage) => void>()
   private readonly exitListeners = new Set<(code: number | null, signal: NodeJS.Signals | null) => void>()
   private readonly nativeActions = new Map<string, AbortController>()
@@ -286,33 +288,43 @@ export class DshSupervisor {
     }
   }
 
-  /** Open one renderer-owned logical event stream. */
-  subscribe(id: string, stream: 'mux' | 'host'): void {
+  /**
+   * Open one logical event stream. A relayed subscription (the assembled
+   * renderer) paces the child through {@link ackStream}; a headless caller
+   * (the smoke driver) is acknowledged automatically per frame.
+   */
+  subscribe(id: string, stream: 'mux' | 'host', options: { relayed?: boolean } = {}): void {
     if (this.subscriptions.has(id)) {
       this.cancelSubscription(id)
       this.terminateRendererStream(id, 'duplicate subscription id')
       return
     }
-    if ([...this.queuedSubscriptions.values()].includes(id)) {
+    if ([...this.queuedSubscriptions.values()].some(queued => queued.id === id)) {
       this.terminateRendererStream(id, 'duplicate subscription id')
       return
     }
     const active = [...this.subscriptions.entries()].find(([, state]) => state.stream === stream)
     if (active !== undefined) {
       if (active[1].cancelling && !this.queuedSubscriptions.has(stream)) {
-        this.queuedSubscriptions.set(stream, id)
+        this.queuedSubscriptions.set(stream, { id, relayed: options.relayed === true })
         return
       }
       this.terminateRendererStream(id, `duplicate ${stream} subscription`)
       return
     }
-    this.openSubscription(id, stream)
+    this.openSubscription(id, stream, options.relayed === true)
+  }
+
+  /** Acknowledge one relayed frame: the child may now send the next one. */
+  ackStream(id: string): void {
+    const sent = this.send({ type: 'stream-ack', id })
+    if (sent.kind === 'closed' || sent.kind === 'failed') this.failClosed()
   }
 
   /** Close one renderer-owned logical event stream. */
   cancelSubscription(id: string): void {
-    for (const [stream, queuedId] of this.queuedSubscriptions) {
-      if (queuedId === id) this.queuedSubscriptions.delete(stream)
+    for (const [stream, queued] of this.queuedSubscriptions) {
+      if (queued.id === id) this.queuedSubscriptions.delete(stream)
     }
     const state = this.subscriptions.get(id)
     if (state === undefined || state.cancelling) return
@@ -359,8 +371,8 @@ export class DshSupervisor {
     return this.escalated
   }
 
-  private openSubscription(id: string, stream: 'mux' | 'host'): void {
-    this.subscriptions.set(id, { stream, cancelling: false })
+  private openSubscription(id: string, stream: 'mux' | 'host', relayed: boolean): void {
+    this.subscriptions.set(id, { stream, cancelling: false, relayed })
     const sent = this.send({ type: 'subscribe', id, stream })
     if (sent.kind === 'closed' || sent.kind === 'failed') {
       this.rejectSubscription(id, sent.kind === 'closed'
@@ -458,7 +470,7 @@ export class DshSupervisor {
       const successor = this.queuedSubscriptions.get(subscription.stream)
       if (successor !== undefined) {
         this.queuedSubscriptions.delete(subscription.stream)
-        this.openSubscription(successor, subscription.stream)
+        this.openSubscription(successor.id, subscription.stream, successor.relayed)
       }
       return
     }
@@ -589,6 +601,12 @@ export class DshSupervisor {
         console.error('[desktop-supervisor] stream listener threw:', error)
       }
     }
+    // A non-relayed (headless) subscription has no renderer relay to pace it:
+    // acknowledge each frame so the child's pump is not left waiting forever.
+    if (message.type === 'stream-message') {
+      const state = this.subscriptions.get(message.id)
+      if (state !== undefined && !state.relayed) this.ackStream(message.id)
+    }
   }
 
   private failPending(error: Error): void {
@@ -598,7 +616,7 @@ export class DshSupervisor {
 
   private closeStreams(error?: Error): void {
     const subscriptions = [...this.subscriptions.entries()]
-    const queued = [...this.queuedSubscriptions.values()]
+    const queued = [...this.queuedSubscriptions.values()].map(entry => entry.id)
     this.subscriptions.clear()
     this.queuedSubscriptions.clear()
     for (const [id, state] of subscriptions) {

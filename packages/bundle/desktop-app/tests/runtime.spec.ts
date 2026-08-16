@@ -143,7 +143,14 @@ describe('desktop child runtime', () => {
 
     endpoint.receive({ type: 'subscribe', id: 'stream-1', stream: 'mux' })
     await vi.waitFor(() => {
+      expect(endpoint.sent.filter(message => message.type === 'stream-message')).toHaveLength(1)
+    })
+    endpoint.receive({ type: 'stream-ack', id: 'stream-1' })
+    await vi.waitFor(() => {
       expect(endpoint.sent.filter(message => message.type === 'stream-message')).toHaveLength(2)
+    })
+    endpoint.receive({ type: 'stream-ack', id: 'stream-1' })
+    await vi.waitFor(() => {
       expect(endpoint.sent.at(-1)).toEqual({ type: 'stream-end', id: 'stream-1' })
     })
     expect(endpoint.sent.filter(message => message.type === 'stream-message')).toEqual([
@@ -205,10 +212,12 @@ describe('desktop child runtime', () => {
     expect(endpoint.sent.some(message => message.type === 'stream-end')).toBe(false)
 
     endpoint.releaseOneSend()
+    endpoint.receive({ type: 'stream-ack', id: 'stream-1' })
     await vi.waitFor(() => {
       expect(endpoint.sent.filter(message => message.type === 'stream-message')).toHaveLength(2)
     })
     endpoint.releaseOneSend()
+    endpoint.receive({ type: 'stream-ack', id: 'stream-1' })
     await vi.waitFor(() => { expect(endpoint.sent.at(-1)).toEqual({ type: 'stream-end', id: 'stream-1' }) })
     await runtime.dispose()
   })

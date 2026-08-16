@@ -21,6 +21,7 @@ describe('desktop api client', () => {
       cancelSubscription(id) {
         if (id === subscriptionId) cancellations += 1
       },
+      ackStream: () => {},
       onStream(listener) {
         listeners.add(listener)
         return () => { listeners.delete(listener) }
@@ -73,6 +74,7 @@ describe('desktop api client', () => {
       cancelRequest: () => {},
       subscribe(id) { subscriptionId = id },
       cancelSubscription: () => {},
+      ackStream: () => {},
       onStream(listener) {
         listeners.add(listener)
         return () => { listeners.delete(listener) }
@@ -98,5 +100,53 @@ describe('desktop api client', () => {
     controller.abort()
 
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('acknowledges each event only after the consumer has taken it', async () => {
+    const listeners = new Set<(event: DesktopStreamEvent) => void>()
+    let subscriptionId: string | undefined
+    const acks: string[] = []
+    const publish = (event: DesktopStreamEvent): void => {
+      for (const listener of listeners) listener(event)
+    }
+    const bridge: DesktopBridge = {
+      request: () => Promise.reject(new Error('not used')),
+      cancelRequest: () => {},
+      subscribe(id) { subscriptionId = id },
+      cancelSubscription: () => {},
+      ackStream(id) { if (id === subscriptionId) acks.push(id) },
+      onStream(listener) {
+        listeners.add(listener)
+        return () => { listeners.delete(listener) }
+      },
+    }
+    const iterator = new DesktopApiClient(bridge).events.mux({}, new AbortController().signal)[Symbol.asyncIterator]()
+    const first = iterator.next()
+    await vi.waitFor(() => { expect(subscriptionId).toEqual(expect.any(String)) })
+    const id = subscriptionId as string
+    const frame = (rpcId: string): DesktopStreamEvent => ({
+      type: 'message',
+      id,
+      message: {
+        type: 'server-request', rpcId, method: 'session/subscribed',
+        payload: { type: 'session/subscribed', sessionId: 'session-1', lastSeq: 1 },
+      },
+    })
+
+    publish({ type: 'open', id })
+    publish(frame('first'))
+    publish(frame('second'))
+
+    // Open is consumed as soon as it is dispatched; frames wait for the reader.
+    await expect(first).resolves.toMatchObject({ value: { rpcId: 'first' } })
+    expect(acks).toEqual([id])
+
+    const second = iterator.next()
+    await expect(second).resolves.toMatchObject({ value: { rpcId: 'second' } })
+    expect(acks).toEqual([id, id])
+
+    publish({ type: 'end', id })
+    await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined })
+    expect(acks).toEqual([id, id, id, id])
   })
 })
