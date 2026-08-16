@@ -31,7 +31,7 @@ import { parseArgs } from 'node:util'
 import { build, type Configuration } from 'electron-builder'
 import { rebuild } from '@electron/rebuild'
 import yaml from 'js-yaml'
-import { discoverArtifacts, gatekeeperIsHardGate, signEvidenceSteps } from './artifact-evidence.ts'
+import { discoverArtifacts, gatekeeperIsHardGate, hasCustomBundleIcon, signEvidenceSteps } from './artifact-evidence.ts'
 
 const require = createRequire(import.meta.url)
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -176,6 +176,7 @@ class DesktopPackageBuild {
     ])
     await this.restoreLegacyHoists()
     await this.materializeStagedLinks()
+    await this.stageIcon()
     // The legacy deploy's production install records its settings (production,
     // hoisted linker) in the workspace state beside the repo's node_modules;
     // without this restore, every later `pnpm run` triggers pnpm's deps-status
@@ -281,6 +282,28 @@ class DesktopPackageBuild {
     await rm(path, { recursive: true, force: true })
   }
 
+  /**
+   * Stage the application icon beside the deployed closure: electron-builder
+   * resolves the yml's mac.icon against the staging projectDir, so the
+   * committed build/icon.png must exist inside the staged project for the
+   * custom icon (rather than the default Electron one) to ship.
+   */
+  private async stageIcon(): Promise<void> {
+    const source = join(packageDir, 'build', 'icon.png')
+    if (!existsSync(source)) {
+      throw new Error(
+        `dsh-desktop package: the icon source is missing at ${source}; regenerate it with 'pnpm --filter @deepseek-ai/dsh-desktop run icon'.`,
+      )
+    }
+    const destination = join(STAGING, 'build', 'icon.png')
+    if (this.cli.dryRun) {
+      console.log(`dsh-desktop package: [dry-run] cp ${source} ${destination}`)
+      return
+    }
+    await mkdir(dirname(destination), { recursive: true })
+    await cp(source, destination)
+  }
+
   /** Rebuild node-pty against the production Electron ABI in place. */
   async rebuildPty(): Promise<void> {
     const ptyDir = join(STAGING, 'node_modules', 'node-pty')
@@ -358,6 +381,16 @@ class DesktopPackageBuild {
       throw new Error(`dsh-desktop package: no product after electron-builder; inspect ${OUT_DIR}.`)
     }
     return artifacts
+  }
+
+  /** Every produced bundle must ship the custom icon, not the Electron default. */
+  async verifyBundleIcons(products: string[]): Promise<void> {
+    for (const product of products.filter(path => path.endsWith('.app'))) {
+      if (hasCustomBundleIcon(product)) continue
+      throw new Error(
+        `dsh-desktop package: bundle ${product} does not carry the custom icon (Contents/Resources/icon.icns + CFBundleIconFile reference).`,
+      )
+    }
   }
 
   /** Verify each produced artifact's signature and record its Gatekeeper verdict. */
@@ -442,6 +475,7 @@ async function main(): Promise<void> {
   await pipeline.validateRuntime()
   const builderConfig = yaml.load(await readFile(BUILDER_CONFIG, 'utf8')) as Configuration
   const products = await pipeline.package(builderConfig)
+  await pipeline.verifyBundleIcons(products)
   await pipeline.verifySigning(products, builderConfig.mac?.identity)
   pipeline.printProducts(products)
 }

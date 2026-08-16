@@ -30,8 +30,8 @@ renderer 继续使用现有任务级 Workspace 与路径打开 API，不获得�
 2. **部署** — pnpm legacy deploy 将生产运行时闭包（`dsh` CLI、所有内置插件构建出的 `lib`、Web 前端 `dist`、node-pty 以及无密钥回放提供器）物化到无符号链接的暂存目录。
 3. **Electron 恢复** — 当固定版本的 Electron 发行物缺失时（全新安装会通过 Electron 经过审查的 postinstall 下载，`allowBuilds`），由包自带的安装脚本在重建与验证前恢复它。
 4. **原生重建** — node-pty 按固定 Electron 版本的 ABI 重新编译（`@electron/rebuild`），随后在 Electron 二进制内加载验证；macOS 的 `spawn-helper` 与重建后的插件并排放置并保留可执行位。
-5. **打包** — electron-builder（[`electron-builder.yml`](electron-builder.yml)）组装并 ad-hoc 签名（`identity: '-'`，无需 Apple 凭据）`.app` 与 `.dmg`：asar 只携带 `lib/main.js` 与沙箱化 preload，运行时闭包以真实文件形式放在 `Contents/Resources/runtime/` 下。
-6. **证据** — 每个产出的制品都通过 [`scripts/artifact-evidence.ts`](scripts/artifact-evidence.ts)：`codesign --verify --deep --strict` 证明签名有效，`spctl --assess` 记录 Gatekeeper 的评估结果，`hdiutil verify` 校验 dmg 镜像。
+5. **打包** — electron-builder（[`electron-builder.yml`](electron-builder.yml)）组装并 ad-hoc 签名（`identity: '-'`，无需 Apple 凭据）`.app` 与 `.dmg`：asar 只携带 `lib/main.js` 与沙箱化 preload，运行时闭包以真实文件形式放在 `Contents/Resources/runtime/` 下。应用图标是官方 DeepSeek Harness 鱼 logo 配浅色圆角底：[`build/icon.svg`](build/icon.svg) 是提交在仓库里的源文件，[`scripts/icon.ts`](scripts/icon.ts) 把它栅格化为 `build/icon.png`，electron-builder 再把 PNG 转成 bundle 内的 `icon.icns`。
+6. **证据** — 每个产出的制品都通过 [`scripts/artifact-evidence.ts`](scripts/artifact-evidence.ts)：`codesign --verify --deep --strict` 证明签名有效，`spctl --assess` 记录 Gatekeeper 的评估结果，`hdiutil verify` 校验 dmg 镜像，且每个 `.app` 必须携带由 `CFBundleIconFile` 指定的 `Contents/Resources/icon.icns`（默认 Electron 图标无法通过该门禁）。
 
 安装后的应用不依赖系统 Node.js 或 DSH CLI 即可启动：Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从 `Contents/Resources/runtime` 解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程作为工作目录（该布局由 [`src/packaged-runtime.ts`](src/packaged-runtime.ts) 定义）。因此原生模块与 PTY helper 永远不会位于归档内。harness 主目录仍为共享的 `~/.dsh`，打包应用与 CLI 看到相同的会话、profile 与配置。
 

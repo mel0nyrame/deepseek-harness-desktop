@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import yaml from 'js-yaml'
 import { afterEach, describe, expect, it } from 'vitest'
-import { discoverArtifacts, gatekeeperIsHardGate, signEvidenceSteps } from '../scripts/artifact-evidence.ts'
+import { discoverArtifacts, gatekeeperIsHardGate, hasCustomBundleIcon, signEvidenceSteps } from '../scripts/artifact-evidence.ts'
 
 const BUILDER_YML = fileURLToPath(new URL('../electron-builder.yml', import.meta.url))
 
@@ -12,12 +12,13 @@ describe('macOS artifact evidence', () => {
   it('keeps the builder ad-hoc signed, dmg-delivered, and unpublishing', async () => {
     const config = yaml.load(await readFile(BUILDER_YML, 'utf8')) as {
       publish: null
-      mac: { identity: string; hardenedRuntime: boolean; target: string[] }
+      mac: { identity: string; hardenedRuntime: boolean; target: string[]; icon: string }
     }
     expect(config.publish).toBeNull()
     expect(config.mac.identity).toBe('-')
     expect(config.mac.hardenedRuntime).toBe(false)
     expect(config.mac.target).toEqual(['dmg', 'dir'])
+    expect(config.mac.icon).toBe('build/icon.png')
   })
 
   it('gates application bundles through codesign and enforces Gatekeeper under Developer ID signing', () => {
@@ -88,6 +89,37 @@ describe('macOS artifact evidence', () => {
 
     it('enforces the verdict once a Developer ID identity signs', () => {
       expect(gatekeeperIsHardGate('Developer ID Application: DeepSeek (TEAM1234)')).toBe(true)
+    })
+  })
+
+  describe('hasCustomBundleIcon', () => {
+    let appDir: string | undefined
+    afterEach(async () => {
+      if (appDir !== undefined) await rm(appDir, { recursive: true, force: true })
+      appDir = undefined
+    })
+
+    it('accepts a bundle whose plist names icon.icns and ships the resource', async () => {
+      appDir = await mkdtemp(join(tmpdir(), 'dsh-desktop-icon-'))
+      await mkdir(join(appDir, 'Contents', 'Resources'), { recursive: true })
+      await writeFile(join(appDir, 'Contents', 'Resources', 'icon.icns'), 'custom')
+      await writeFile(join(appDir, 'Contents', 'Info.plist'), '<plist><dict><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>')
+      expect(hasCustomBundleIcon(appDir)).toBe(true)
+    })
+
+    it('rejects the default Electron icon even though it shares the icns substring', async () => {
+      appDir = await mkdtemp(join(tmpdir(), 'dsh-desktop-icon-'))
+      await mkdir(join(appDir, 'Contents', 'Resources'), { recursive: true })
+      await writeFile(join(appDir, 'Contents', 'Resources', 'electron.icns'), 'default')
+      await writeFile(join(appDir, 'Contents', 'Info.plist'), '<plist><dict><key>CFBundleIconFile</key><string>electron.icns</string></dict></plist>')
+      expect(hasCustomBundleIcon(appDir)).toBe(false)
+    })
+
+    it('rejects a plist reference with no resource on disk', async () => {
+      appDir = await mkdtemp(join(tmpdir(), 'dsh-desktop-icon-'))
+      await mkdir(join(appDir, 'Contents', 'Resources'), { recursive: true })
+      await writeFile(join(appDir, 'Contents', 'Info.plist'), '<plist><dict><key>CFBundleIconFile</key><string>icon.icns</string></dict></plist>')
+      expect(hasCustomBundleIcon(appDir)).toBe(false)
     })
   })
 
