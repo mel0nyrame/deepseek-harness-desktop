@@ -362,6 +362,10 @@ class DesktopPackageBuild {
       console.log(`dsh-desktop package: [dry-run] electron-builder projectDir=${STAGING} output=${OUT_DIR}`)
       return []
     }
+    // electron-builder skips code signing on pull-request CI builds unless
+    // forced; the pipeline signs on every context, so the PR lane and the
+    // release legs produce the same ad-hoc signed artifact.
+    process.env.CSC_FOR_PULL_REQUEST = 'true'
     await build({
       projectDir: STAGING,
       config: {

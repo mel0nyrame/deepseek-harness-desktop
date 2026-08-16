@@ -5,6 +5,7 @@
  * invalidation frames (settings/credentials/models changed).
  */
 
+import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -281,7 +282,10 @@ describe('settings domain', () => {
 
     expect(expectOk(await api.settings.openDocument(request({}), new AbortController().signal)))
       .toEqual({ opened: true })
-    expect(opened).toEqual(['/tmp/custom-settings.yaml'])
+    // Same Host-resolution contract as host.openPath: an absolute provider
+    // path keeps its POSIX spelling on POSIX and resolves to the harness
+    // cwd's drive on Windows.
+    expect(opened).toEqual([resolve(DEFAULTS.cwd, '/tmp/custom-settings.yaml')])
   })
 
   it('refuses to open settings when the provider has no local document', async () => {

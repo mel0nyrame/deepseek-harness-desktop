@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
@@ -238,12 +238,15 @@ describe('host.openPath', () => {
 
   it('opens through the injected native boundary', async () => {
     const opened: string[] = []
-    const { api } = await harness(undefined, undefined, {
+    const { api, root } = await harness(undefined, undefined, {
       openPath: async (path) => { opened.push(path) },
     })
     expect((await api.host.openPath(request({ path: '/tmp/a.txt' }), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { opened: true } })
-    expect(opened).toEqual(['/tmp/a.txt'])
+    // The boundary receives the Host-resolved path in the platform's own
+    // spelling: the input is absolute, so POSIX keeps it and Windows anchors
+    // it to the harness cwd's drive.
+    expect(opened).toEqual([resolve(root, '/tmp/a.txt')])
   })
 
   it('resolves a Host-relative path before crossing the native boundary', async () => {
