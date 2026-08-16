@@ -12,9 +12,10 @@ Status: implemented
 
 - **结构遵循文档树。**[docs/AGENTS.md](../../../../docs/AGENTS.md) 是文档标准：文档负责承载其主题的详细内容，仅概述直接子项的目的、职责和高层行为，并链接到更深层内容的归属文档。[Agent Note](../../README.md) 仍不受这一结构约定约束。每份面向人的文档要么是按顺序引导读者达成结果的教程（tutorial），要么是查阅范围明确的参考文档（reference）；[事故复盘（postmortem）](../../../../docs/postmortem/README.md) 是范围限定于单起事故的参考文档，其时间线记录证据。教程结合读者的起始知识，按前置依赖顺序介绍概念。
 - **每项事实只归属一处的层级分类。**文档标准为每种 Markdown 层级分配单一职责，禁止在事实归属层级之外重复陈述，并包含编写或评审任何文档时使用的赘余检查清单。
+- **Agent 指令采用渐进披露。**根 `AGENTS.md` 只包含项目身份、非标准入口命令，以及适用于仓库每项任务的规则。子树 `AGENTS.md` 只包含适用于该子树全部工作的差异。详细流程、架构、理由和易变清单留在各自归属的文档、skill、源码或配置中；指令文件通过带条件的链接，仅在相关工作中加载它们。
 - **单一产品入门路径。**根 README 负责推荐的包运行路径、从源码运行的备选路径和简要的 `dsh plugin --profile` 用法。已发布的用户指南从运行中的 Web UI 内部任务开始，再链接到其他界面的独立教程或插件开发与进阶配置的参考文档归属处，而不会重复介绍 Web 启动步骤。
-- **范围窄且严格的预算门禁。**[scripts/verify-doc-budgets.ts](../../../../scripts/verify-doc-budgets.ts) 接入 `doc-sync`：[scripts/doc-budgets.manifest.json](../../../../scripts/doc-budgets.manifest.json) 列出的每份文档都必须低于其词数上限（采用 `wc -w` 语义，统计整个文件）；预算内文件缺失也会使门禁失败，使重命名无法悄然遗落其预算。范围刻意只涵盖容易膨胀的常设文档——根目录和子树中的 `AGENTS.md` 文件、`architecture.md`、`packages/README.md`，以及它们将内容移入的常设策略文档（`docs/testing.md`、`docs/defensive-patterns.md`）。参考文档、Agent Note 和包 README 不设预算：只要每一行都是事实，长度在这些位置就是合理的；评审和赘余检查清单负责约束它们。
-- **上限是只进不退的执行红线。** 达到或低于目标的文档在上限逐步下调时保留至少 5% 的余量；高于目标的文档则维持冻结的上限，在达到目标之前不得增长（根 `AGENTS.md` ≤ 1,600 词；`architecture.md` ≤ 1,800；子树 `AGENTS.md` ≤ 600，但 `packages/AGENTS.md` ≤ 650、`docs/AGENTS.md` ≤ 1,250；`packages/README.md` ≤ 600）。门禁变红时，迁移或压缩内容；只有在 PR（Pull Request）描述中给出明确理由时才提高上限。
+- **范围窄且严格的预算门禁。**[scripts/verify-doc-budgets.ts](../../../../scripts/verify-doc-budgets.ts) 接入 `doc-sync`：每份列入清单的文档都必须低于整文件词数上限，预算内文件缺失也会使门禁失败。manifest 纳入每份实际生效的 `AGENTS.md`，以及容易膨胀的常设架构、包索引、测试和防御性模式文档。其他参考文档、Agent Note 和包 README 在长度承载事实而非指令负担时不设预算。
+- **上限只进不退。**通过门禁的文档在下调上限时保留至少 5% 的余量；超出预算的文档不得增长。提高上限前先迁移或压缩，确需提高时说明理由。[manifest](../../../../scripts/doc-budgets.manifest.json) 是当前上限清单。
 - **精简的工作流 skill（技能），约定归文档。**[.agents/skills/dsh-doc-standards](../../../skills/dsh-doc-standards/SKILL.md) 承载文档放置、审计和门禁失败处理工作流，并以文档标准为真源，与 [dsh-translate-docs](../../../skills/dsh-translate-docs/SKILL.md) 和 i18n 约定之间的分工相同。
 
 ## 曾考虑的替代方案
@@ -27,6 +28,7 @@ Status: implemented
 ## 后果
 
 - 向受预算约束的文档添加内容需要腾挪空间：将新增内容迁移到其分类体系归属地并留下链接，或压缩现有行文来腾出空间。只增不减会导致 CI 失败。
+- 仓库重组和命令变更只需更新源码与配置，不要求同步改写指令文件中的清单；agent 通过带条件的链接发现当前细节。
 - 结构评审先检查归属关系和文档形式，再进行句子层面的编辑，使较低层级的细节迁移到其归属文档，而不是在错误的位置加以润色。
 - 读者会先进入可运行的 Web UI，再遇到 headless 执行、SDK 嵌入、自定义 profile 或直接 settings 文件；这些入口仍可从各自的参考文档归属处访问。
 - 仍高于目标的受预算约束文档不得增长；达到目标后，将恢复 5% 的工作余量。

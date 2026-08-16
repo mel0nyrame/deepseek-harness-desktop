@@ -159,6 +159,10 @@ describe('loadProfile', () => {
     }
     expect(readProfileManifest('t', resolveProfileDir('web', home)).dsh?.profile?.bundles)
       .toEqual([...PROFILE_TEMPLATES.web ?? []])
+    // The desktop template layers the Electron overlay over the Web product.
+    expect(PROFILE_TEMPLATES.desktop).toEqual([
+      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', '@deepseek-ai/dsh-desktop-app',
+    ])
   })
 
   it('normalizes only the exact installation-owned headless bundle tuple', () => {

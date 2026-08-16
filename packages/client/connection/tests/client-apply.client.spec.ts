@@ -8,9 +8,13 @@ import { apply, type ConnectionHandle } from '../src/client/index.ts'
 import type { RpcMessage } from '../src/client/api.ts'
 import { RpcId } from '../src/client/api.ts'
 import { FixtureApiClient } from '../src/client/fixture.ts'
+import { DesktopApiClient, type DesktopBridge } from '../src/client/desktop-api-client.ts'
 import { WebApiClient } from '../src/client/web-api-client.ts'
 
-type Win = { location?: { hostname: string; search: string; origin?: string } }
+type Win = {
+  location?: { hostname: string; search: string; origin?: string }
+  dshDesktop?: DesktopBridge
+}
 type WebSocketGlobal = { WebSocket?: typeof WebSocket }
 
 const originalWebSocket = globalThis.WebSocket
@@ -49,6 +53,7 @@ class FakeWebSocket extends EventTarget {
 
 afterEach(() => {
   delete (globalThis as Win).location
+  delete (globalThis as Win).dshDesktop
   sockets.length = 0
   if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
   else globalThis.WebSocket = originalWebSocket
@@ -67,6 +72,21 @@ describe('connection client apply', () => {
     ;(globalThis as Win).location = { hostname: 'localhost', search: '' }
     const handle = await mount()
     expect(handle.api).toBeInstanceOf(WebApiClient)
+    expect(handle.isLoopback).toBe(true)
+  })
+
+  it('selects the preload carrier without changing the page-level Connection surface', async () => {
+    ;(globalThis as Win).location = { hostname: 'app', search: '', origin: 'dsh://app' }
+    ;(globalThis as Win).dshDesktop = {
+      request: () => Promise.reject(new Error('not called')),
+      cancelRequest: () => undefined,
+      subscribe: () => undefined,
+      cancelSubscription: () => undefined,
+      ackStream: () => undefined,
+      onStream: () => () => undefined,
+    }
+    const handle = await mount()
+    expect(handle.api).toBeInstanceOf(DesktopApiClient)
     expect(handle.isLoopback).toBe(true)
   })
 

@@ -204,10 +204,11 @@ export class WorkspaceRuntime implements IWorkspaces {
 
   /**
    * Open the Host's native directory picker (the `native` capability).
+   * @param signal - caller lifetime; abort propagates through the API carrier.
    * @returns the selected path, or null when the user cancelled.
    */
-  async pickDirectory(): Promise<string | null> {
-    const response = await this.api.host.pickDirectory({})
+  async pickDirectory(signal?: AbortSignal): Promise<string | null> {
+    const response = await this.api.host.pickDirectory({}, signal)
     if (!response.result.ok) {
       throw new Error(`directory picker failed: ${response.result.error.message}`)
     }

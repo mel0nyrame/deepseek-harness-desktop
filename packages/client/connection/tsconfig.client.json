@@ -9,6 +9,7 @@
     "src/api-path.ts",
     "src/client/api.ts",
     "src/client/connection.ts",
+    "src/client/desktop-api-client.ts",
     "src/client/fixture.ts",
     "src/client/index.ts",
     "src/client/random-uuid.ts",

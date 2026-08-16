@@ -1,0 +1,34 @@
+Use the imagegen skill to generate exactly one square PNG icon sheet for a GitHub README. Save the final selected PNG to `/Users/mac/Desktop/deepseek-harness/assets/readme/source/icons/dsh-desktop-feature-sheet.png`. Do not edit any other file.
+
+A cohesive set of calm front-facing spot icons for DSH Desktop, matching its real macOS light interface: precise near-black outlines, white and mist-grey surfaces, restrained DeepSeek blue inserts, generous negative space, and a subtle translucent material inside blue details. The icons feel like polished product illustrations rather than toolbar glyphs. Never use a dark canvas or a dominant black filled mass.
+
+Construction: one centered front-facing object per cell, about 72 percent live area with generous padding; horizontal, vertical, and 45-degree accents only; one uniform medium near-black outline with rounded caps and joins; one soft macOS-like rounded-corner family; white or mist-grey primary surfaces with small pale-blue and DeepSeek-blue inserts; one metaphor and no more than five visible component groups per icon; reuse the same rounded window, card, capsule, and connector geometry; flat front view with only a slight layered offset for depth; no shadow cast on the background; one small paired curved notch inspired by a whale tail appears as a secondary signature. The near-black outline defines the set. Pale blue is the largest accent. Saturated blue stays small. Near-black is never a large filled area.
+
+Use only these colours and no others: #0F1115, #4176E6, #679EFE, #E4EDFD, #F9FAFB, #FFFFFF. Keep the saturation as given; do not brighten or shift the hues.
+
+The 4 icons in row-major order are:
+1. bundled runtime — a rounded desktop application window containing a smaller three-layer runtime capsule, clearly nested rather than connected to a cloud.
+2. private carrier — two rounded application panels joined by one short protected blue tunnel, with no globe, Wi-Fi waves, antenna, or public-network symbol.
+3. native workspace — a rounded folder combined with a small selection cursor chip and one outward-open corner, communicating native directory selection and path opening.
+4. shared DSH state — two small endpoint cards converging on one central stack of three session cards, communicating desktop and CLI sharing the same local home.
+Each is a simple, clear metaphor. No text anywhere.
+
+IMPORTANT LAYOUT: This is still a 4x4 sheet with 16 cells total. Keep the full 4-column by 4-row layout even though there are only 4 icons. Do not arrange the 4 icons in any other layout. Do not distribute them vertically.
+
+Place icons in row-major positions exactly like this:
+Row 1: bundled runtime | private carrier | native workspace | shared DSH state
+Row 2: empty | empty | empty | empty
+Row 3: empty | empty | empty | empty
+Row 4: empty | empty | empty | empty
+
+Place each real icon at its exact 4x4 cell center:
+1. bundled runtime center at x=12.5%, y=12.5%
+2. private carrier center at x=37.5%, y=12.5%
+3. native workspace center at x=62.5%, y=12.5%
+4. shared DSH state center at x=87.5%, y=12.5%
+
+Keep each real icon small enough to fit fully inside its own 25% by 25% cell, with large grey margins around it.
+
+Empty cells must be completely plain grey #808080 background, with no icon, no placeholder, no faint mark, no decoration, no dots, no labels, no numbers, and no frame.
+
+A neat 4x4 grid on a perfectly uniform solid flat medium-grey background, exact hex #808080. The background must have no gradient, no vignette, no lighting, no texture, no paper grain, and no shadow. Even and generous equal gaps between every cell so icons never touch, each icon centered in its own cell, all icons the same size. No grid lines, no borders, no frames, no text, no labels, no numbers, and no drop shadow cast onto the grey background. Square image.

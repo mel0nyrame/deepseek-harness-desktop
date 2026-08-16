@@ -1,11 +1,20 @@
 {
-  "AGENTS.md": 1900,
-  "docs/AGENTS.md": 1320,
+  ".agents/notes/AGENTS.md": 75,
+  ".agents/notes/implemented/AGENTS.md": 75,
+  ".github/AGENTS.md": 70,
+  "AGENTS.md": 700,
+  "docs/AGENTS.md": 500,
   "docs/architecture.md": 2400,
   "docs/cordis-primer.md": 600,
   "docs/defensive-patterns.md": 550,
   "docs/testing.md": 1150,
-  "examples/AGENTS.md": 310,
-  "packages/AGENTS.md": 675,
-  "packages/README.md": 994
+  "examples/AGENTS.md": 165,
+  "native/landlock-run/AGENTS.md": 290,
+  "packages/AGENTS.md": 375,
+  "packages/client/AGENTS.md": 425,
+  "packages/schedule/AGENTS.md": 205,
+  "packages/web/AGENTS.md": 55,
+  "packages/README.md": 994,
+  "scripts/AGENTS.md": 45,
+  "website/AGENTS.md": 70
 }

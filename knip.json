@@ -6,7 +6,9 @@
   "ignoreBinaries": [
     "bwrap",
     "icacls",
+    "lsof",
     "musl-gcc",
+    "pgrep",
     "python3",
     "sandbox-exec",
     "tar",
@@ -781,6 +783,26 @@
     "packages/bundle/web-app": {
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "packages/bundle/desktop-app": {
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
+    "apps/desktop": {
+      "entry": [
+        "src/main.ts",
+        "src/preload.ts",
+        "tests/**/*.e2e.ts",
+        "scripts/**/*.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "^@deepseek-ai/"
       ]
     }
   }

@@ -5,7 +5,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { mkdir, stat } from 'node:fs/promises'
-import { dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
@@ -1877,7 +1877,7 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     open: (path: string, signal: AbortSignal) => Promise<void>,
   ): Promise<RpcResponse<{ opened: true }>> {
     try {
-      await open(path, signal)
+      await open(resolve(defaults.cwd, path), signal)
       return ok(request, { opened: true as const })
     } catch (error: unknown) {
       if (signal.aborted) {

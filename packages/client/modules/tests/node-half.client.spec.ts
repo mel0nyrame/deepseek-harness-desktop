@@ -68,7 +68,30 @@ function construct(packageNames: string[]): ClientModuleRegistry {
   return constructWithRoute(packageNames).service
 }
 
+/** Construct the inventory without any browser transport provider. */
+function constructWithoutWebServer(packageNames: string[]): ClientModuleRegistry {
+  const ctx = new Context()
+  ctx.baseUrl = pathToFileURL(root!).href + '/'
+  ctx.provide('loader', {
+    *entries() {
+      for (const packageName of packageNames) {
+        yield { options: { name: packageName }, fiber: {}, disabled: false }
+      }
+    },
+  })
+  return new ClientModuleRegistry(ctx)
+}
+
 describe('client bundle activation', () => {
+  it('composes the client graph without opening a Web transport', () => {
+    const packageName = '@fixture/desktop-client'
+    const clientPath = writePackage(packageName)
+    mkdirSync(dirname(clientPath), { recursive: true })
+    writeFileSync(clientPath, 'module.exports = {}\n')
+    expect(constructWithoutWebServer([packageName]).graph().entries.map(entry => entry.id))
+      .toEqual([packageName])
+  })
+
   it('allows sibling dsh roles', () => {
     const currentName = '@fixture/current-client-field'
     const clientPath = writePackage(currentName, {

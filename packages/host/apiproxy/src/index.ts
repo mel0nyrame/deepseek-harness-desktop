@@ -30,10 +30,27 @@ export type { IApiClient } from './fetch/client.ts'
 export { createApiProxy } from './api-proxy.ts'
 export type { ApiProxyDefaults } from './api-proxy.ts'
 
+/** Optional host-shell adapter for deployments whose visible desktop lives outside the DSH process. */
+export interface NativePathOpener {
+  /**
+   * Whether this adapter can hand a path to a user-visible desktop.
+   * @returns true while the product-shell endpoint can serve path requests.
+   */
+  available(): boolean
+  /**
+   * Open one Host-resolved path and follow the caller lifetime.
+   * @param path - absolute path resolved by the Host.
+   * @param signal - caller or connection lifetime.
+   */
+  open(path: string, signal: AbortSignal): Promise<void>
+}
+
 declare module '@deepseek-ai/cordis' {
   interface Context {
     /** The host-side ApiProxy implementation (the transport-agnostic gateway face). */
     apiProxy: ApiProxy
+    /** Optional product-shell path opener; ordinary Web deployments use platform detection instead. */
+    nativePathOpener: NativePathOpener
   }
 }
 
@@ -95,10 +112,15 @@ export class ApiProxyService extends Service implements ApiProxy {
 
   constructor(ctx: Context, config: Config) {
     super(ctx, 'apiProxy')
+    const nativePathOpener = ctx.get('nativePathOpener')
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(),
       saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd: process.cwd(),
+      ...(nativePathOpener === undefined ? {} : {
+        openPath: (path: string, signal: AbortSignal) => nativePathOpener.open(path, signal),
+        canOpenPath: () => nativePathOpener.available(),
+      }),
       ...config.nativeOpen === undefined ? {} : { canOpenPath: () => config.nativeOpen as boolean },
       ...(config.sessionExportCompressionLevel === undefined
         ? {}

@@ -1,0 +1,5 @@
+# Archived bilingual consistency record: the git blob hash of each archived file.
+# These snapshots are outside the active documentation pairing corpus; refresh both
+# files and hashes together.
+deepseek-harness-readme.md: 962ecc9cb0091cac1d715621a6390a0271273b07
+deepseek-harness-readme.zh.md: 68a6506814108f9382b63e076ba8b72ea88ac687

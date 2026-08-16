@@ -1,0 +1,28 @@
+{
+  "name": "dsh-desktop-light-spot",
+  "preamble": "A cohesive set of calm front-facing spot icons for DSH Desktop, matching its real macOS light interface: precise near-black outlines, white and mist-grey surfaces, restrained DeepSeek blue inserts, generous negative space, and a subtle translucent material inside blue details. The icons feel like polished product illustrations rather than toolbar glyphs. Never use a dark canvas or a dominant black filled mass.",
+  "palette": [
+    "#0F1115",
+    "#4176E6",
+    "#679EFE",
+    "#E4EDFD",
+    "#F9FAFB",
+    "#FFFFFF"
+  ],
+  "cutout": "floodfill",
+  "threshold": 30,
+  "construction": {
+    "grid": "one centered front-facing object per cell, about 72 percent live area with generous padding",
+    "angles": "horizontal, vertical, and 45-degree accents only",
+    "stroke": "one uniform medium near-black outline with rounded caps and joins",
+    "corner_radius": "one soft macOS-like rounded-corner family",
+    "fill_rule": "white or mist-grey primary surfaces with small pale-blue and DeepSeek-blue inserts",
+    "color_rule": "near-black is outline and tiny detail only; pale blue is the largest accent; saturated blue stays small",
+    "detail_budget": "one metaphor and no more than five visible component groups per icon",
+    "shared_parts": "reuse the same rounded window, card, capsule, and connector geometry",
+    "perspective": "flat front view with only a slight layered offset for depth",
+    "shadow": "no shadow cast on the background; a faint internal material highlight is allowed",
+    "motif": "one small paired curved notch, inspired by the DSH whale tail, appears as a secondary signature",
+    "weight_hierarchy": "the near-black outline defines the set; blue fills remain lighter and visually subordinate"
+  }
+}

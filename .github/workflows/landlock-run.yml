@@ -1,14 +1,12 @@
 # CI for the landlock-run packages under native/landlock-run. A separate
 # workflow from ci.yml keeps the native OS/architecture matrix independent of
-# the harness Node matrix. Release assembly and publication use the companion
-# Landlock Run Release workflow.
+# the harness Node matrix.
 name: Landlock Run
 
 on:
   pull_request:
     paths:
       - '.github/workflows/landlock-run.yml'
-      - '.github/workflows/landlock-run-release.yml'
       - 'native/landlock-run/**'
       - 'package.json'
       - 'pnpm-lock.yaml'
@@ -17,7 +15,6 @@ on:
     branches: [master]
     paths:
       - '.github/workflows/landlock-run.yml'
-      - '.github/workflows/landlock-run-release.yml'
       - 'native/landlock-run/**'
       - 'package.json'
       - 'pnpm-lock.yaml'

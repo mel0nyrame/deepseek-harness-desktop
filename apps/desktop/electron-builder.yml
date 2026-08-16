@@ -1,0 +1,62 @@
+appId: ai.deepseek.dsh-desktop
+productName: DSH Desktop
+# Matches the pinned Electron devDependency of this package; the packaging
+# script passes the installed electronDist so the bundle and the rebuild
+# always use the same binary.
+electronVersion: 43.4.0
+asar: true
+# The runtime closure is rebuilt and staged by scripts/package.ts; the
+# builder must not run its own install/rebuild passes over the staged
+# manifest (its dependencies still carry workspace: specs).
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+# This pipeline never publishes: the CI workflow uploads the dmg as a run
+# artifact. null short-circuits electron-builder's publish manager before any
+# provider auto-detection — on Actions runners a bare config (or GITHUB_TOKEN
+# in the environment) would otherwise resolve a GitHub publisher and demand
+# credentials while building the dmg update info.
+publish: null
+# The asar carries only the Electron shell: the bundled main entry and the
+# sandboxed preload. Everything else ships as real files under
+# Contents/Resources/runtime (see extraResources), because the DSH child
+# process, native modules, and the node-pty spawn helper need filesystem
+# paths no archive can provide.
+files:
+  - lib/**
+  - package.json
+extraResources:
+  - from: node_modules
+    to: runtime/node_modules
+mac:
+  # Ad-hoc signing ('-') needs no Apple credentials: the produced bundle and
+  # dmg carry valid code signatures and 'codesign --verify --deep --strict'
+  # passes. Gatekeeper assesses only quarantine-flagged launches, so a
+  # locally built copy opens unassessed, while spctl itself rejects every
+  # ad-hoc signature — the packaging pipeline records that verdict as
+  # evidence rather than a gate (flipping identity below turns it into a hard
+  # gate). A downloaded copy carries com.apple.quarantine, so Gatekeeper
+  # shows the unidentified-developer gate until the one-time right-click ->
+  # Open; only Developer ID signing plus notarization removes that gate for
+  # downloaded artifacts.
+  identity: '-'
+  # The hardened runtime would reject the ELECTRON_RUN_AS_NODE child loading
+  # the rebuilt node-pty addon unless an entitlements file grants
+  # com.apple.security.cs.disable-library-validation, so ad-hoc builds run
+  # without it. When Developer ID credentials arrive, flip this back to true
+  # together with an entitlements file (allow-jit and
+  # disable-library-validation) and fill the notarize block below.
+  hardenedRuntime: false
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - dir
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  extendInfo:
+    NSHighResolutionCapable: true
+  # Developer ID signing and notarization require a paid Apple Developer
+  # Program membership (App Store Connect API key or Apple ID plus an
+  # app-specific password); no free substitute exists. When credentials
+  # exist, replace identity with the certificate name and uncomment:
+  # notarize:
+  #   teamId: <APPLE_TEAM_ID>

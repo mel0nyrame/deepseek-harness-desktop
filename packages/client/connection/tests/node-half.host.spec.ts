@@ -90,6 +90,15 @@ async function mounted(config?: { trustedHosts?: string[] }): Promise<{
 }
 
 describe('connection node half', () => {
+  it('provides the transport-independent Host service without a Web server', async () => {
+    const ctx = new Context()
+    const fiber = ctx.plugin({ inject: [...inject], apply })
+    await fiber.await()
+    expect(ctx.get('connection')).toBeDefined()
+    await fiber.dispose()
+    expect(ctx.get('connection')).toBeUndefined()
+  })
+
   it('fails loud when the carrier cap cannot hold the configured image batch', () => {
     const ctx = new Context()
     const routes: WebRoute[] = []

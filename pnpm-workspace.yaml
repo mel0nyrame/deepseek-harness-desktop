@@ -40,6 +40,10 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
+  # The Electron devDependency's postinstall downloads the pinned platform
+  # binary; without it the packaged-app pipeline fails at the electron-dist
+  # guard (and dev:desktop cannot launch). Reviewed and required.
+  electron: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.
   node-pty: true
   # Pulled in by @earendil-works/pi-ai (optional LLM API backend). pnpm lists
@@ -53,6 +57,10 @@ allowBuilds:
   # The Python runtime deploy includes the reviewed workspace postinstall that
   # restores the executable bit on node-pty's macOS spawn helper.
   '@deepseek-ai/dsh-subprocess-local@file:packages/subprocess/subprocess-local': true
+  # Squirrel.Windows installer tooling pulled in by electron-builder. Its
+  # lifecycle scripts matter only when packaging Windows installers; the
+  # desktop package slice builds macOS bundles and needs none of them.
+  electron-winstaller: false
 
 minimumReleaseAgeExclude:
   # Fresh pi-ai releases carry the model catalog updates that are the whole

@@ -10,9 +10,9 @@ The launcher workspace root and its three public packages share one version. Run
 pnpm --dir native/landlock-run release:bump patch          # or minor / major / x.y.z
 ```
 
-It updates `native/landlock-run/package.json` and every `native/landlock-run/packages/*` manifest, refreshes the repository root lockfile (`--ignore-scripts --lockfile-only`), and runs `release:verify`. Explicit versions accept full semver including prereleases (`pnpm --dir native/landlock-run release:bump 0.0.0-test.0`); the publish workflow puts prerelease versions under the `next` dist-tag, so `latest` never points at a test build. Keep `workspace:*` dependencies in source; pnpm converts them to concrete versions during pack.
+It updates `native/landlock-run/package.json` and every `native/landlock-run/packages/*` manifest, refreshes the repository root lockfile (`--ignore-scripts --lockfile-only`), and runs `release:verify`. Explicit versions accept full semver including prereleases (`pnpm --dir native/landlock-run release:bump 0.0.0-test.0`); `release:publish` puts prerelease versions under the `next` dist-tag, so `latest` never points at a test build. Keep `workspace:*` dependencies in source; pnpm converts them to concrete versions during pack.
 
-Version bumps are normal source changes: open a release PR (or commit) with the launcher manifests and root lockfile, merge it, then create the matching `landlock-run-vX.Y.Z` tag from that commit. The namespace avoids colliding with release tags for other package families in the repository. The publish workflow validates that the tag matches every launcher package version.
+Version bumps are normal source changes: open a release PR (or commit) with the launcher manifests and root lockfile, merge it, then create the matching `landlock-run-vX.Y.Z` tag from that commit. The namespace avoids colliding with release tags for other package families in the repository. Before publishing, run `release:verify` from the tagged commit and confirm that every launcher package version matches the tag.
 
 ```sh
 pnpm --dir native/landlock-run release:commit patch        # bump + stage + commit in one command
@@ -39,22 +39,18 @@ node native/landlock-run/scripts/verify-packed-install.mjs native/landlock-run/.
 
 ## Publish
 
-Use the main repository's `Landlock Run Release` workflow so every binary is built on its matching native runner:
-
-1. Run it with `publish=false` (from the release commit) to build all platform binaries, assemble and verify the payloads, pack the tarballs in publish order, rehearse the packed install, and upload the `npm-tarballs` artifact for inspection.
-2. Create and push the `landlock-run-vX.Y.Z` tag matching the package versions.
-3. Run the same workflow from that tag with `publish=true`.
-
-The workflow publishes only from the final packed tarballs, in `publish-order.txt` order (platform packages before the entry that optionally depends on them). A current-platform rehearsal can still query npm for metadata about an incompatible optional platform package; that package cannot supply the host launcher, which comes from the matching local tarball. Publishing every platform package before the entry ensures a public entry version never points ahead of its platform packages. The workflow supports npm trusted publishing through GitHub OIDC; without it, provide an `NPM_TOKEN` secret in the `npm-publish` environment. Packages publish with `--access public`.
-
-The three scoped package names must be bootstrapped with an `@deepseek-ai` organization token through the `NPM_TOKEN` fallback: npm [requires a package to exist before a trusted publisher can be configured](https://docs.npmjs.com/cli/v11/commands/npm-trust/). After the first release creates all three packages, configure each package to trust `landlock-run-release.yml` in this repository with the `npm-publish` environment, then remove the fallback token when organization policy permits it.
-
-Manual local fallback (current platform's packages only) — always through `pack-release.mjs`, never `pnpm publish` directly (pnpm's pack path strips the launcher's executable bit; see [packaging.md](packaging.md)):
+Release from native Linux x64 and arm64 hosts. Each host builds and verifies its own launcher, then transfers the resulting `packages/<platform>/bin/` directory to one clean checkout. In that checkout, build TypeScript, run `release:verify`, assemble the transferred platform directories under `.release/prebuild-artifacts/prebuild-<package>/`, verify the complete payload, and pack it:
 
 ```sh
-node native/landlock-run/scripts/pack-release.mjs native/landlock-run/dist/npm --current-platform-only
-node native/landlock-run/scripts/verify-packed-install.mjs native/landlock-run/dist/npm --current-platform-only
-while IFS= read -r tarball; do npm publish "native/landlock-run/dist/npm/${tarball}" --access public; done < native/landlock-run/dist/npm/publish-order.txt
+pnpm --dir native/landlock-run build:ts
+pnpm --dir native/landlock-run release:verify
+pnpm --dir native/landlock-run release:assemble-prebuilds .release/prebuild-artifacts
+pnpm --dir native/landlock-run release:verify -- --prebuilds
+pnpm --dir native/landlock-run release:pack dist/npm
+NALR_REQUIRE_LANDLOCK=1 pnpm --dir native/landlock-run release:verify-packed-install dist/npm
+pnpm --dir native/landlock-run release:publish dist/npm
 ```
+
+`release:publish` reads `publish-order.txt`, publishes platform packages before the entry package, skips an already published tarball only when its registry integrity matches, and fails if the same version has different bytes. Authenticate npm in the local environment before the final command. Always pack through `pack-release.mjs`, never `pnpm publish` directly: pnpm's pack path strips the launcher's executable bit (see [packaging.md](packaging.md)). A current-platform rehearsal remains available with `--current-platform-only`, but it cannot produce a complete multi-platform release.
 
 Do not commit `.npmrc` files with tokens or registry overrides.

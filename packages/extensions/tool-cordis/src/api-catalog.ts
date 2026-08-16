@@ -907,6 +907,24 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'nativePathOpener',
+    summary: 'Optional host-shell adapter for deployments whose visible desktop lives outside the DSH process.',
+    description: 'Optional host-shell adapter for deployments whose visible desktop lives outside the DSH process.',
+    methods: [
+      {
+        signature: 'available(): boolean',
+        description: 'Whether this adapter can hand a path to a user-visible desktop.',
+        parameters: [],
+        returns: 'true while the product-shell endpoint can serve path requests.',
+      },
+      {
+        signature: 'open(path: string, signal: AbortSignal): Promise<void>',
+        description: 'Open one Host-resolved path and follow the caller lifetime.',
+        parameters: [{ name: 'path', description: 'absolute path resolved by the Host.' }, { name: 'signal', description: 'caller or connection lifetime.' }],
+      },
+    ],
+  },
+  {
     key: 'permissionPresets',
     summary: 'Owns the deployment\'s permission presets and their write path.',
     description: 'Owns the deployment\'s permission presets and their write path. Requires a confining `ctx.shell` executor and `ctx.approval`; unmatched knob values are reported as CUSTOM_PRESET, not an error.',

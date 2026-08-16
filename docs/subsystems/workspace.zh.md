@@ -149,6 +149,29 @@ abstract capability(): DirectoryPickerCapability
 
 Source: [`packages/host/directory-picker/src/index.ts:131`](../../packages/host/directory-picker/src/index.ts)
 
+<a id="ctxnativepathopener--nativepathopener"></a>
+
+### `ctx.nativePathOpener` — `NativePathOpener`
+
+Optional host-shell adapter for deployments whose visible desktop lives outside the DSH process.
+
+```ts cordis-catalog
+/**
+ * Whether this adapter can hand a path to a user-visible desktop.
+ * @returns true while the product-shell endpoint can serve path requests.
+ */
+available(): boolean
+
+/**
+ * Open one Host-resolved path and follow the caller lifetime.
+ * @param path - absolute path resolved by the Host.
+ * @param signal - caller or connection lifetime.
+ */
+open(path: string, signal: AbortSignal): Promise<void>
+```
+
+Source: [`packages/host/apiproxy/src/index.ts:34`](../../packages/host/apiproxy/src/index.ts)
+
 <a id="ctxworkspaceregistry--workspaceregistry"></a>
 
 ### `ctx.workspaceRegistry` — `WorkspaceRegistry`

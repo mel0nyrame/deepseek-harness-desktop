@@ -320,7 +320,9 @@ describe('WorkspaceRuntime', () => {
     const sessions = new SessionRuntime(ctx, api, fakeRemote())
     const workspaces = new WorkspaceRuntime(ctx, api, sessions)
     api.onPickDirectory = () => Promise.resolve(ok({ path: '/w/alpha' }))
-    await expect(workspaces.pickDirectory()).resolves.toBe('/w/alpha')
+    const signal = new AbortController().signal
+    await expect(workspaces.pickDirectory(signal)).resolves.toBe('/w/alpha')
+    expect(api.lastPickDirectorySignal).toBe(signal)
     api.onPickDirectory = () => Promise.resolve(ok({ path: null }))
     await expect(workspaces.pickDirectory()).resolves.toBeNull()
     expect(api.callsOf('host.pickDirectory')).toEqual([{}, {}])
