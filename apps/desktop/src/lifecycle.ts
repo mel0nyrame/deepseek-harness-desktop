@@ -16,7 +16,7 @@ export type ReadyMessage = Awaited<ReturnType<DshSupervisor['start']>>
 export type HostPhase = 'starting' | 'running' | 'recovering' | 'failed' | 'stopping' | 'stopped'
 
 /** Failure classification reported to the user and tests. */
-export type HostFailureKind = 'startup-timeout' | 'startup-failed' | 'unexpected-exit' | 'cleanup-incomplete'
+type HostFailureKind = 'startup-timeout' | 'startup-failed' | 'unexpected-exit' | 'cleanup-incomplete'
 
 /** An actionable Host failure: what happened, why, and what survived. */
 export interface HostFailure {

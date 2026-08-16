@@ -7,7 +7,7 @@
 
 import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { type AgentFactory } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
@@ -547,7 +547,7 @@ describe('authoring over the wire', () => {
 describe('opening a preset directory', () => {
   it('hands the resolved directory to the native opener', async () => {
     const opened: string[] = []
-    const { api } = await harness(['standard', 'my-preset'], undefined, {
+    const { api, cwd } = await harness(['standard', 'my-preset'], undefined, {
       userIds: ['my-preset'],
       defaults: { openPath: (path: string) => { opened.push(path); return Promise.resolve() } },
     })
@@ -558,8 +558,10 @@ describe('opening a preset directory', () => {
     expect(response.result.ok).toBe(true)
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value).toEqual({ opened: true })
-    // The id selected the directory; the browser supplied no path.
-    expect(opened).toEqual(['/presets/my-preset'])
+    // The id selected the directory; the browser supplied no path. The
+    // opener sees the Host-resolved platform spelling of that absolute
+    // directory (POSIX keeps it, Windows anchors it to the cwd's drive).
+    expect(opened).toEqual([resolve(cwd, '/presets/my-preset')])
   })
 
   it('answers the path as text where the deployment has no opener', async () => {

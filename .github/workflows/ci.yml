@@ -4,29 +4,9 @@ on:
   push:
     branches: [master]
   pull_request:
-  workflow_dispatch:
-    inputs:
-      suite:
-        description: Manual CI suite to run
-        required: true
-        default: larger-runner-benchmark
-        type: choice
-        options:
-          - larger-runner-benchmark
-          - consolidated-runner-benchmark
 
-# Cancel a superseded run on every event EXCEPT push. A push run carries the two
-# self-hosted standby drills, which take longer than the interval between master
-# merges, so cancelling supersedes a drill before it reaches a verdict and the
-# lane yields no readiness evidence. Must be decided here: cancellation applies
-# to the whole superseded run, so a job-level group cannot exempt its job.
-# Negated rather than `== 'pull_request'` so workflow_dispatch keeps cancelling:
-# a re-dispatched runner benchmark holds up to 12 larger runners for 15 minutes
-# and shares this group with the drills on master, so queueing it would delay
-# them. The guarantee is narrow — evaluated against the newly triggered run, so a
-# dispatch on master still cancels a mid-flight drill, and a newer pending push
-# displaces an older one. Bounds and rationale:
-# .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md
+# Cancel a superseded run on every event except push: the master wine-apt-cache
+# seed job is short, and push runs carry the branch's own verdict.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name != 'push' }}
@@ -42,34 +22,22 @@ env:
 
 jobs:
 
-  # TODO(hosted-serial-ci): Re-enable the three hosted serial reference jobs before release.
-  # The self-hosted standby remains active on every master push.
-
-  # Three enterprise jobs isolate coverage, static analysis, and the
-  # build-backed consumer tail. The consumer job owns the only Linux build so
-  # all three jobs enter runner allocation independently.
-  #
-  # FAILOVER (Linux): each Linux enterprise job resolves its pool through the
-  # DSH_CI_FAILOVER_LINUX repository variable. Unset (normal), the expressions
-  # pick the hosted enterprise pools below. Setting the variable to
-  # 'selfhosted' (repo Settings → Actions → Variables; writer-manageable
-  # repository state — not PR-editable, no merge required) retargets all
-  # three onto the in-house
-  # vm-backup pool and re-running the failed jobs is the entire switch —
-  # see .agents/notes/implemented/process/2026-07-26-ci-failover-runbook.md. The
-  # in-house pool's readiness is re-proven on every master push by the
-  # serial-linux-selfhosted standby lane below. The Windows failover switch is
-  # the separate DSH_CI_FAILOVER_WINDOWS variable on the windows-native job below.
+  # Fork adaptation: upstream resolves these jobs on the organization's hosted
+  # 16-core pools (dsh-ubuntu-24-04-16core / dsh-windows-2025-16core); this
+  # single-maintainer fork has no such pools, so each job runs on a standard
+  # hosted runner with the concurrency tuned down to its 2 cores. The
+  # failover expressions remain, but their in-house self-hosted pools are
+  # likewise unavailable here and stay unset.
   node-24:
     if: github.event_name == 'pull_request'
     runs-on: >-
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || 'ubuntu-latest' }}
     name: node 24 / static
     env:
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '2'
     steps:
       # Fetch complete history so the archive gate can read the trusted PR base from a reused shallow checkout.
       - uses: actions/checkout@v6
@@ -118,15 +86,11 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || 'ubuntu-latest' }}
     name: node 24 / coverage
     env:
-      # The hosted 16-core runner uses six coverage workers. The failover pool
-      # shares one 64-core VM across six always-on runner instances, so each
-      # instance may use eight while keeping the worst case at 8 × 6 = 48
-      # workers; process-bound suites remain isolated in forks.
-      DSH_COVERAGE_MAX_WORKERS: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '8' || '6' }}
-      DSH_GATE_CONCURRENCY: '3'
+      DSH_COVERAGE_MAX_WORKERS: '2'
+      DSH_GATE_CONCURRENCY: '2'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -181,15 +145,14 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "linux", "x64", "vm-backup"]')
-          || 'dsh-ubuntu-24-04-16core' }}
+          || 'ubuntu-latest' }}
     name: node 24 / snapshots and artifacts
     env:
-      DSH_GATE_CONCURRENCY: '8'
+      DSH_GATE_CONCURRENCY: '2'
       DSH_NODE_COMPAT_SKIP_TYPECHECK: '1'
-      DSH_OXLINT_THREADS: '8'
-      DSH_PUBLINT_CONCURRENCY: '8'
-      # Failover halves snapshot concurrency for the shared 64-core VM.
-      DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ vars.DSH_CI_FAILOVER_LINUX == 'selfhosted' && github.event.pull_request.user.login != 'dependabot[bot]' && '12' || '32' }}
+      DSH_OXLINT_THREADS: '2'
+      DSH_PUBLINT_CONCURRENCY: '2'
+      DSH_SNAPSHOT_MAX_CONCURRENCY: '4'
     steps:
       - uses: actions/checkout@v6
         with:
@@ -450,7 +413,7 @@ jobs:
       ${{ vars.DSH_CI_FAILOVER_WINDOWS == 'selfhosted'
           && github.event.pull_request.user.login != 'dependabot[bot]'
           && fromJSON('["self-hosted", "dsh-win-ci", "windows"]')
-          || 'dsh-windows-2025-16core' }}
+          || 'windows-2025' }}
     name: windows node 24 / native complete
     timeout-minutes: 60
     env:
@@ -499,7 +462,7 @@ jobs:
   # native-module placement are exercised nowhere else in the host matrix.
   desktop-packaged:
     if: github.event_name == 'pull_request'
-    runs-on: macos-latest
+    runs-on: macos-26
     name: desktop packaged smoke
     timeout-minutes: 45
     steps:
@@ -530,415 +493,6 @@ jobs:
         env:
           DSH_DESKTOP_SMOKE_REQUIRED: '1'
         run: pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts
-
-  serial-linux:
-    if: false
-    name: serial / linux
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 2
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Configure pnpm store path
-        id: pnpm-store
-        run: |
-          store_root="$HOME/.local/share/pnpm/store"
-          echo "PNPM_CONFIG_STORE_DIR=$store_root" >> "$GITHUB_ENV"
-          store_path=$(PNPM_CONFIG_STORE_DIR="$store_root" pnpm store path --silent)
-          echo "path=$store_path" >> "$GITHUB_OUTPUT"
-
-      # Master refreshes the pnpm store cache that pull requests restore without saving.
-      # The store cache stays a hand-rolled actions/cache step rather than
-      # setup-node's `cache: pnpm`: the enterprise pull-request jobs above
-      # restore exactly this key and path, and setup-node's built-in cache
-      # uses its own key format — converting this producer would silently
-      # starve their documented restore-only optimization.
-      - uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-store.outputs.path }}
-          key: ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-node-${{ env.PRIMARY_NODE_VERSION }}-pnpm-
-
-      # Master produces the hosted Chromium cache restored by pull requests.
-      - uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
-          restore-keys: |
-            ${{ runner.os }}-playwright-
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Install Playwright Chromium and system dependencies
-        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install --with-deps chromium
-
-      - name: Prepare bubblewrap (unrestrict userns)
-        run: bash scripts/prepare-ci-bubblewrap.sh
-
-      - name: Run complete unsharded primary Node CI serially
-        env:
-          DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
-          DSH_COVERAGE_MAX_WORKERS: '1'
-          DSH_E2E_MAX_WORKERS: '1'
-          DSH_GATE_CONCURRENCY: '1'
-          DSH_OXLINT_THREADS: '1'
-          DSH_PUBLINT_CONCURRENCY: '1'
-          DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci:linux-primary
-
-  # Hot-standby drill for the in-house self-hosted pool: every master move
-  # re-runs the complete unsharded aggregate on the persistent 64-core VM,
-  # continuously proving that environment can take over a required lane if
-  # the hosted pools degrade (the switch is then setting the writer-manageable
-  # DSH_CI_FAILOVER_LINUX variable — see the failover runbook, no merge required).
-  # Push-triggered, so this lane always executes the base branch's own
-  # workflow definition. (Under failover, pull_request jobs do reach these
-  # runners with the PR merge ref's workflow — the boundary there is
-  # repository membership: private, forking disabled, Dependabot excluded.)
-  # Non-blocking for
-  # pull requests; no cache steps because the VM's persistent pnpm store and
-  # tool caches make them redundant (and saving here would poison the hosted
-  # cache namespace with self-hosted paths).
-  serial-linux-selfhosted:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    name: serial / linux (self-hosted standby)
-    runs-on: [self-hosted, linux, x64, vm-backup]
-    steps:
-      # Full history + DSH_ARCHIVE_BASE_REF below: same frozen-archive
-      # comparison as serial-linux. Depth 2 would miss github.event.before
-      # on multi-commit or force pushes; full fetch is cheap here because
-      # checkout resolves against the VM's local mirror.
-      - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Configure persistent pnpm store
-        run: echo "PNPM_CONFIG_STORE_DIR=$HOME/.local/share/pnpm/store" >> "$GITHUB_ENV"
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      # The persistent VM image owns Playwright's Linux system packages; this
-      # step also proves that browser provisioning remains usable for failover.
-      - name: Install Playwright Chromium
-        run: pnpm --filter @deepseek-ai/dsh-web-frontend exec playwright install chromium
-
-      - name: Prepare bubblewrap (unrestrict userns)
-        run: bash scripts/prepare-ci-bubblewrap.sh
-
-      - name: Run complete unsharded primary Node CI serially
-        env:
-          DSH_ARCHIVE_BASE_REF: ${{ github.event.before }}
-          DSH_COVERAGE_MAX_WORKERS: '1'
-          DSH_E2E_MAX_WORKERS: '1'
-          DSH_GATE_CONCURRENCY: '1'
-          DSH_OXLINT_THREADS: '1'
-          DSH_PUBLINT_CONCURRENCY: '1'
-          DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci:linux-primary
-
-  serial-macos:
-    if: false
-    name: serial / macos
-    runs-on: macos-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Run complete unsharded primary Node CI serially
-        env:
-          DSH_COVERAGE_MAX_WORKERS: '1'
-          DSH_E2E_MAX_WORKERS: '1'
-          DSH_GATE_CONCURRENCY: '1'
-          DSH_PUBLINT_CONCURRENCY: '1'
-          DSH_SNAPSHOT_MAX_CONCURRENCY: '1'
-        run: pnpm run check:ci
-
-  # Hot-standby drill for the in-house self-hosted Windows pool: every master
-  # move re-runs the complete unsharded Windows gate inventory on the persistent
-  # VM, continuously proving that environment can take over the required
-  # `windows` lane if the hosted pool degrades (the switch is setting the
-  # writer-manageable DSH_CI_FAILOVER_WINDOWS variable — see the failover
-  # runbook, no merge required). Push-triggered, so this lane always executes
-  # the base branch's own workflow definition. Non-blocking for pull requests;
-  # absent from all-checks-passed.needs by design — the required `windows` job
-  # owns the PR verdict. No cache steps because the VM's persistent pnpm store
-  # and tool caches make them redundant (and saving here would poison the
-  # hosted cache namespace with self-hosted paths).
-  serial-windows:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/master'
-    name: serial / windows (self-hosted standby)
-    runs-on: [self-hosted, dsh-win-ci, windows]
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Enable Developer Mode (symlink support)
-        shell: pwsh
-        run: >-
-          reg add "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\AppModelUnlock"
-          /t REG_DWORD /f /v "AllowDevelopmentWithoutDevLicense" /d "1"
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-
-      - name: Configure persistent pnpm store
-        shell: pwsh
-        run: |
-          $storeRoot = "$env:LOCALAPPDATA\pnpm\store"
-          echo "PNPM_CONFIG_STORE_DIR=$storeRoot" >> $env:GITHUB_ENV
-
-      - name: Install (immutable)
-        shell: pwsh
-        run: pnpm install --frozen-lockfile
-
-      - name: Run complete unsharded Windows gate inventory serially
-        shell: pwsh
-        env:
-          DSH_COVERAGE_MAX_WORKERS: '1'
-          DSH_GATE_CONCURRENCY: '1'
-          DSH_PUBLINT_CONCURRENCY: '1'
-        run: pnpm run check:ci:windows-complete
-
-  # Manual, bounded comparison of the actual critical Linux and Windows lanes.
-  # The named pools are restricted at the organization level to this repository.
-  larger-runner-benchmark:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'larger-runner-benchmark'
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix:
-        include:
-          - platform: linux
-            cores: '4'
-            runner: dsh-ubuntu-24-04-4core
-            workload: typecheck
-          - platform: linux
-            cores: '8'
-            runner: dsh-ubuntu-24-04-8core
-            workload: typecheck
-          - platform: linux
-            cores: '16'
-            runner: dsh-ubuntu-24-04-16core
-            workload: typecheck
-          - platform: linux
-            cores: '32'
-            runner: dsh-ubuntu-24-04-32core
-            workload: typecheck
-          - platform: linux
-            cores: '64'
-            runner: dsh-ubuntu-24-04-64core
-            workload: typecheck
-          - platform: linux
-            cores: '96'
-            runner: dsh-ubuntu-24-04-96core
-            workload: typecheck
-          - platform: windows
-            cores: '4'
-            runner: dsh-windows-2025-4core
-            workload: production-site
-          - platform: windows
-            cores: '8'
-            runner: dsh-windows-2025-8core
-            workload: production-site
-          - platform: windows
-            cores: '16'
-            runner: dsh-windows-2025-16core
-            workload: production-site
-          - platform: windows
-            cores: '32'
-            runner: dsh-windows-2025-32core
-            workload: production-site
-          - platform: windows
-            cores: '64'
-            runner: dsh-windows-2025-64core
-            workload: production-site
-          - platform: windows
-            cores: '96'
-            runner: dsh-windows-2025-96core
-            workload: production-site
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      # The benchmark's Windows lanes deliberately skip the store cache like
-      # the independent native Windows job; an empty input disables caching.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-          cache: ${{ matrix.platform == 'linux' && 'pnpm' || '' }}
-
-      - name: Report runner capacity
-        run: >-
-          node -e "const os = require('node:os');
-          console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
-          memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
-
-      - name: Install (immutable)
-        run: pnpm install --frozen-lockfile
-
-      - name: Run critical Linux typecheck lane
-        if: matrix.platform == 'linux'
-        run: pnpm run typecheck
-
-      - name: Run critical Windows production-site lane
-        if: matrix.platform == 'windows'
-        run: pnpm run docs:build
-
-  # Manual comparison of the intended low-fanout topology. Linux runs the
-  # complete unsharded primary aggregate with bounded in-runner parallelism;
-  # Windows runs both blocking build targets concurrently through run-gates.
-  consolidated-runner-benchmark:
-    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'consolidated-runner-benchmark'
-    runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      max-parallel: 12
-      matrix:
-        include:
-          - platform: linux
-            cores: '4'
-            runner: dsh-ubuntu-24-04-4core
-            workers: '4'
-          - platform: linux
-            cores: '8'
-            runner: dsh-ubuntu-24-04-8core
-            workers: '8'
-          - platform: linux
-            cores: '16'
-            runner: dsh-ubuntu-24-04-16core
-            workers: '16'
-          - platform: linux
-            cores: '32'
-            runner: dsh-ubuntu-24-04-32core
-            workers: '32'
-          - platform: linux
-            cores: '64'
-            runner: dsh-ubuntu-24-04-64core
-            workers: '32'
-          - platform: linux
-            cores: '96'
-            runner: dsh-ubuntu-24-04-96core
-            workers: '32'
-          - platform: windows
-            cores: '4'
-            runner: dsh-windows-2025-4core
-            workers: '2'
-          - platform: windows
-            cores: '8'
-            runner: dsh-windows-2025-8core
-            workers: '2'
-          - platform: windows
-            cores: '16'
-            runner: dsh-windows-2025-16core
-            workers: '2'
-          - platform: windows
-            cores: '32'
-            runner: dsh-windows-2025-32core
-            workers: '2'
-          - platform: windows
-            cores: '64'
-            runner: dsh-windows-2025-64core
-            workers: '2'
-          - platform: windows
-            cores: '96'
-            runner: dsh-windows-2025-96core
-            workers: '2'
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: pnpm/action-setup@v4
-        with:
-          dest: ${{ runner.temp }}/setup-pnpm
-
-      # Unlike the larger-runner suite, both platforms cache the store here:
-      # the consolidated topology measures cache mechanics as workload.
-      - uses: actions/setup-node@v6
-        with:
-          node-version: ${{ env.PRIMARY_NODE_VERSION }}
-          cache: pnpm
-
-      - name: Report runner capacity
-        run: >-
-          node -e "const os = require('node:os');
-          console.log(JSON.stringify({ arch: process.arch, cpus: os.cpus().length,
-          memoryGiB: Math.round(os.totalmem() / 2 ** 30) }))"
-
-      - name: Install and prepare Linux
-        if: matrix.platform == 'linux'
-        run: |
-          pnpm install --frozen-lockfile &
-          install_pid=$!
-          bash scripts/prepare-ci-bubblewrap.sh &
-          sandbox_pid=$!
-          install_status=0
-          wait "$install_pid" || install_status=$?
-          sandbox_status=0
-          wait "$sandbox_pid" || sandbox_status=$?
-          if (( install_status != 0 )); then exit "$install_status"; fi
-          exit "$sandbox_status"
-
-      - name: Install (immutable)
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        run: pnpm install --frozen-lockfile
-
-      - name: Run complete unsharded primary Node CI concurrently
-        if: matrix.platform == 'linux'
-        env:
-          DSH_COVERAGE_MAX_WORKERS: ${{ matrix.workers }}
-          DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
-          DSH_OXLINT_THREADS: ${{ matrix.workers }}
-          DSH_PUBLINT_CONCURRENCY: ${{ matrix.workers }}
-          DSH_SNAPSHOT_MAX_CONCURRENCY: ${{ matrix.workers }}
-        run: pnpm run check:ci
-
-      - name: Run blocking Windows builds concurrently
-        if: matrix.platform == 'windows'
-        shell: pwsh
-        env:
-          DSH_GATE_CONCURRENCY: ${{ matrix.workers }}
-        run: pnpm run check:ci:windows-blocking
 
   # Single stable required check for branch protection: require "all checks
   # passed" instead of enumerating matrix legs whose names change as lanes and

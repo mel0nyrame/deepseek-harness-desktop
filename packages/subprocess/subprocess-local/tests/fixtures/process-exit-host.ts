@@ -1,15 +1,17 @@
 import { access, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
+import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 
-const [kind, trigger, root] = process.argv.slice(2)
+const [kind, trigger, root, publication = 'complete'] = process.argv.slice(2)
 if ((kind !== 'ordinary' && kind !== 'terminal')
   || (trigger !== 'direct' && trigger !== 'uncaught-exception'
     && trigger !== 'unhandled-rejection' && trigger !== 'dispose')
+  || (publication !== 'complete' && publication !== 'partial')
   || root === undefined) {
-  throw new Error('usage: process-exit-host.ts <ordinary|terminal> <direct|uncaught-exception|unhandled-rejection|dispose> <root>')
+  throw new Error('usage: process-exit-host.ts <ordinary|terminal> <direct|uncaught-exception|unhandled-rejection|dispose> <root> [complete|partial]')
 }
 
 const treeState = join(root, 'tree.json')
@@ -28,13 +30,38 @@ async function waitForFile(path: string): Promise<void> {
   }
 }
 
+async function waitForTreeState(path: string): Promise<void> {
+  for (;;) {
+    let text: string
+    try {
+      text = await readFile(path, 'utf8')
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      await delay(10)
+      continue
+    }
+    let published: { root?: unknown; descendant?: unknown }
+    try {
+      published = JSON.parse(text) as { root?: unknown; descendant?: unknown }
+    } catch (error: unknown) {
+      if (!(error instanceof SyntaxError)) throw error
+      await delay(10)
+      continue
+    }
+    if (!Number.isSafeInteger(published.root) || !Number.isSafeInteger(published.descendant)) {
+      throw new Error('managed tree published invalid process ids')
+    }
+    return
+  }
+}
+
 const listenersBefore = process.listenerCount('exit')
 const ctx = new Context()
 const fiber = await ctx.plugin(LocalSubprocessRuntime)
 const listenersAfterLoad = process.listenerCount('exit')
 if (kind === 'ordinary') {
   ctx.subprocess.spawn({
-    argv: [process.execPath, managedTree, treeState],
+    argv: [process.execPath, managedTree, treeState, publication],
     cwd: process.cwd(),
     stdio: {
       stdin: 'ignore',
@@ -45,7 +72,7 @@ if (kind === 'ordinary') {
   })
 } else {
   await ctx.subprocess.spawnTerminal({
-    argv: [process.execPath, managedTree, treeState],
+    argv: [process.execPath, managedTree, treeState, publication],
     cwd: process.cwd(),
     rows: 24,
     cols: 80,
@@ -53,11 +80,7 @@ if (kind === 'ordinary') {
   })
 }
 
-await waitForFile(treeState)
-const published = JSON.parse(await readFile(treeState, 'utf8')) as { root?: unknown; descendant?: unknown }
-if (!Number.isSafeInteger(published.root) || !Number.isSafeInteger(published.descendant)) {
-  throw new Error('managed tree published invalid process ids')
-}
+await waitForTreeState(treeState)
 await writeFile(ready, 'ready')
 await waitForFile(proceed)
 

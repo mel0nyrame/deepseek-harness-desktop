@@ -31,7 +31,7 @@ import { parseArgs } from 'node:util'
 import { build, type Configuration } from 'electron-builder'
 import { rebuild } from '@electron/rebuild'
 import yaml from 'js-yaml'
-import { discoverArtifacts, gatekeeperIsHardGate, signEvidenceSteps } from './artifact-evidence.ts'
+import { discoverArtifacts, gatekeeperIsHardGate, hasCustomBundleIcon, signEvidenceSteps, type SignEvidenceStep } from './artifact-evidence.ts'
 
 const require = createRequire(import.meta.url)
 const scriptDir = dirname(fileURLToPath(import.meta.url))
@@ -176,6 +176,7 @@ class DesktopPackageBuild {
     ])
     await this.restoreLegacyHoists()
     await this.materializeStagedLinks()
+    await this.stageIcon()
     // The legacy deploy's production install records its settings (production,
     // hoisted linker) in the workspace state beside the repo's node_modules;
     // without this restore, every later `pnpm run` triggers pnpm's deps-status
@@ -281,6 +282,28 @@ class DesktopPackageBuild {
     await rm(path, { recursive: true, force: true })
   }
 
+  /**
+   * Stage the application icon beside the deployed closure: electron-builder
+   * resolves the yml's mac.icon against the staging projectDir, so the
+   * committed build/icon.png must exist inside the staged project for the
+   * custom icon (rather than the default Electron one) to ship.
+   */
+  private async stageIcon(): Promise<void> {
+    const source = join(packageDir, 'build', 'icon.png')
+    if (!existsSync(source)) {
+      throw new Error(
+        `dsh-desktop package: the icon source is missing at ${source}; regenerate it with 'pnpm --filter @deepseek-ai/dsh-desktop run icon'.`,
+      )
+    }
+    const destination = join(STAGING, 'build', 'icon.png')
+    if (this.cli.dryRun) {
+      console.log(`dsh-desktop package: [dry-run] cp ${source} ${destination}`)
+      return
+    }
+    await mkdir(dirname(destination), { recursive: true })
+    await cp(source, destination)
+  }
+
   /** Rebuild node-pty against the production Electron ABI in place. */
   async rebuildPty(): Promise<void> {
     const ptyDir = join(STAGING, 'node_modules', 'node-pty')
@@ -339,6 +362,10 @@ class DesktopPackageBuild {
       console.log(`dsh-desktop package: [dry-run] electron-builder projectDir=${STAGING} output=${OUT_DIR}`)
       return []
     }
+    // electron-builder skips code signing on pull-request CI builds unless
+    // forced; the pipeline signs on every context, so the PR lane and the
+    // release legs produce the same ad-hoc signed artifact.
+    process.env.CSC_FOR_PULL_REQUEST = 'true'
     await build({
       projectDir: STAGING,
       config: {
@@ -360,6 +387,16 @@ class DesktopPackageBuild {
     return artifacts
   }
 
+  /** Every produced bundle must ship the custom icon, not the Electron default. */
+  async verifyBundleIcons(products: string[]): Promise<void> {
+    for (const product of products.filter(path => path.endsWith('.app'))) {
+      if (hasCustomBundleIcon(product)) continue
+      throw new Error(
+        `dsh-desktop package: bundle ${product} does not carry the custom icon (Contents/Resources/icon.icns + CFBundleIconFile reference).`,
+      )
+    }
+  }
+
   /** Verify each produced artifact's signature and record its Gatekeeper verdict. */
   async verifySigning(products: string[], identity: string | null | undefined): Promise<void> {
     if (process.platform !== 'darwin') {
@@ -379,7 +416,7 @@ class DesktopPackageBuild {
           continue
         }
         try {
-          await this.run(step.label, step.command, [...step.args])
+          await this.runEvidenceStep(step)
         } catch (error) {
           // The expected verdict under ad-hoc signing: Gatekeeper rejects the
           // signature via spctl (a non-zero exit), and the pipeline records
@@ -391,6 +428,33 @@ class DesktopPackageBuild {
         }
       }
     }
+  }
+
+  /**
+   * Run one evidence step; hard gates retry twice because a freshly built
+   * bundle can fail `codesign --verify` with "code has no resources but
+   * signature indicates they must be present" while the signing daemon or
+   * the image build still touches it on a busy runner — the observed PR
+   * lane failure that never reproduced on the release legs. A settled
+   * re-verification is the same evidence; all attempts failing fails the
+   * build.
+   */
+  private async runEvidenceStep(step: SignEvidenceStep): Promise<void> {
+    const attempts = step.required ? 3 : 1
+    let lastError: unknown
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      try {
+        await this.run(step.label, step.command, [...step.args])
+        return
+      } catch (error) {
+        lastError = error
+        if (attempt < attempts) {
+          console.warn(`dsh-desktop package: ${step.label} attempt ${attempt}/${attempts} failed; re-verifying: ${error instanceof Error ? error.message : String(error)}`)
+          await new Promise(resolveWait => setTimeout(resolveWait, 1_500))
+        }
+      }
+    }
+    throw lastError
   }
 
   printProducts(products: string[]): void {
@@ -442,6 +506,7 @@ async function main(): Promise<void> {
   await pipeline.validateRuntime()
   const builderConfig = yaml.load(await readFile(BUILDER_CONFIG, 'utf8')) as Configuration
   const products = await pipeline.package(builderConfig)
+  await pipeline.verifyBundleIcons(products)
   await pipeline.verifySigning(products, builderConfig.mac?.identity)
   pipeline.printProducts(products)
 }

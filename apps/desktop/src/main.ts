@@ -51,6 +51,26 @@ protocol.registerSchemesAsPrivileged([{
   privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true },
 }])
 
+// Evidence journeys must render identically on every host. CI macOS runners
+// expose no reliable GPU: a transient command-buffer failure wedges the
+// renderer's script channel, hanging the journeys' executeJavaScript waits
+// (observed on the Intel matrix runner, where the same launch can paint or
+// hang). Software rendering keeps every journey paint and capturePage frame
+// deterministic, so every journey mode disables hardware acceleration before
+// ready; the interactive product launch keeps it.
+const JOURNEY_FLAGS = [
+  '--inspect-native-window',
+  '--accept-native-window',
+  '--record-native-window',
+  '--record-native-actions',
+  '--record-recovery',
+  '--smoke',
+  '--smoke-reopen',
+] as const
+if (JOURNEY_FLAGS.some(flag => process.argv.includes(flag))) {
+  app.disableHardwareAcceleration()
+}
+
 /** Default grace for Host startup and shutdown, overridable for tests. */
 function desktopTimeoutMs(envName: string, fallback: number): number {
   const raw = process.env[envName]

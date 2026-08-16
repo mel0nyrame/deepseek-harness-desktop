@@ -27,7 +27,7 @@ function processExists(pid: number): boolean {
   }
 }
 
-async function readTree(path: string): Promise<TreeState> {
+async function readTree(path: string, timeoutMs = scenarioTimeoutMs): Promise<TreeState> {
   return vi.waitFor(async () => {
     const text = await readFile(path, 'utf8')
     const state = JSON.parse(text) as Partial<TreeState>
@@ -36,7 +36,7 @@ async function readTree(path: string): Promise<TreeState> {
       throw new Error(`invalid managed-tree state: ${text}`)
     }
     return state as TreeState
-  }, { interval: 10, timeout: scenarioTimeoutMs })
+  }, { interval: 10, timeout: timeoutMs })
 }
 
 async function captureIdentities(inspector: ProcessInspector, state: TreeState): Promise<ProcessIdentity[]> {
@@ -86,32 +86,37 @@ function cleanupTree(state: TreeState | undefined, identities: ProcessIdentity[]
   }
 }
 
-async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
+async function runScenario(
+  kind: ManagedKind,
+  trigger: ExitTrigger,
+  options: { publication?: 'complete' | 'partial'; timeoutMs?: number } = {},
+) {
+  const timeoutMs = options.timeoutMs ?? scenarioTimeoutMs
   const root = await mkdtemp(join(tmpdir(), `dsh-subprocess-host-exit-${kind}-${trigger}-`))
   const launch = resolveExampleLaunch({
     srcBin: hostScript,
     mode: 'src',
     tsconfigPath: join(repoRoot, 'tsconfig.json'),
-    configArgs: [kind, trigger, root],
+    configArgs: [kind, trigger, root, options.publication ?? 'complete'],
   })
   const child = execa(launch.command, launch.args, {
     cwd: repoRoot,
     env: launch.env,
     stdin: 'ignore',
     reject: false,
-    timeout: scenarioTimeoutMs,
+    timeout: timeoutMs,
   })
   let state: TreeState | undefined
   let identities: ProcessIdentity[] = []
   let settled = false
   let treeGone = false
   try {
-    state = await readTree(join(root, 'tree.json'))
+    state = await readTree(join(root, 'tree.json'), timeoutMs)
+    if (process.platform !== 'win32') identities = await captureIdentities(createProcessInspector(), state)
     await vi.waitFor(() => readFile(join(root, 'ready'), 'utf8'), {
       interval: 10,
-      timeout: scenarioTimeoutMs,
+      timeout: timeoutMs,
     })
-    if (process.platform !== 'win32') identities = await captureIdentities(createProcessInspector(), state)
     await writeFile(join(root, 'proceed'), 'proceed')
     const outcome = await child
     settled = true
@@ -139,6 +144,15 @@ async function runScenario(kind: ManagedKind, trigger: ExitTrigger) {
 }
 
 describe('synchronous cleanup on host exit', () => {
+  it('waits for a complete managed-tree state before announcing readiness', { timeout: 15_000 }, async () => {
+    const { outcome } = await runScenario('ordinary', 'direct', {
+      publication: 'partial',
+      timeoutMs: 5_000,
+    })
+    expect(outcome.exitCode).toBe(23)
+    expect(outcome.signal).toBeUndefined()
+  })
+
   it.each([
     { trigger: 'direct' as const, expectedCode: 23, diagnostic: undefined },
     { trigger: 'uncaught-exception' as const, expectedCode: 1, diagnostic: 'host-exit-uncaught-exception' },
