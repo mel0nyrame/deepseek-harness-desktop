@@ -179,6 +179,7 @@ export class DesktopNativeActions extends DirectoryPicker implements NativePathO
   /** Ask Electron main to open one Host-resolved path. */
   async open(path: string, signal: AbortSignal): Promise<void> {
     const value = await this.request({ type: 'open-path', path }, signal)
+    /* v8 ignore next -- request correlation settles only an open-path value for an open-path request */
     if (value.type !== 'open-path') throw new Error('desktop-app: malformed native response')
   }
 
@@ -201,6 +202,7 @@ export class DesktopNativeActions extends DirectoryPicker implements NativePathO
 
   private async pick(signal: AbortSignal): Promise<string | null> {
     const value = await this.request({ type: 'pick-directory' }, signal)
+    /* v8 ignore next -- request correlation settles only a pick-directory value for a pick request */
     if (value.type !== 'pick-directory') throw new Error('desktop-app: malformed native response')
     return value.path
   }
@@ -212,6 +214,7 @@ export class DesktopNativeActions extends DirectoryPicker implements NativePathO
     const result = Promise.withResolvers<DesktopNativeValue>()
     const onAbort = (): void => {
       const pending = this.pending.get(id)
+      /* v8 ignore next -- once:true plus the settle/remove paths make a second abort listener call impossible */
       if (pending === undefined) return
       this.pending.delete(id)
       signal.removeEventListener('abort', onAbort)
@@ -341,6 +344,7 @@ export class DesktopHostRuntime {
     this.endpoint.off('message', this.onMessage)
     for (const controller of this.requestAborts.values()) controller.abort()
     for (const controller of this.subscriptions.values()) controller.abort()
+    /* v8 ignore next -- start() always assigns readyTask before a started runtime can dispose */
     await Promise.all([...this.requests, ...this.pumps, ...(this.readyTask === undefined ? [] : [this.readyTask])])
     this.readyTask = undefined
     this.requestAborts.clear()
@@ -365,6 +369,7 @@ export class DesktopHostRuntime {
     }
     return new Promise<void>((resolve, reject) => {
       const onAbort = (): void => {
+        /* v8 ignore next -- waiter resolution removes this abort listener before clearing the waiter */
         if (state.waiter !== undefined) state.waiter = undefined
         reject(errorFrom(controller.signal.reason))
       }
@@ -436,6 +441,7 @@ export class DesktopHostRuntime {
       case 'native-response':
         // DesktopNativeActions owns reverse-response correlation on the same endpoint.
         return
+      /* v8 ignore next 2 -- parseParentMessage only returns the listed union members */
       default:
         message satisfies never
     }
@@ -542,6 +548,7 @@ export class DesktopHostRuntime {
       controller.abort()
       this.subscriptions.delete(id)
       this.streamAckState.delete(id)
+      /* v8 ignore next -- the stream slot is exclusively owned by this pump until teardown deletes it */
       if (this.subscriptionStreams.get(stream) === id) this.subscriptionStreams.delete(stream)
       try {
         await sendChildMessage(this.endpoint, { type: 'stream-end', id })
@@ -568,6 +575,7 @@ export function apply(ctx: Context): void {
   }, 'desktop-app: native actions')
   const mountRuntime = (runtimeCtx: Context): void => {
     const apiProxy = runtimeCtx.get('apiProxy')
+    /* v8 ignore next 2 -- both mount routes run only in a context where apiProxy has just resolved */
     if (apiProxy === undefined) throw new Error('desktop-app: apiProxy became unavailable during runtime mount')
     const runtime = new DesktopHostRuntime(runtimeCtx, internals.endpoint)
     runtimeCtx.effect(() => {
