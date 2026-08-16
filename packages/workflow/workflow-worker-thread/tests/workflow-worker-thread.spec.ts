@@ -1297,19 +1297,18 @@ describe('dsh-workflow-worker-thread', () => {
       await handle.dispose()
     }, 15_000)
 
-    it('an uncaught exception inside the worker surfaces as an error result and reaps the in-flight child', async () => {
+    it('a host-observed worker error surfaces as an error result and reaps the in-flight child', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
       const handle = ctx.workflowEngine.start({
         ...scripted(`
-          agent('in flight when the worker dies')
-          const proc = ${ESCAPE}
-          const st = globalThis.constructor.constructor('return setTimeout')()
-          await new Promise(resolve => st(resolve, 200))
-          proc.nextTick(() => { throw new Error('worker blew up') })
+          await agent('in flight when the worker dies')
           await new Promise(() => {})
         `),
         parent,
       })
+      await waitFor(() => { expect(provider.runs).toHaveLength(1) })
+      const worker = (handle as unknown as { worker: Worker }).worker
+      worker.emit('error', new Error('worker blew up'))
       const result = await handle.result
       expect(result.stopReason).toBe('error')
       expect(result.error).toContain('worker blew up')
@@ -1322,6 +1321,26 @@ describe('dsh-workflow-worker-thread', () => {
       }, 1000)
       await handle.dispose()
     }, 15_000)
+
+    it.skipIf(process.platform === 'win32')(
+      'an uncaught exception inside the worker reaches the host error boundary',
+      { timeout: 15_000 },
+      async () => {
+        const { ctx, parent } = await setup()
+        const handle = ctx.workflowEngine.start({
+          ...scripted(`
+            const proc = ${ESCAPE}
+            proc.nextTick(() => { throw new Error('worker blew up') })
+            await new Promise(() => {})
+          `),
+          parent,
+        })
+        const result = await handle.result
+        expect(result.stopReason).toBe('error')
+        expect(result.error).toContain('worker blew up')
+        await handle.dispose()
+      },
+    )
 
     it('a worker death pairs every stranded start: the synthesized cancelled agent-end precedes the error workflow/end', async () => {
       const { ctx, parent, provider } = await setup({ manual: true })
