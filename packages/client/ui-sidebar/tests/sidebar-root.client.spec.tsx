@@ -76,13 +76,26 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
 describe('SidebarRoot shell', () => {
   it('routes New Session (capsule + wordmark) and the column toggle', () => {
     const b = mountShell()
-    // Expanded, both the wordmark and the capsule start a session.
+    // Expanded, the wordmark and the capsule start a session; the compact
+    // brand-row seam (CSS-hidden in the browser) adds its button to the
+    // un-styled test DOM.
     const starters = screen.getAllByRole('button', { name: 'New session' })
-    expect(starters).toHaveLength(2)
+    expect(starters).toHaveLength(3)
     for (const button of starters) fireEvent.click(button)
-    expect(b.startSession).toHaveBeenCalledTimes(2)
+    expect(b.startSession).toHaveBeenCalledTimes(3)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(b.toggleSidebar).toHaveBeenCalledOnce()
+  })
+
+  it('keeps the wordmark in the first row by default and exposes the compact brand-row seam', () => {
+    mountShell()
+    const controlRow = document.querySelector('[data-sidebar-control-row]')
+    const brandRow = document.querySelector('[data-sidebar-brand-row]')
+    expect(controlRow).not.toBeNull()
+    expect(brandRow).not.toBeNull()
+    expect(controlRow?.querySelector('[data-sidebar-toggle]')?.getAttribute('aria-label')).toBe('Collapse sidebar')
+    expect(controlRow?.querySelector('[data-sidebar-brand-inline]')?.getAttribute('aria-label')).toBe('New session')
+    expect(brandRow?.querySelector('button')?.getAttribute('aria-label')).toBe('New session')
   })
 
   it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {

@@ -11,10 +11,12 @@ exports[`sidebar shell snapshots > renders the collapsed rail after the crossfad
   >
     <div
       class="logoRow"
+      data-sidebar-control-row=""
     >
       <button
         aria-label="Open sidebar"
         class="iconButton toggle"
+        data-sidebar-toggle=""
         type="button"
       >
         <svg
@@ -94,10 +96,12 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
   >
     <div
       class="logoRow"
+      data-sidebar-control-row=""
     >
       <button
         aria-label="New session"
         class="brand wide"
+        data-sidebar-brand-inline=""
         type="button"
       >
         <svg
@@ -112,6 +116,7 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
       <button
         aria-label="Collapse sidebar"
         class="iconButton toggle"
+        data-sidebar-toggle=""
         type="button"
       >
         <svg
@@ -122,6 +127,25 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
           viewBox="0 0 16 16"
           width="16"
           xmlns="http://www.w3.org/2000/svg"
+        />
+      </button>
+    </div>
+    <div
+      class="brandRow"
+      data-sidebar-brand-row=""
+    >
+      <button
+        aria-label="New session"
+        class="brand wide"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          data-content="951274b9"
+          fill="none"
+          height="24"
+          viewBox="0 0 182 24"
+          width="182"
         />
       </button>
     </div>
@@ -187,10 +211,12 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
   >
     <div
       class="logoRow"
+      data-sidebar-control-row=""
     >
       <button
         aria-label="新建会话"
         class="brand wide"
+        data-sidebar-brand-inline=""
         type="button"
       >
         <svg
@@ -205,6 +231,7 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
       <button
         aria-label="收起侧边栏"
         class="iconButton toggle"
+        data-sidebar-toggle=""
         type="button"
       >
         <svg
@@ -215,6 +242,25 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
           viewBox="0 0 16 16"
           width="16"
           xmlns="http://www.w3.org/2000/svg"
+        />
+      </button>
+    </div>
+    <div
+      class="brandRow"
+      data-sidebar-brand-row=""
+    >
+      <button
+        aria-label="新建会话"
+        class="brand wide"
+        type="button"
+      >
+        <svg
+          aria-hidden="true"
+          data-content="951274b9"
+          fill="none"
+          height="24"
+          viewBox="0 0 182 24"
+          width="182"
         />
       </button>
     </div>

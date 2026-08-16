@@ -84,9 +84,12 @@
   from { opacity: 0; }
 }
 
-/* Logo row (figma pad (4,8,4,8)): expanded keeps the panel toggle at the
-   right edge; the rail gives every control the same base left anchor before
-   the shared entry translation is applied. */
+/* Logo row (figma pad (4,8,4,8)): expanded keeps the wordmark at the left
+   and the panel toggle at the right edge; the rail gives every control the
+   same base left anchor before the shared entry translation is applied. The
+   macOS desktop shell overrides this row into a compact control row (toggle
+   immediately right of the native traffic lights, wordmark in the brand row
+   below) via DESKTOP_SURFACE_CSS under body[data-dsh-platform='darwin']. */
 .logoRow {
   flex: none;
   display: flex;
@@ -105,6 +108,13 @@
   padding: 0;
   margin-bottom: 12px;
   justify-content: flex-start;
+}
+
+/* Compact brand-row seam (macOS desktop): hidden in the default shell; the
+   desktop shell reveals it under body[data-dsh-platform='darwin'] and hides
+   the inline wordmark (data-sidebar-brand-inline). */
+.brandRow {
+  display: none;
 }
 
 /* Brand group (figma I133:7632): the full wordmark rides the text ink

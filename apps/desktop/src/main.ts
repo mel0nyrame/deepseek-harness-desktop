@@ -467,6 +467,27 @@ function installIpc(
   }
 }
 
+/** Push the current native appearance, platform, and full-screen facts into the renderer. */
+function applyRendererNativeState(window: BrowserWindow): Promise<void> {
+  const state = rendererSurfaceState(
+    nativeTheme.shouldUseDarkColors,
+    nativeTheme.prefersReducedTransparency,
+    process.platform,
+  )
+  const surface = window.webContents.executeJavaScript(`
+    document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
+    document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
+    document.body.dataset.dshPlatform = ${JSON.stringify(state.platform)};
+    document.body.dataset.dshFullscreen = ${JSON.stringify(window.isFullScreen())};
+  `).then(() => undefined, (error: unknown) => {
+    console.error(`desktop renderer boot state update failed: ${String(error)}`)
+  })
+  if (process.platform === 'darwin' && !window.isDestroyed()) {
+    window.setWindowButtonVisibility(!window.isFullScreen())
+  }
+  return surface
+}
+
 /** Serialize page transitions for one window: status page ↔ assembled app. */
 function pageDirector(window: BrowserWindow) {
   let queue: Promise<void> = Promise.resolve()
@@ -484,6 +505,7 @@ function pageDirector(window: BrowserWindow) {
     if (atPath(pathname)) return
     await window.loadURL(`${APP_ORIGIN}${pathname}`)
     await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+    await applyRendererNativeState(window)
   }
   return {
     status(state: ReturnType<typeof statusStateFor>): void {
@@ -527,23 +549,16 @@ function bootWindow(
   window.webContents.on('will-navigate', (event, url) => {
     if (!isDesktopAppUrl(url)) event.preventDefault()
   })
-  const applySurfaceState = (): void => {
-    const state = rendererSurfaceState(
-      nativeTheme.shouldUseDarkColors,
-      nativeTheme.prefersReducedTransparency,
-    )
-    void window.webContents.executeJavaScript(`
-      document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
-      document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
-    `).catch((error: unknown) => {
-      console.error(`desktop appearance update failed: ${String(error)}`)
-    })
-  }
-  applySurfaceState()
-  nativeTheme.on('updated', applySurfaceState)
+  const applyRendererState = (): void => { void applyRendererNativeState(window) }
+  applyRendererState()
+  nativeTheme.on('updated', applyRendererState)
+  window.on('enter-full-screen', applyRendererState)
+  window.on('leave-full-screen', applyRendererState)
   window.once('closed', () => {
     if (currentWindow === window) currentWindow = undefined
-    nativeTheme.off('updated', applySurfaceState)
+    nativeTheme.off('updated', applyRendererState)
+    window.removeListener('enter-full-screen', applyRendererState)
+    window.removeListener('leave-full-screen', applyRendererState)
   })
   app.on('window-all-closed', () => { app.quit() })
 
@@ -657,7 +672,10 @@ async function stopAfterJourney(lifecycle: DesktopLifecycle, headless: boolean):
   }
 }
 
-function onceWindowEvent(window: BrowserWindow, event: 'focus' | 'blur' | 'minimize' | 'restore'): Promise<void> {
+function onceWindowEvent(
+  window: BrowserWindow,
+  event: 'focus' | 'blur' | 'minimize' | 'restore' | 'enter-full-screen' | 'leave-full-screen',
+): Promise<void> {
   return new Promise((resolveEvent) => {
     const done = (): void => { resolveEvent() }
     switch (event) {
@@ -665,8 +683,23 @@ function onceWindowEvent(window: BrowserWindow, event: 'focus' | 'blur' | 'minim
       case 'blur': window.once('blur', done); break
       case 'minimize': window.once('minimize', done); break
       case 'restore': window.once('restore', done); break
+      case 'enter-full-screen': window.once('enter-full-screen', done); break
+      case 'leave-full-screen': window.once('leave-full-screen', done); break
     }
   })
+}
+
+/** Enter and leave native full screen, re-syncing renderer state at each edge. */
+async function exerciseFullscreen(window: BrowserWindow, during?: () => Promise<void>): Promise<void> {
+  const entered = onceWindowEvent(window, 'enter-full-screen')
+  window.setFullScreen(true)
+  await entered
+  await applyRendererNativeState(window)
+  await during?.()
+  const left = onceWindowEvent(window, 'leave-full-screen')
+  window.setFullScreen(false)
+  await left
+  await applyRendererNativeState(window)
 }
 
 async function waitForRenderer(window: BrowserWindow, expression: string, timeoutMs = 30_000): Promise<void> {
@@ -1226,6 +1259,28 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     window.restore()
     await restored
 
+    const rowGeometry = (): string => `(() => {
+      const control = document.querySelector('[data-sidebar-control-row]');
+      const brand = document.querySelector('[data-sidebar-brand-row]');
+      return {
+        controlRowPaddingLeft: control === null ? null : getComputedStyle(control).paddingLeft,
+        brandRowPaddingLeft: brand === null ? null : getComputedStyle(brand).paddingLeft,
+        controlRowTop: control === null ? null : control.getBoundingClientRect().top,
+        brandRowTop: brand === null ? null : brand.getBoundingClientRect().top,
+      };
+    })()`
+    const fullscreenBefore = await window.webContents.executeJavaScript(rowGeometry()) as unknown
+    let fullscreen: unknown
+    await exerciseFullscreen(window, async () => {
+      fullscreen = await window.webContents.executeJavaScript(`(() => {
+        const geometry = ${rowGeometry()};
+        return { active: document.body.dataset.dshFullscreen, ...geometry };
+      })()`) as unknown
+    })
+    const fullscreenAfter = await window.webContents.executeJavaScript(
+      'document.body.dataset.dshFullscreen',
+    ) as unknown
+
     const renderer = await window.webContents.executeJavaScript(`(() => {
       const root = document.querySelector('#root');
       const textarea = document.querySelector('textarea');
@@ -1238,7 +1293,7 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
           height: box.height,
         },
         viewportHeight: innerHeight,
-        dragRegion: getComputedStyle(document.body, '::before').webkitAppRegion,
+        dragRegion: getComputedStyle(document.body).webkitAppRegion,
         controlRegion: getComputedStyle(textarea).webkitAppRegion,
         activeElement: document.activeElement?.tagName,
         keyboardValue: textarea.value,
@@ -1252,6 +1307,11 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
         controlBounds,
         minimized: wasMinimized,
         restored: !window.isMinimized(),
+      },
+      fullscreen: {
+        ...(fullscreen as Record<string, unknown>),
+        before: fullscreenBefore,
+        after: fullscreenAfter,
       },
       renderer: { ...(renderer as Record<string, unknown>), keyboardBeforeMinimize },
     })}`)
@@ -1314,8 +1374,9 @@ function parseReplayInvocation(argv: readonly string[]): ReplayInvocation {
 
 /**
  * Record truthful renderer frames of the real packaged window: launch, focus
- * transitions, the drag-strip input attempt, keyboard operation, minimize/
- * restore, light/dark appearance, and the replayed tracer-bullet turn in the
+ * transitions, the drag-region input attempt, keyboard operation, minimize/
+ * restore, native full-screen transition, light/dark appearance, and the
+ * replayed tracer-bullet turn in the
  * assembled UI. `capturePage()` sees renderer pixels only, so native
  * traffic-light glyphs and OS-level drag movement are out of frame; the
  * evidence line reports the native window state beside the frame list.
@@ -1363,7 +1424,7 @@ async function recordNativeWindow(
     await focused
     await recorder.capture('active')
 
-    // Synthetic input exercises the drag strip without OS-level pointer
+    // Synthetic input exercises the compact drag region without OS-level pointer
     // permissions; the evidence line records the resulting bounds against the
     // bounds macOS actually granted — displays shorter than the requested
     // rect (the CI arm64 runner) clamp it, and that granted position is the
@@ -1373,7 +1434,7 @@ async function recordNativeWindow(
     window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
     window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 60, button: 'left', clickCount: 1 })
     const dragAttemptBounds = window.getBounds()
-    await recorder.capture('drag-strip-attempt')
+    await recorder.capture('drag-region-attempt')
 
     const { sessionId, workspaceId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
     const keyboard = await typeIntoComposer(window)
@@ -1388,6 +1449,8 @@ async function recordNativeWindow(
     window.restore()
     await restored
     await recorder.capture('restored')
+
+    await exerciseFullscreen(window, () => recorder.capture('fullscreen'))
 
     nativeTheme.themeSource = 'dark'
     await new Promise(resolveWait => setTimeout(resolveWait, 250))
@@ -1695,8 +1758,14 @@ async function inspectNativeWindow(): Promise<void> {
   try {
     await window.loadURL('data:text/html,<button id="control">Control</button><textarea id="editor"></textarea>')
     await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
-    const state = rendererSurfaceState(nativeTheme.shouldUseDarkColors, nativeTheme.prefersReducedTransparency)
+    const state = rendererSurfaceState(
+      nativeTheme.shouldUseDarkColors,
+      nativeTheme.prefersReducedTransparency,
+      process.platform,
+    )
     const renderer = await window.webContents.executeJavaScript(`
+      document.body.dataset.dshPlatform = ${JSON.stringify(state.platform)};
+      document.body.dataset.dshFullscreen = 'false';
       const inspectSurface = (appearance, transparency) => {
         document.body.toggleAttribute('data-ds-dark-theme', appearance === 'dark');
         document.body.dataset.dshAppearance = appearance;
@@ -1714,7 +1783,7 @@ async function inspectNativeWindow(): Promise<void> {
           darkReduced: inspectSurface('dark', 'reduced'),
         },
         controlRegion: getComputedStyle(document.querySelector('#control')).webkitAppRegion,
-        dragRegion: getComputedStyle(document.body, '::before').webkitAppRegion,
+        dragRegion: getComputedStyle(document.body).webkitAppRegion,
       })
     `) as unknown
     console.log(`NATIVE_WINDOW_STATE ${JSON.stringify({

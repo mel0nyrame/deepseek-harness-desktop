@@ -63,4 +63,10 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')
     expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
   })
+
+  it('keeps the wordmark in the first row by default and hides the compact brand-row seam', () => {
+    expect(declarations('.logoRow')?.get('justify-content')).toBe('flex-end')
+    expect(declarations('.logoRow')?.get('height')).toBe('60px')
+    expect(declarations('.brandRow')?.get('display')).toBe('none')
+  })
 })

@@ -127,13 +127,17 @@ export function SidebarRoot({
       }}
       onPointerLeave={() => { armLinger() }}
     >
-      <div className={css.logoRow}>
-        {/* Expanded, the wordmark doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. */}
+      <div className={css.logoRow} data-sidebar-control-row="">
+        {/* Default shell (Web and non-macOS desktop): the wordmark shares
+            this first row and the toggle sits at its right edge. The macOS
+            desktop CSS hides the inline wordmark (data-sidebar-brand-inline)
+            and reveals the brand row below, so the toggle can sit beside the
+            native traffic lights. */}
         {wide && (
           <button
             type="button"
             className={clsx(css.brand, css.wide)}
+            data-sidebar-brand-inline=""
             aria-label={t('session.new.label')}
             onClick={() => { startSession() }}
           >
@@ -146,6 +150,7 @@ export function SidebarRoot({
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
+            data-sidebar-toggle=""
             aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
             onClick={() => { toggleSidebar() }}
           >
@@ -155,6 +160,21 @@ export function SidebarRoot({
           </button>
         </Tooltip>
       </div>
+
+      {wide && (
+        <div className={css.brandRow} data-sidebar-brand-row="">
+          {/* Compact macOS header: hidden by default; the desktop shell
+              reveals it under body[data-dsh-platform='darwin']. */}
+          <button
+            type="button"
+            className={clsx(css.brand, css.wide)}
+            aria-label={t('session.new.label')}
+            onClick={() => { startSession() }}
+          >
+            <BrandWordmark />
+          </button>
+        </div>
+      )}
 
       {/* Expanded, the button carries its own label — tooltip only on the rail. */}
       <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>

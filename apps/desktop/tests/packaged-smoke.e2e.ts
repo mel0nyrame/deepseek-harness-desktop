@@ -142,7 +142,7 @@ describe('packaged desktop application', () => {
         actual: { backgroundColor: string; focusable: boolean }
         renderer: {
           activeElement: string
-          systemState: { appearance: string; transparency: string }
+          systemState: { appearance: string; transparency: string; platform: string }
           surfaces: {
             lightEnabled: string
             darkEnabled: string
@@ -164,6 +164,7 @@ describe('packaged desktop application', () => {
       expect(state.renderer.activeElement).toBe('control')
       expect(state.renderer.systemState.appearance).toMatch(/^(light|dark)$/)
       expect(state.renderer.systemState.transparency).toMatch(/^(enabled|reduced)$/)
+      expect(state.renderer.systemState.platform).toBe('darwin')
       expect(state.renderer.surfaces.lightEnabled).toBe('rgba(0, 0, 0, 0)')
       expect(state.renderer.surfaces.darkEnabled).toBe('rgba(0, 0, 0, 0)')
       expect(state.renderer.surfaces.lightReduced).toBe('rgba(249, 250, 251, 0.98)')
@@ -197,6 +198,20 @@ describe('packaged desktop application', () => {
           minimized: boolean
           restored: boolean
         }
+        fullscreen: {
+          active: string
+          controlRowPaddingLeft: string | null
+          brandRowPaddingLeft: string | null
+          controlRowTop: number | null
+          brandRowTop: number | null
+          before: {
+            controlRowPaddingLeft: string | null
+            brandRowPaddingLeft: string | null
+            controlRowTop: number | null
+            brandRowTop: number | null
+          }
+          after: string
+        }
         renderer: {
           assembled: boolean
           root: { top: number; bottom: number; height: number }
@@ -214,10 +229,18 @@ describe('packaged desktop application', () => {
       expect(state.window.restored).toBe(true)
       expect(state.window.draggedBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
+      expect(state.fullscreen.before.controlRowPaddingLeft).toBe('64px')
+      expect(state.fullscreen.before.brandRowPaddingLeft).toBe('0px')
+      expect(state.fullscreen.active).toBe('true')
+      expect(state.fullscreen.controlRowPaddingLeft).toBe('0px')
+      expect(state.fullscreen.brandRowPaddingLeft).toBe('0px')
+      expect(state.fullscreen.controlRowTop).toBe(state.fullscreen.before.controlRowTop)
+      expect(state.fullscreen.brandRowTop).toBe(state.fullscreen.before.brandRowTop)
+      expect(state.fullscreen.after).toBe('false')
       expect(state.renderer.assembled).toBe(true)
-      expect(state.renderer.root.top).toBe(44)
+      expect(state.renderer.root.top).toBe(0)
       expect(state.renderer.root.bottom).toBeLessThanOrEqual(state.renderer.viewportHeight)
-      expect(state.renderer.root.height).toBe(state.renderer.viewportHeight - 44)
+      expect(state.renderer.root.height).toBe(state.renderer.viewportHeight)
       expect(state.renderer.dragRegion).toBe('drag')
       expect(state.renderer.controlRegion).toBe('no-drag')
       // Keyboard evidence is captured before minimize: the assembled client's
@@ -295,8 +318,8 @@ describe('packaged desktop application', () => {
       expect(state.window.dragAttemptBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
       for (const label of [
-        'launch', 'inactive', 'active', 'drag-strip-attempt', 'keyboard-typed',
-        'restored', 'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+        'launch', 'inactive', 'active', 'drag-region-attempt', 'keyboard-typed',
+        'restored', 'fullscreen', 'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
         'question-pending', 'question-settled', 'approval-pending', 'approval-settled',
       ]) {
         expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)
