@@ -1,71 +1,81 @@
-# DeepSeek Harness
+# DSH Desktop
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness（智能体框架）。
+<p align="center">
+  <img src="./assets/readme/hero-light.svg" width="100%" alt="DSH Desktop 将完整 DeepSeek Harness 运行时内置于原生 Electron 应用">
+</p>
 
-它采用**一切皆插件**的架构，并由 [Cordis](https://github.com/cordiverse/cordis) 驱动，其设计参见论文 [_A Programming Paradigm for Spatiotemporal Composability_](https://github.com/cordiverse/paper)。
+`deepseek-harness-desktop` 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 打包为原生 Electron 应用 **DSH Desktop**。桌面外壳是本项目专属的产品层；内置 `dsh` 运行时继续保留插件系统、Session、工具、PTY、持久化、CLI 身份与文档术语。
 
-## 开发者预览
+<p align="center">
+  <img src="./assets/readme/product-window.png" width="100%" alt="真实安装态 DSH Desktop 窗口，显示通过原生操作选取的 Workspace 与装配完成的 agent 输入框">
+</p>
 
-DeepSeek Harness 目前处于 _开发者预览_ 阶段，正在快速迭代。**未来将出现破坏兼容性的变更。**
+<p align="center"><sub>来自已安装 macOS 应用包原生操作验收流程的真实 renderer 捕获。</sub></p>
 
-## 运行
-
-### 通过 `npm` 运行
-
-安装 `Node.js`，然后运行：
-
-```sh
-npx @deepseek-ai/dsh web
-```
-
-该命令会启动 Web UI，默认地址为 `http://127.0.0.1:3080`。详见 [Web UI 指南](docs/user/guide/index.md)。
-
-### 从源码运行
-
-如需从仓库源码运行：
-
-```sh
-git clone https://github.com/deepseek-ai/deepseek-harness.git
-cd deepseek-harness
-pnpm install
-pnpm run build
-pnpm dsh web
-```
-
-## 社区与支持
-
-- 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。
-- 为你的插件仓库添加 [`dsh-plugin`](https://github.com/topics/dsh-plugin) 话题，便于被发现。
-- 欢迎加入 DeepSeek Harness 企微群：扫码添加企微小助手并填写入群问卷，完成后小助手会邀请你入群。
+## 桌面外壳，完整 harness
 
 <table>
-  <thead>
-    <tr>
-      <th align="center">企微小助手</th>
-      <th align="center">入群问卷</th>
-      <th align="center">微信公众号</th>
-    </tr>
-  </thead>
   <tbody>
     <tr>
-      <td align="center"><img src="assets/community-wecom-assistant.png" alt="DeepSeek Harness 企微小助手二维码" width="180" height="180"></td>
-      <td align="center"><a href="https://trtgsjkv6r.feishu.cn/share/base/form/shrcnIt5twSVdLGD52KJBckGCgg"><img src="assets/community-wecom-survey.png" alt="DeepSeek Harness 入群问卷二维码" width="180" height="180"></a></td>
-      <td align="center"><img src="assets/community-wechat-official-account.png" alt="DeepSeek Harness 团队微信公众号二维码" width="180" height="180"></td>
+      <td align="center" width="50%"><img src="./assets/readme/icons/bundled-runtime.png" width="112" alt="内置运行时插画"><br><strong>内置运行时</strong><br>安装后的应用会启动自己的应用级 DSH 子进程，不要求系统提供 Node.js，也不要求另行安装 DSH CLI。</td>
+      <td align="center" width="50%"><img src="./assets/readme/icons/private-carrier.png" width="112" alt="私有载体插画"><br><strong>私有桌面载体</strong><br>沙箱化 renderer 通过上下文隔离的 preload 桥和经过校验的 IPC 访问 DSH；desktop profile 不会打开面向浏览器的 HTTP 监听。</td>
+    </tr>
+    <tr>
+      <td align="center" width="50%"><img src="./assets/readme/icons/native-workspace.png" width="112" alt="原生 Workspace 插画"><br><strong>原生 Workspace 操作</strong><br>Electron main 持有目录选择、路径打开、macOS 窗口集成、恢复与进程树清理。</td>
+      <td align="center" width="50%"><img src="./assets/readme/icons/shared-state.png" width="112" alt="共享状态插画"><br><strong>共享 DSH 状态</strong><br>DSH Desktop 与 CLI 使用同一个 <code>~/.dsh</code> 主目录，因此两者都能访问 Session、profile 与配置。</td>
     </tr>
   </tbody>
 </table>
 
-## 参与贡献
+## 工作原理
 
-参见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+React 客户端继续使用与 Web 产品相同、与传输无关的 Connection 接口。Electron main 持有原生窗口并监管一个专用 DSH 子进程；该子进程持有 Cordis、Session、插件、模型执行、PTY、持久化与子进程。
+
+<p align="center">
+  <img src="./assets/readme/architecture.svg" width="100%" alt="React renderer 经 preload 桥和 Electron main 连接到内置 DSH 子进程的架构">
+</p>
+
+完整的载体、生命周期、打包、原生操作、恢复与安装态验收约定由[桌面应用参考](apps/desktop/README.md)维护。
+
+<a id="run"></a><a id="run-from-source"></a>
+
+## 从源码启动
+
+本项目处于开发者预览阶段。在当前仓库 checkout 中运行：
+
+```sh
+pnpm install
+pnpm run build
+pnpm run dev:desktop
+```
+
+### 构建 macOS 产物
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop run package
+```
+
+打包命令会在 `apps/desktop/dist/` 下生成当前主机架构的 `.app` 与 `.dmg`。目前的本地产物使用 ad-hoc 签名且未经公证，因此下载后的构建可能需要在 macOS 上执行一次右键 → 打开。
+
+## 项目边界
+
+- [DSH Desktop 应用参考](apps/desktop/README.md) — Electron 架构、安全、生命周期、打包、验收与限制。
+- [DeepSeek Harness 架构](docs/architecture.md) — 内置插件运行时及其扩展模型。
+- [DeepSeek Harness 用户文档](docs/user/index.md) — DSH 内核概念与受支持工作流。
+- [上游 README 归档：English](archive/deepseek-harness-readme.md) · [中文](archive/deepseek-harness-readme.zh.md) — 桌面版首页替换根入口时保留的原项目概览与上手资料。
+- [上游仓库](https://github.com/deepseek-ai/deepseek-harness) — 本桌面仓库直接基于的原始 DeepSeek Harness 项目。
+
+## 状态与分发
+
+- 仓库与应用仍在积极开发中，未来仍可能出现破坏兼容性的变更。
+- 当前检入的打包路径面向 macOS，并构建主机架构产物。
+- 尚未配置 Developer ID 签名与公证；分发产物前请阅读[桌面端限制](apps/desktop/README.md#limitations)。
 
 ## 开发
 
-请先阅读[开发指南](docs/development.md)与[架构文档](docs/architecture.md)。
-
-面向 agent：请遵循 [AGENTS.md](AGENTS.md)。
+内核贡献流程继续以 [CONTRIBUTING.md](CONTRIBUTING.md)、[开发指南](docs/development.md)和 [AGENTS.md](AGENTS.md) 为准。修改内置 harness 时仍应遵守这些源自上游的约定；桌面端专属实现位于 [`apps/desktop`](apps/desktop) 及其配套桌面插件中。
 
 ## 许可证
 

@@ -1,8 +1,8 @@
-# `@deepseek-ai/dsh-desktop`
+# DSH Desktop
 
 [English](README.md) | 中文
 
-内置 DeepSeek Harness 运行时的 Electron 桌面应用外壳。Electron 主进程监管一个专用的应用级 DSH 子进程，后者承载 [`desktop` profile](../../apps/cli/README.md)（base + Web 产品 + 关闭全部浏览器传输行的桌面覆盖层）；上下文隔离的 preload 桥承载现有 Connection 协议，打包好的 React 客户端在本地渲染。整个链路不参与任何面向浏览器的 HTTP 监听。
+`@deepseek-ai/dsh-desktop` 是 `deepseek-harness-desktop` 仓库内 DSH Desktop 的 Electron 应用包。Electron 主进程监管一个专用的应用级 DSH 子进程，后者承载 [`desktop` profile](../../apps/cli/README.md)（base + Web 产品 + 关闭全部浏览器传输行的桌面覆盖层）；上下文隔离的 preload 桥承载现有 Connection 协议，打包好的 React 客户端在本地渲染。整个链路不参与任何面向浏览器的 HTTP 监听。
 
 ## 开发
 

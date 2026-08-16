@@ -1,8 +1,8 @@
-# `@deepseek-ai/dsh-desktop`
+# DSH Desktop
 
 English | [中文](README.zh.md)
 
-Electron desktop application shell for the bundled DeepSeek Harness runtime. Electron main supervises one dedicated application-scoped DSH child carrying the [`desktop` profile](../../apps/cli/README.md) (base + Web product + desktop overlay with every browser transport row disabled), a context-isolated preload bridge carries the existing Connection protocol, and the packaged React client renders locally. No browser-facing HTTP listener participates.
+`@deepseek-ai/dsh-desktop` is the Electron application package for DSH Desktop in the `deepseek-harness-desktop` repository. Electron main supervises one dedicated application-scoped DSH child carrying the [`desktop` profile](../../apps/cli/README.md) (base + Web product + desktop overlay with every browser transport row disabled), a context-isolated preload bridge carries the existing Connection protocol, and the packaged React client renders locally. No browser-facing HTTP listener participates.
 
 ## Development
 
