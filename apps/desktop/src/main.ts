@@ -482,9 +482,6 @@ function applyRendererNativeState(window: BrowserWindow): Promise<void> {
   `).then(() => undefined, (error: unknown) => {
     console.error(`desktop renderer boot state update failed: ${String(error)}`)
   })
-  if (process.platform === 'darwin' && !window.isDestroyed()) {
-    window.setWindowButtonVisibility(!window.isFullScreen())
-  }
   return surface
 }
 
@@ -782,13 +779,21 @@ function collapsedSidebarGeometry(window: BrowserWindow): Promise<unknown> {
   return window.webContents.executeJavaScript(`(() => {
     const frame = document.querySelector('[data-sidebar-collapsed]');
     const reveal = document.querySelector('[data-sidebar-reveal]');
-    const header = document.querySelector('[data-conversation-header]');
+    const headers = Array.from(document.querySelectorAll('[data-conversation-header]'));
+    const header = headers
+      .find(candidate => candidate.getClientRects().length > 0 && candidate.getAttribute('aria-hidden') !== 'true')
+      ?? headers[0]
+      ?? null;
     const conversation = document.querySelector('[data-center-column]');
     const track = frame === null ? null : getComputedStyle(frame).gridTemplateColumns;
     return {
       track,
       reveal: reveal === null ? null : reveal.getBoundingClientRect().toJSON(),
       headerPaddingLeft: header === null ? null : getComputedStyle(header).paddingLeft,
+      headerPaddingTop: header === null ? null : getComputedStyle(header).paddingTop,
+      header: header === null ? null : header.getBoundingClientRect().toJSON(),
+      title: header?.querySelector('nav')?.getBoundingClientRect().toJSON() ?? null,
+      tabs: header?.querySelector('[role="tablist"]')?.getBoundingClientRect().toJSON() ?? null,
       conversation: conversation === null
         ? null
         : { ...conversation.getBoundingClientRect().toJSON(), viewport: innerWidth },
@@ -1647,6 +1652,17 @@ async function recordNativeWindow(
     }
     await poll
     await recorder.capture('tracer-settled')
+
+    // The settled Session exposes its title and Chat/Trajectory header, so
+    // these frames carry the collapsed-header alignment contract that the
+    // earlier blank-composer frames intentionally omit.
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    await new Promise(resolveWait => setTimeout(resolveWait, 400))
+    await recorder.capture('session-sidebar-collapsed')
+    await exerciseFullscreen(window, () => recorder.capture('session-fullscreen-collapsed'))
+    await clickAt(window, '[data-sidebar-reveal]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
 
     // Interaction parity through the assembled renderer: the question turn is
     // answered in the real question composer, and the approval turn switches

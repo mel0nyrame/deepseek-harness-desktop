@@ -20,7 +20,7 @@ macOS is the first implementation. Windows and Linux retain explicit platform pr
 
 ### Compact window frame
 
-Use the native macOS traffic lights in the first compact sidebar row. Place the sidebar-collapse control immediately to their right. Keep the DeepSeek Harness wordmark in the following sidebar row, and raise the sidebar and conversation header content into the compact frame. The traffic-light and control row reserves the top-left native-control space only; the opaque conversation surface extends to the top edge of the window, and its title row remains approximately aligned with that row.
+Use the native macOS traffic lights in the first compact sidebar row. Place the sidebar-collapse control to their right with enough separation to read as an adjacent app control. Keep the DeepSeek Harness wordmark in the following sidebar row, and raise the sidebar and conversation header content into the compact frame. The traffic-light and control row reserves the top-left native-control space only; the opaque conversation surface extends to the top edge of the window, and its title row aligns with the control row.
 
 Remove the synthetic full-width title strip and its global renderer top inset. Empty chrome regions drag the native window. Traffic lights, the sidebar control, tabs, Session log, editable elements, and overlays remain interactive no-drag regions.
 
@@ -30,7 +30,7 @@ The Chat / Trajectory active indicator overlays the conversation-header divider 
 
 Collapsing the sidebar resolves its layout track to zero width. Sidebar material, contents, resize handle, and vertical divider disappear together. A reveal control outside the zero-width sidebar remains visible and restores the last usable sidebar width; it does not reserve a permanent compact rail.
 
-In a windowed macOS application, the reveal control coexists with the native traffic lights in the top-left control region. In native full screen, the traffic lights disappear and the reveal control aligns to the left content inset without vertically reflowing the remaining sidebar content. Manual collapse and narrow-viewport auto-collapse share the zero-width rendered result while retaining their existing preference semantics.
+In a windowed macOS application, the reveal control coexists with the native traffic lights in the top-left control region. In native full screen, AppKit auto-hides the traffic lights and reveals them at the screen top while the reveal control aligns to the left content inset without vertically reflowing the remaining sidebar content. The application does not force native window-button visibility. Manual collapse and narrow-viewport auto-collapse share the zero-width rendered result while retaining their existing preference semantics.
 
 ### Sidebar glass preference
 
@@ -61,11 +61,11 @@ A keyless real packaged-macOS journey records the compact window, native control
 ## Acceptance criteria
 
 - The renderer no longer uses a synthetic full-width 44-pixel title strip or an equivalent global top inset.
-- macOS uses real system traffic lights in the compact first sidebar row, with the sidebar-collapse control immediately to their right and the wordmark in the following row.
+- macOS uses real system traffic lights in the compact first sidebar row, with the sidebar-collapse control separated to their right and the wordmark in the following row.
 - The opaque conversation surface reaches the top edge; its title aligns with the native-control row; and the Chat / Trajectory active indicator shares the conversation-header divider without a visible gap.
 - Empty chrome regions drag the window while every interactive control remains a no-drag region.
 - Collapse removes the entire sidebar layout track, material, contents, resize handle, and divider; reveal restores the last usable width without retaining a compact rail.
-- Native full screen hides the traffic lights and left-aligns the reveal control without vertically reflowing remaining sidebar content.
+- Native full screen leaves traffic-light auto-hide and screen-top hover reveal to AppKit and left-aligns the reveal control without vertically reflowing remaining sidebar content.
 - The expanded macOS sidebar has one continuous supported native translucent material while the conversation remains opaque.
 - General → Appearance exposes the default-enabled `Sidebar glass effect` switch only on macOS; it applies immediately and persists globally through restart.
 - Reduce Transparency forces the opaque fallback without rewriting the saved preference, and all effective appearance combinations remain readable and keyboard accessible.

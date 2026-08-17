@@ -20,7 +20,7 @@ macOS 是首个实现的平台。Windows 与 Linux 保留明确的平台呈现�
 
 ### 紧凑窗口框架
 
-在侧栏紧凑的第一行使用原生 macOS traffic lights，并在其右侧紧邻放置侧栏收起控件。DeepSeek Harness 商标位于侧栏下一行，并将侧栏与对话 header 内容上提至紧凑框架中。traffic lights 与控件所在行只为左上角原生控件预留空间；不透明的对话表面延伸到窗口顶边，其标题行大致与该行对齐。
+在侧栏紧凑的第一行使用原生 macOS traffic lights，并在其右侧留出足够间距后放置侧栏收起控件，使其清晰呈现为相邻的应用控件。DeepSeek Harness 商标位于侧栏下一行，并将侧栏与对话 header 内容上提至紧凑框架中。traffic lights 与控件所在行只为左上角原生控件预留空间；不透明的对话表面延伸到窗口顶边，其标题行与控件行对齐。
 
 移除横跨全窗的合成标题条及其全局 renderer 顶部 inset。空白 chrome 区域可拖动原生窗口。traffic lights、侧栏控件、标签页、Session log、可编辑元素和浮层仍是可交互的 no-drag 区域。
 
@@ -30,7 +30,7 @@ Chat / Trajectory 的活动指示线覆盖在 conversation header 分割线上�
 
 收起侧栏时，其布局轨道解析为零宽。侧栏材质、内容、调整宽度的 handle 与竖向分割线一同消失。位于零宽侧栏之外的展开控件保持可见，并恢复上一次可用的侧栏宽度；它不保留永久的紧凑轨道。
 
-在窗口化的 macOS 应用中，展开控件与左上角控件区域中的原生 traffic lights 共存。进入原生全屏时，traffic lights 消失，展开控件对齐左侧内容 inset，且不让其余侧栏内容发生垂直重排。手动收起和窄视口自动收起共享零宽渲染结果，同时保留现有的偏好语义。
+在窗口化的 macOS 应用中，展开控件与左上角控件区域中的原生 traffic lights 共存。进入原生全屏时，AppKit 自动隐藏 traffic lights，并在屏幕顶端悬停时重新显示；展开控件对齐左侧内容 inset，且不让其余侧栏内容发生垂直重排。应用不会强制控制原生窗口按钮显隐。手动收起和窄视口自动收起共享零宽渲染结果，同时保留现有的偏好语义。
 
 ### 侧栏玻璃偏好
 
@@ -61,11 +61,11 @@ Chat / Trajectory 的活动指示线覆盖在 conversation header 分割线上�
 ## 验收标准
 
 - renderer 不再使用横跨全窗的 44 像素合成标题条或等价的全局顶部 inset。
-- macOS 在紧凑侧栏第一行使用真实系统 traffic lights，侧栏收起控件紧邻其右侧，商标位于下一行。
+- macOS 在紧凑侧栏第一行使用真实系统 traffic lights，侧栏收起控件与其右侧留有间距，商标位于下一行。
 - 不透明的对话表面延伸到顶边；其标题与原生控件行对齐；Chat / Trajectory 的活动指示线与 conversation header 分割线共用边界，且没有可见空隙。
 - 空白 chrome 区域能够拖动窗口，所有交互控件仍是 no-drag 区域。
 - 收起会移除完整的侧栏布局轨道、材质、内容、调整宽度的 handle 和分割线；展开恢复上一次可用宽度，不保留紧凑轨道。
-- 原生全屏会隐藏 traffic lights，并让展开控件左对齐，且不让剩余侧栏内容发生垂直重排。
+- 原生全屏将 traffic lights 的自动隐藏与屏幕顶端悬停显示交给 AppKit，并让展开控件左对齐，且不让剩余侧栏内容发生垂直重排。
 - 展开后的 macOS 侧栏使用一块连续且受支持的原生半透明材质，而对话区保持不透明。
 - General → Appearance 仅在 macOS 上提供默认开启的 `Sidebar glass effect` 开关；它即时生效，并通过全局设置跨重启持久化。
 - “减少透明度”会强制不透明 fallback，而不改写已保存的偏好；所有实际外观组合都保持可读且支持键盘访问。

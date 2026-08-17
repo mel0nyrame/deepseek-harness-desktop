@@ -10,7 +10,7 @@ The desktop renderer previously injected a synthetic full-width 44-pixel title s
 
 ## Decision
 
-The desktop uses the approved A — Compact macOS frame as the platform-aware window foundation (Issue #32). macOS keeps `hiddenInset` native traffic lights and uses the native window surface as the drag region; the sidebar's first row holds the sidebar toggle immediately right of the native light group, and the DeepSeek Harness wordmark occupies the following row. The renderer no longer uses a synthetic full-width strip or global top inset. The compact header is a macOS-only presentation: `DESKTOP_SURFACE_CSS` applies it under `body[data-dsh-platform='darwin']`, while Web, Windows, and Linux keep the previous sidebar shell and receive only the existing `desktopWindowOptions` extension boundary, with no placeholder chrome. Native full screen hides traffic lights (with an explicit `setWindowButtonVisibility` sync) and moves the sidebar control and wordmark rows to the sidebar's left content inset via `data-dsh-fullscreen`.
+The desktop uses the approved A — Compact macOS frame as the platform-aware window foundation (Issue #32). macOS keeps `hiddenInset` native traffic lights and uses the native window surface as the drag region; the sidebar's first row holds the sidebar toggle to the right of the native light group with intentional spacing, and the DeepSeek Harness wordmark occupies the following row. The renderer no longer uses a synthetic full-width strip or global top inset. The compact header is a macOS-only presentation: `DESKTOP_SURFACE_CSS` applies it under `body[data-dsh-platform='darwin']`, while Web, Windows, and Linux keep the previous sidebar shell and receive only the existing `desktopWindowOptions` extension boundary, with no placeholder chrome. In native full screen AppKit owns traffic-light auto-hide and screen-top hover reveal; the application only uses `data-dsh-fullscreen` to move the sidebar control and wordmark rows to the sidebar's left content inset.
 
 ## Alternatives considered
 
@@ -22,5 +22,5 @@ The desktop uses the approved A — Compact macOS frame as the platform-aware wi
 - `DESKTOP_SURFACE_CSS` now scopes drag/no-drag rules to `body[data-dsh-platform='darwin']` and keeps interactive shell regions no-drag.
 - `RendererSurfaceState` includes `platform` so renderer boot facts carry the platform boundary.
 - The sidebar shell keeps the wordmark in the first row by default and exposes hidden `data-sidebar-control-row` / `data-sidebar-brand-row` / `data-sidebar-brand-inline` seams; the macOS desktop CSS switches the header to the compact control and wordmark rows.
-- The windowed control row clears the native traffic-light group (`MACOS_CONTROL_ROW_INSET_PX`); full screen returns both rows to the sidebar's left content inset.
+- The windowed control row clears the native traffic-light group with an intentional gap (`MACOS_CONTROL_ROW_INSET_PX`); full screen returns both rows to the sidebar's left content inset without forcing native window-button visibility.
 - Packaged acceptance now asserts root top 0 and full content height instead of the 44-pixel strip.

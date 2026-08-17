@@ -1,7 +1,9 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   DESKTOP_SURFACE_CSS,
   MACOS_COLLAPSED_HEADER_INSET_PX,
+  MACOS_COMPACT_VERTICAL_OFFSET_PX,
   MACOS_CONTROL_ROW_INSET_PX,
   MACOS_FULLSCREEN_HEADER_INSET_PX,
   MACOS_FULLSCREEN_REVEAL_INSET_PX,
@@ -10,6 +12,16 @@ import {
   desktopWindowOptions,
   rendererSurfaceState,
 } from '../src/native-window.ts'
+
+const mainSource = readFileSync(new URL('../src/main.ts', import.meta.url), 'utf8')
+const appFrameCss = readFileSync(
+  new URL('../../../packages/client/ui-layout/src/client/AppFrame.module.css', import.meta.url),
+  'utf8',
+)
+const conversationCss = readFileSync(
+  new URL('../../../packages/client/ui-conversation/src/client/skeleton/ConversationRoot.module.css', import.meta.url),
+  'utf8',
+)
 
 /** Split a CSS string into [selector, declarations] rule pairs. */
 function cssRules(css: string): Array<[string, string]> {
@@ -46,6 +58,8 @@ describe('native macOS desktop window contract', () => {
   })
 
   it('uses compact macOS chrome without a synthetic 44-pixel title strip', () => {
+    expect(MACOS_CONTROL_ROW_INSET_PX).toBe(72)
+    expect(MACOS_COMPACT_VERTICAL_OFFSET_PX).toBe(1.2)
     expect(DESKTOP_SURFACE_CSS).not.toContain('body::before')
     expect(DESKTOP_SURFACE_CSS).not.toContain('44px')
     expect(DESKTOP_SURFACE_CSS).toMatch(/#root\s*\{[^}]*inset: 0 !important;/)
@@ -71,6 +85,7 @@ describe('native macOS desktop window contract', () => {
     const compact = rules.find(([selector]) => selector.endsWith('[data-sidebar-control-row]'))
     expect(compact).toBeDefined()
     expect(compact?.[1]).toContain(`padding: 0 0 0 ${MACOS_CONTROL_ROW_INSET_PX}px !important`)
+    expect(compact?.[1]).toContain(`transform: translateY(${MACOS_COMPACT_VERTICAL_OFFSET_PX}px) !important`)
     expect(compact?.[1]).toContain('justify-content: flex-start !important')
     expect(compact?.[1]).toContain('height: 28px !important')
     expect(rules.some(([selector, declarations]) =>
@@ -92,6 +107,8 @@ describe('native macOS desktop window contract', () => {
   })
 
   it('positions the collapsed reveal control and clears the conversation header (issue #33)', () => {
+    expect(MACOS_REVEAL_INSET_PX).toBe(84)
+    expect(MACOS_COLLAPSED_HEADER_INSET_PX).toBe(120)
     const rules = cssRules(DESKTOP_SURFACE_CSS)
 
     // The collapsed rail override is gone: no rule targets the sidebar's
@@ -106,6 +123,7 @@ describe('native macOS desktop window contract', () => {
     const reveal = rules.find(([selector]) => selector.endsWith('[data-sidebar-reveal]'))
     expect(reveal).toBeDefined()
     expect(reveal?.[1]).toContain(`left: ${MACOS_REVEAL_INSET_PX}px !important`)
+    expect(reveal?.[1]).toContain(`top: ${6 + MACOS_COMPACT_VERTICAL_OFFSET_PX}px !important`)
     const revealFullscreen = rules.find(([selector]) =>
       selector.includes("data-dsh-fullscreen='true'") && selector.endsWith('[data-sidebar-reveal]'),
     )
@@ -119,11 +137,56 @@ describe('native macOS desktop window contract', () => {
     )
     expect(header).toBeDefined()
     expect(header?.[1]).toContain(`padding-left: ${MACOS_COLLAPSED_HEADER_INSET_PX}px !important`)
+    expect(header?.[1]).toContain(`padding-top: ${4 + MACOS_COMPACT_VERTICAL_OFFSET_PX}px !important`)
     const headerFullscreen = rules.find(([selector]) =>
       selector.includes("data-dsh-fullscreen='true'") && selector.endsWith('[data-conversation-header]'),
     )
     expect(headerFullscreen).toBeDefined()
     expect(headerFullscreen?.[1]).toContain(`padding-left: ${MACOS_FULLSCREEN_HEADER_INSET_PX}px !important`)
+
+    // The shared frame places the 28px reveal at y=6 and the desktop override
+    // starts the 32px title row at y=4; both centers are y=20 before the
+    // shared compact offset. Chat/Trajectory starts after the 4px tab gap.
+    // These are one cross-package geometry contract.
+    const appFrameRules = cssRules(appFrameCss)
+    const baseReveal = appFrameRules.find(([selector]) => selector.endsWith('.reveal'))
+    expect(baseReveal?.[1]).toContain('top: 6px')
+    expect(baseReveal?.[1]).toContain('width: 28px')
+    expect(baseReveal?.[1]).toContain('height: 28px')
+    const conversationRules = cssRules(conversationCss)
+    const titleRow = conversationRules.find(([selector]) => selector.endsWith('.titleRow'))
+    const tabs = conversationRules.find(([selector]) => selector.endsWith('.tabs'))
+    expect(titleRow?.[1]).toContain('min-height: 32px')
+    expect(tabs?.[1]).toContain('margin-top: 4px')
+    expect(6 + MACOS_COMPACT_VERTICAL_OFFSET_PX + 28 / 2)
+      .toBe(4 + MACOS_COMPACT_VERTICAL_OFFSET_PX + 32 / 2)
+    expect(4 + MACOS_COMPACT_VERTICAL_OFFSET_PX + 32 + 4).toBe(41.2)
+  })
+
+  it('applies the calibrated windowed conversation chrome offsets in both sidebar states', () => {
+    const rules = cssRules(DESKTOP_SURFACE_CSS)
+    const windowedRule = (target: string, collapsed: boolean) => rules.find(([selector]) =>
+      selector.includes(":not([data-dsh-fullscreen='true'])")
+      && selector.endsWith(target)
+      && selector.includes('[data-sidebar-collapsed]') === collapsed,
+    )
+
+    expect(windowedRule('[data-conversation-title-row]', false)?.[1])
+      .toContain('transform: translateY(-8px) !important')
+    expect(windowedRule('[data-conversation-view-tabs]', false)?.[1])
+      .toContain('transform: translateY(-10px) !important')
+    expect(windowedRule('[data-conversation-header]::after', false)?.[1])
+      .toContain('transform: translateY(-10px) !important')
+    expect(windowedRule('[data-conversation-title-row]', true)?.[1])
+      .toContain('transform: translateY(0) !important')
+    expect(windowedRule('[data-conversation-view-tabs]', true)?.[1])
+      .toContain('transform: translateY(-4px) !important')
+    expect(windowedRule('[data-conversation-header]::after', true)?.[1])
+      .toContain('transform: translateY(-4px) !important')
+  })
+
+  it('leaves native full-screen traffic-light visibility to AppKit', () => {
+    expect(mainSource.includes('setWindowButtonVisibility')).toBe(false)
   })
 
   it('keeps reduced-transparency surfaces opaque and keyboard focus visible', () => {

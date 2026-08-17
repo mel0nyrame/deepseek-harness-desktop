@@ -227,12 +227,20 @@ describe('packaged desktop application', () => {
             track: string | null
             reveal: { x: number; y: number; width: number; height: number } | null
             headerPaddingLeft: string | null
+            headerPaddingTop: string | null
+            header: { top: number; bottom: number; height: number } | null
+            title: { top: number; bottom: number; height: number } | null
+            tabs: { top: number; bottom: number; height: number } | null
             conversation: { left: number; width: number; viewport: number } | null
           }
           fullscreen: {
             track: string | null
             reveal: { x: number; y: number; width: number; height: number } | null
             headerPaddingLeft: string | null
+            headerPaddingTop: string | null
+            header: { top: number; bottom: number; height: number } | null
+            title: { top: number; bottom: number; height: number } | null
+            tabs: { top: number; bottom: number; height: number } | null
             conversation: { left: number; width: number; viewport: number } | null
           }
           fullscreenActive: string
@@ -247,7 +255,7 @@ describe('packaged desktop application', () => {
       expect(state.window.restored).toBe(true)
       expect(state.window.draggedBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
-      expect(state.fullscreen.before.controlRowPaddingLeft).toBe('64px')
+      expect(state.fullscreen.before.controlRowPaddingLeft).toBe('72px')
       expect(state.fullscreen.before.brandRowPaddingLeft).toBe('0px')
       expect(state.fullscreen.active).toBe('true')
       expect(state.fullscreen.controlRowPaddingLeft).toBe('0px')
@@ -268,20 +276,21 @@ describe('packaged desktop application', () => {
       expect(state.renderer.keyboardValue).toBe('KEYBOARD_OK')
       // Zero-width collapse (issue #33): the collapsed sidebar resolves to a
       // zero-width track, the reveal control clears the native traffic-light
-      // group (76px windowed / 12px full screen, same 6px top as the toggle),
-      // the conversation surface is reclaimed, and the header avoids only the
-      // top-left chrome cluster — never the former sidebar width. The reveal
-      // restores the exact dragged width (350px), not the contract default.
+      // group (84px windowed / 12px full screen), the conversation surface
+      // is reclaimed, and the title aligns vertically with the reveal while
+      // its tabs and divider use the collapsed chrome offset. The reveal restores the
+      // exact dragged width (350px), not the contract default.
       expect(state.collapse.windowed.track?.startsWith('0px')).toBe(true)
       const windowedReveal = state.collapse.windowed.reveal
       expect(windowedReveal).not.toBeNull()
-      // Subpixel-safe: the reveal clears the traffic-light group (76px) at
-      // the toggle's own row (6px), 28x28.
-      expect(Math.abs(windowedReveal!.x - 76)).toBeLessThanOrEqual(1)
-      expect(Math.abs(windowedReveal!.y - 6)).toBeLessThanOrEqual(1)
+      // Subpixel-safe: the reveal clears the traffic-light group (84px) at
+      // the compact row's 1.2px vertical adjustment (7.2px), 28x28.
+      expect(Math.abs(windowedReveal!.x - 84)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.y - 7.2)).toBeLessThanOrEqual(1)
       expect(Math.abs(windowedReveal!.width - 28)).toBeLessThanOrEqual(1)
       expect(Math.abs(windowedReveal!.height - 28)).toBeLessThanOrEqual(1)
-      expect(state.collapse.windowed.headerPaddingLeft).toBe('112px')
+      expect(state.collapse.windowed.headerPaddingLeft).toBe('120px')
+      expect(state.collapse.windowed.headerPaddingTop).toBe('5.2px')
       const conversation = state.collapse.windowed.conversation
       expect(conversation).not.toBeNull()
       expect(Math.abs(conversation!.left)).toBeLessThanOrEqual(1)
@@ -289,13 +298,14 @@ describe('packaged desktop application', () => {
       expect(state.collapse.fullscreen.track?.startsWith('0px')).toBe(true)
       const fullscreenReveal = state.collapse.fullscreen.reveal
       expect(fullscreenReveal).not.toBeNull()
-      // Full screen: the lights disappear and the reveal aligns to the left
-      // content inset (12px) on the same row.
+      // Full screen: AppKit auto-hides the lights and the reveal aligns to the
+      // left content inset (12px) on the same row.
       expect(Math.abs(fullscreenReveal!.x - 12)).toBeLessThanOrEqual(1)
-      expect(Math.abs(fullscreenReveal!.y - 6)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.y - 7.2)).toBeLessThanOrEqual(1)
       expect(Math.abs(fullscreenReveal!.width - 28)).toBeLessThanOrEqual(1)
       expect(Math.abs(fullscreenReveal!.height - 28)).toBeLessThanOrEqual(1)
       expect(state.collapse.fullscreen.headerPaddingLeft).toBe('48px')
+      expect(state.collapse.fullscreen.headerPaddingTop).toBe('5.2px')
       expect(state.collapse.fullscreenActive).toBe('true')
       expect(state.collapse.fullscreenAfter).toBe('false')
       expect(state.collapse.restoredTrack.startsWith('350px')).toBe(true)
@@ -374,6 +384,7 @@ describe('packaged desktop application', () => {
         'launch', 'inactive', 'active', 'drag-region-attempt', 'keyboard-typed',
         'restored', 'fullscreen', 'sidebar-collapsed', 'fullscreen-collapsed', 'sidebar-revealed',
         'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+        'session-sidebar-collapsed', 'session-fullscreen-collapsed',
         'question-pending', 'question-settled', 'approval-pending', 'approval-settled',
       ]) {
         expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)

@@ -79,7 +79,7 @@ export function ConversationSessionHeader({
     >
       {!hideChrome && (
         <>
-          <div className={css.titleRow}>
+          <div className={css.titleRow} data-conversation-title-row="">
             <div className={css.titleCluster}>
               <nav className={css.crumbs} aria-label={t('session.hierarchy')}>
                 {ancestry.map((summary, index) => {
@@ -109,7 +109,7 @@ export function ConversationSessionHeader({
             </div>
           </div>
           {tabs.length > 1 && (
-            <div className={css.tabs} role="tablist">
+            <div className={css.tabs} role="tablist" data-conversation-view-tabs="">
               {tabs.map(viewTab => (
                 <button
                   key={viewTab.id}

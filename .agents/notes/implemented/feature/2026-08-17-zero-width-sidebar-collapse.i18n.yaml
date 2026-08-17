@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-17-zero-width-sidebar-collapse.md
-2026-08-17-zero-width-sidebar-collapse.md: ae26188fe473f604f0ab8d0bcd6594f3dd2ad708
-2026-08-17-zero-width-sidebar-collapse.zh.md: 44cb1ab6466740225a2b6169e6ad54db2494ea19
+2026-08-17-zero-width-sidebar-collapse.md: aba30461484dcee73991917ed1fddcdf175c45c4
+2026-08-17-zero-width-sidebar-collapse.zh.md: b164f0d52c461326cd76ce19264efd2d12f9b64f
