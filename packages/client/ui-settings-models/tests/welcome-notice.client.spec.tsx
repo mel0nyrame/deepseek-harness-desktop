@@ -80,7 +80,9 @@ describe('WelcomeNotice', () => {
     expect(dialog.querySelectorAll('p')).toHaveLength(2)
     expect(dialog.querySelectorAll('button')).toHaveLength(1)
     expect(screen.getByRole('button', { name: WELCOME_NOTICE_COPY.zh.continueLabel })).toBeTruthy()
-    expect(document.activeElement).toBe(screen.getByRole('heading', { name: WELCOME_NOTICE_COPY.zh.title }))
+    const title = screen.getByRole('heading', { name: WELCOME_NOTICE_COPY.zh.title })
+    expect(title.hasAttribute('data-window-drag-surface')).toBe(true)
+    expect(document.activeElement).toBe(title)
     expect(h.appRoot.inert).toBe(true)
 
     fireEvent.keyDown(document, { key: 'Escape' })

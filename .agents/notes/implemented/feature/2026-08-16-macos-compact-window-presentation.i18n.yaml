@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-16-macos-compact-window-presentation.md
-2026-08-16-macos-compact-window-presentation.md: 59dc3ad42a26c010f9d7872c0ab4ec31e16b1710
-2026-08-16-macos-compact-window-presentation.zh.md: d005e3895d6301439ea48e2bb52711f7c9bc45bc
+2026-08-16-macos-compact-window-presentation.md: ce009b1bf5dc37aaac186223a6c9f5f452aac647
+2026-08-16-macos-compact-window-presentation.zh.md: 606d60c549f39a65dd837e026fb2caee05c739fe

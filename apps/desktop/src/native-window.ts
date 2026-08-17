@@ -44,11 +44,15 @@ body {
   background: transparent !important;
 }
 
-/* macOS compact chrome: the native window is the drag surface; interactive
-   shell regions opt back into pointer events. Other platforms keep their
-   native frame and do not receive a synthetic imitation. */
-body[data-dsh-platform='darwin'] {
+/* macOS compact chrome: real topmost chrome rows and modal title surfaces
+   are drag regions. Other platforms keep their native frame and do not
+   receive a synthetic imitation. */
+body[data-dsh-platform='darwin'] [data-slot='conversation'] [data-conversation-header],
+body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-control-row],
+body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-brand-row],
+body[data-dsh-platform='darwin'] [data-window-drag-surface] {
   -webkit-app-region: drag;
+  user-select: none;
 }
 
 body[data-dsh-platform='darwin'] button,
@@ -59,7 +63,6 @@ body[data-dsh-platform='darwin'] textarea,
 body[data-dsh-platform='darwin'] [role='button'],
 body[data-dsh-platform='darwin'] [role='link'],
 body[data-dsh-platform='darwin'] [contenteditable='true'],
-body[data-dsh-platform='darwin'] [data-shell-overlay],
 body[data-dsh-platform='darwin'] [data-slot='sidebar.workspaces'] > *,
 body[data-dsh-platform='darwin'] [data-slot='sidebar.settings'] > *,
 body[data-dsh-platform='darwin'] [data-slot='sidebar.footer.action'] > *,

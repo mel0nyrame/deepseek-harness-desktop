@@ -391,6 +391,9 @@ describe('Modal', () => {
       </Modal>)
     const dialog = screen.getByRole('dialog', { name: 'Create new workspace' })
     expect(dialog).toBeDefined()
+    const dragSurface = dialog.querySelector('[data-window-drag-surface]')
+    expect(dragSurface?.textContent).toContain('Create new workspace')
+    expect(dragSurface?.contains(screen.getByRole('button', { name: 'Configure later' }))).toBe(true)
     // The full-page layer escapes caller stacking contexts but remains in
     // this document/current WebUI window.
     expect(dialog.parentElement?.parentElement).toBe(document.body)

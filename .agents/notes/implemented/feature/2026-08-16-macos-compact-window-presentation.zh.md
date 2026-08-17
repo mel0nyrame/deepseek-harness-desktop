@@ -12,7 +12,7 @@ macOS 桌面窗口曾在侧栏和对话区上方保留一条全宽 44 像素标�
 
 紧凑原生窗口框架由[macOS 原生窗口基础 Agent Note](2026-08-17-macos-compact-window-foundation.md)实现，该 Note 负责问题 #32。本 Note 负责已完成的问题 #33 零宽侧栏呈现和问题 #34 侧栏材质偏好。
 
-在 macOS 上，侧栏第一行与原生 traffic-light 区域共享空间，侧栏控制位于其右侧，字标位于下一行，对话表面延伸到窗口顶端。空白 chrome 仍是可拖动区域，而控件、内容与浮层主动退出拖动。侧栏收起后解析为零宽网格轨道；材质、内容、调整宽度的 handle 与分隔线一并消失，由框架拥有的展开控件恢复最后一次可用宽度。原生全屏时，traffic lights 的显隐交给 AppKit，展开控件移动到侧栏内容内缩位置。
+在 macOS 上，侧栏第一行与原生 traffic-light 区域共享空间，侧栏控制位于其右侧，字标位于下一行，对话表面延伸到窗口顶端。实际处于最上层的对话头部、侧栏控制行与字标行、以及模态框标题行是拖动区域；控件、对话内容、输入区与模态框正文保持为可交互的 no-drag 区域。侧栏收起后解析为零宽网格轨道；材质、内容、调整宽度的 handle 与分隔线一并消失，由框架拥有的展开控件恢复最后一次可用宽度。原生全屏时，traffic lights 的显隐交给 AppKit，展开控件移动到侧栏内容内缩位置。
 
 展开后的侧栏使用一块连续的原生半透明材质，会话与详情表面保持不透明。两种玻璃变体都直接呈现该材质；[原生浅色侧栏材质 Agent Note](../bug-fix/2026-08-18-native-light-sidebar-material.md)负责由应用偏好选择匹配的 AppKit 外观。General → Appearance 根据 Host 设置 `ui-sidebar-glass-macos.enabled` 渲染仅 macOS 提供的 `Sidebar glass effect` 开关。默认值为开启，写入立即生效并跨重启保留。“减少透明度”只选择与主题匹配的不透明材质，不改写保存偏好；因此恢复系统透明度后，只要偏好仍开启就会再次显示玻璃。桌面 bundle 仅在 `process.platform === 'darwin'` 时插入 Host contribution，因此 Web、Windows 与 Linux 不会注册或显示该控件。
 

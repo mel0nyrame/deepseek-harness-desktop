@@ -67,6 +67,7 @@ exports[`sidebar shell snapshots > renders the expanded column (wordmark, capsul
     <button
       aria-label="New session"
       class="newSession"
+      data-sidebar-new-session=""
       type="button"
     >
       <svg
@@ -182,6 +183,7 @@ exports[`sidebar shell snapshots > renders the expanded column in the default lo
     <button
       aria-label="新建会话"
       class="newSession"
+      data-sidebar-new-session=""
       type="button"
     >
       <svg

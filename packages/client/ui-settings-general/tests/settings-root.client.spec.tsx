@@ -115,6 +115,8 @@ describe('SettingsPanel chrome seats', () => {
     openPanel()
     expect(screen.getByText('Open configuration file')).toBeTruthy()
     expect(renderSlot).toHaveBeenCalledWith('settings.action', {})
+    const dragSurface = screen.getByRole('dialog').querySelector('[data-window-drag-surface]')
+    expect(dragSurface?.contains(screen.getByRole('button', { name: 'Close' }))).toBe(true)
   })
 })
 

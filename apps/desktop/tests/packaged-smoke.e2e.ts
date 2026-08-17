@@ -40,7 +40,9 @@ const APP_BINARY = join(APP_PATH, 'Contents', 'MacOS', 'DSH Desktop')
 const REPLAY_FIXTURE = join(REPO_ROOT, 'examples', 'acp-agent', 'tests', 'snapshots', 'bash-tool-turn', 'session.jsonl')
 const QUESTION_FIXTURE = join(REPO_ROOT, 'apps', 'web', 'tests', 'snapshots', 'question-composer', 'session.jsonl')
 const APPROVAL_FIXTURE = join(REPO_ROOT, 'apps', 'web', 'tests', 'snapshots', 'approval-composer', 'session.jsonl')
+const NATIVE_DRAG_FIXTURE = join(REPO_ROOT, 'apps', 'desktop', 'tests', 'fixtures', 'native-window-drag.swift')
 const REQUIRED = process.env.DSH_DESKTOP_SMOKE_REQUIRED === '1'
+const NATIVE_DRAG_REQUIRED = process.env.DSH_DESKTOP_NATIVE_DRAG_REQUIRED === '1'
 
 /** Copy the three recorded fixtures into one launch home and return their paths. */
 async function seedReplayFixtures(home: string): Promise<{ replay: string; question: string; approval: string }> {
@@ -127,6 +129,107 @@ describe('packaged desktop application', () => {
   it('has a packaged application when the gate requires it', () => {
     expect(REQUIRED && !existsSync(APP_BINARY)).toBe(false)
   })
+
+  it('has the packaged application and pointer fixture when native drag acceptance requires them', () => {
+    expect(NATIVE_DRAG_REQUIRED && (!existsSync(APP_BINARY) || !existsSync(NATIVE_DRAG_FIXTURE))).toBe(false)
+  })
+
+  it.skipIf(process.platform !== 'darwin' || !NATIVE_DRAG_REQUIRED || !existsSync(APP_BINARY))(
+    'moves the native window from assembled chrome but not from an interactive control',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-drag-'))
+      const fixtures = await seedReplayFixtures(home)
+      const accessibility = execFileSync('/usr/bin/osascript', [
+        '-e', 'tell application "System Events" to return UI elements enabled',
+      ], { encoding: 'utf8' }).trim()
+      expect(accessibility, 'native drag acceptance requires macOS Accessibility permission').toBe('true')
+
+      const env = { ...process.env }
+      delete env['ELECTRON_RUN_AS_NODE']
+      delete env['DSH_NODE_EXECUTABLE']
+      Object.assign(env, {
+        DSH_HOME: home,
+        DSH_AGENTS_HOME: join(home, '.agents'),
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: 'keyless-desktop-no-call',
+      })
+      const output: string[] = []
+      child = spawn(APP_BINARY, [
+        '--accept-native-window-drag',
+        '--smoke-replay', fixtures.replay,
+      ], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.stdout?.on('data', (chunk: Buffer) => { output.push(String(chunk)) })
+      child.stderr?.on('data', (chunk: Buffer) => { output.push(String(chunk)) })
+      const closed = new Promise<number | null>((resolveClose) => {
+        child!.once('close', (code) => { resolveClose(code) })
+      })
+      const waitForLine = async (prefix: string, stage: string, timeoutMs = 90_000): Promise<string> => {
+        const deadline = Date.now() + timeoutMs
+        for (;;) {
+          const line = output.join('').split('\n').find(candidate =>
+            candidate.startsWith(prefix) && candidate.includes(`\"stage\":\"${stage}\"`),
+          )
+          if (line !== undefined) return line
+          if (child?.exitCode !== null || child?.signalCode !== null) {
+            throw new Error(`native drag acceptance exited before ${stage}; output:\n${output.join('').slice(0, 8000)}`)
+          }
+          if (Date.now() > deadline) {
+            throw new Error(`native drag acceptance timed out at ${stage}; output:\n${output.join('').slice(0, 8000)}`)
+          }
+          await new Promise(resolveWait => setTimeout(resolveWait, 25))
+        }
+      }
+
+      try {
+        for (const stage of ['onboarding', 'expanded', 'collapsed', 'control']) {
+          const line = await waitForLine('NATIVE_WINDOW_DRAG_READY ', stage)
+          const ready = JSON.parse(line.slice('NATIVE_WINDOW_DRAG_READY '.length)) as {
+            point: { x: number; y: number }
+          }
+          execFileSync('/usr/bin/xcrun', [
+            'swift', NATIVE_DRAG_FIXTURE,
+            String(ready.point.x), String(ready.point.y), '60', '60',
+          ], { encoding: 'utf8', timeout: 30_000 })
+          await waitForLine('NATIVE_WINDOW_DRAG_STAGE ', stage, 20_000)
+        }
+
+        const exitCode = await closed
+        const captured = output.join('')
+        expect(exitCode, `native drag acceptance exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+        const resultLine = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_DRAG_ACCEPTANCE '))
+        expect(resultLine).toBeDefined()
+        const result = JSON.parse(resultLine!.slice('NATIVE_WINDOW_DRAG_ACCEPTANCE '.length)) as {
+          stages: Array<{
+            stage: string
+            before: { x: number; y: number }
+            after: { x: number; y: number }
+          }>
+          activeElement: string
+        }
+        expect(result.stages.map(stage => stage.stage)).toEqual(['onboarding', 'expanded', 'collapsed', 'control'])
+        for (const stage of result.stages.slice(0, 3)) {
+          expect([stage.after.x, stage.after.y]).not.toEqual([stage.before.x, stage.before.y])
+        }
+        expect(result.stages[3]?.after).toMatchObject(result.stages[3]!.before)
+        expect(result.activeElement).toBe('TEXTAREA')
+      } finally {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGTERM')
+          const stopped = await Promise.race([
+            closed.then(() => true),
+            new Promise<boolean>(resolveWait => setTimeout(() => { resolveWait(false) }, 20_000)),
+          ])
+          if (!stopped) {
+            child.kill('SIGKILL')
+            await closed
+          }
+        }
+        assertNoSurvivors()
+        child = undefined
+      }
+    },
+    300_000,
+  )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
     'reports configured native state from a real installed BrowserWindow',
@@ -498,7 +601,7 @@ describe('packaged desktop application', () => {
       expect(state.window.dragAttemptBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
       for (const label of [
-        'launch', 'inactive', 'active', 'drag-region-attempt', 'keyboard-typed',
+        'launch', 'native-drag-surface', 'inactive', 'active', 'drag-region-attempt', 'keyboard-typed',
         'restored', 'fullscreen', 'sidebar-collapsed', 'fullscreen-collapsed', 'sidebar-revealed',
         'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
         'session-sidebar-collapsed', 'session-fullscreen-collapsed',

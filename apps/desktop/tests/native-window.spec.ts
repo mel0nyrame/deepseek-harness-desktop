@@ -78,6 +78,25 @@ describe('native macOS desktop window contract', () => {
     expect(appRegionRules.some(([selector, declarations]) =>
       selector.includes('textarea') && declarations.includes('-webkit-app-region: no-drag'),
     )).toBe(true)
+    expect(appRegionRules.some(([selector, declarations]) =>
+      selector === "body[data-dsh-platform='darwin']" && declarations.includes('-webkit-app-region: drag'),
+    )).toBe(false)
+    for (const chrome of [
+      '[data-conversation-header]',
+      '[data-sidebar-control-row]',
+      '[data-sidebar-brand-row]',
+      '[data-window-drag-surface]',
+    ]) {
+      expect(appRegionRules.some(([selector, declarations]) =>
+        selector.includes(chrome) && declarations.includes('-webkit-app-region: drag'),
+      ), `${chrome} must own a real topmost drag region`).toBe(true)
+    }
+    expect(appRegionRules.some(([selector, declarations]) =>
+      selector.includes('[data-conversation-scroll]') && declarations.includes('-webkit-app-region: no-drag'),
+    )).toBe(true)
+    expect(appRegionRules.some(([selector]) => selector.trim() ===
+      "body[data-dsh-platform='darwin'] [data-shell-overlay]"),
+    ).toBe(false)
 
     // Compact header: the toggle clears the native traffic-light group in
     // windowed mode, the inline wordmark is hidden, the brand row is

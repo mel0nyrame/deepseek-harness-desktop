@@ -80,7 +80,7 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
           </div>
         </nav>
         <div className={css.content}>
-          <div className={css.header}>
+          <div className={css.header} data-window-drag-surface="">
             <div className={css.actions}>{renderSlot('settings.action', {})}</div>
             <button ref={closeButton} type="button" className={css.close} onClick={onClose}>
               <IconCloseOutline16 size={14} />

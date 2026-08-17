@@ -64,6 +64,7 @@ protocol.registerSchemesAsPrivileged([{
 const JOURNEY_FLAGS = [
   '--inspect-native-window',
   '--accept-native-window',
+  '--accept-native-window-drag',
   '--accept-sidebar-glass',
   '--record-native-window',
   '--record-native-actions',
@@ -1405,7 +1406,7 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
           height: box.height,
         },
         viewportHeight: innerHeight,
-        dragRegion: getComputedStyle(document.body).webkitAppRegion,
+        dragRegion: getComputedStyle(document.querySelector('[data-conversation-header]')).webkitAppRegion,
         controlRegion: getComputedStyle(textarea).webkitAppRegion,
         activeElement: document.activeElement?.tagName,
         keyboardValue: textarea.value,
@@ -1478,6 +1479,150 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     })}`)
   } finally {
     other?.destroy()
+    window.destroy()
+    await stopAfterJourney(lifecycle, true)
+  }
+}
+
+interface NativeWindowDragStage {
+  readonly stage: 'onboarding' | 'expanded' | 'collapsed' | 'control'
+  readonly point: { readonly x: number; readonly y: number }
+  readonly before: Electron.Rectangle
+  readonly after: Electron.Rectangle
+}
+
+/** Resolve a safe point inside one drag surface, excluding interactive descendants. */
+async function dragSurfacePoint(
+  window: BrowserWindow,
+  selector: string,
+): Promise<{ x: number; y: number }> {
+  const clientPoint = await window.webContents.executeJavaScript(`(() => {
+    const surface = document.querySelector(${JSON.stringify(selector)});
+    if (!(surface instanceof HTMLElement)) return null;
+    const box = surface.getBoundingClientRect();
+    const interactive = 'button, a, input, select, textarea, [role="button"], [role="link"], [contenteditable="true"]';
+    for (let y = Math.ceil(box.top + 4); y < Math.floor(box.bottom - 4); y += 6) {
+      for (let x = Math.floor(box.right - 4); x > Math.ceil(box.left + 4); x -= 6) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit === null || !surface.contains(hit) || hit.closest(interactive) !== null) continue;
+        return { x, y };
+      }
+    }
+    return null;
+  })()`) as { x: number; y: number } | null
+  if (clientPoint === null) {
+    throw new Error(`desktop native drag acceptance: ${selector} has no safe drag point`)
+  }
+  const bounds = window.getBounds()
+  return { x: bounds.x + clientPoint.x, y: bounds.y + clientPoint.y }
+}
+
+/** Resolve the center of one no-drag control in screen coordinates. */
+async function controlPoint(
+  window: BrowserWindow,
+  selector: string,
+): Promise<{ x: number; y: number }> {
+  const clientPoint = await window.webContents.executeJavaScript(`(() => {
+    const control = document.querySelector(${JSON.stringify(selector)});
+    if (!(control instanceof HTMLElement)) return null;
+    const box = control.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+  if (clientPoint === null) {
+    throw new Error(`desktop native drag acceptance: ${selector} has no control point`)
+  }
+  const bounds = window.getBounds()
+  return { x: bounds.x + clientPoint.x, y: bounds.y + clientPoint.y }
+}
+
+/** Publish one OS-pointer target and assert the resulting native move contract. */
+async function acceptNativeDragStage(
+  window: BrowserWindow,
+  stage: NativeWindowDragStage['stage'],
+  selector: string,
+  shouldMove: boolean,
+): Promise<NativeWindowDragStage> {
+  window.setBounds({ x: 40, y: 60, width: 1160, height: 700 })
+  window.show()
+  window.focus()
+  await new Promise(resolveWait => setTimeout(resolveWait, 250))
+  const point = shouldMove
+    ? await dragSurfacePoint(window, selector)
+    : await controlPoint(window, selector)
+  const before = window.getBounds()
+  const moved = new Promise<boolean>((resolveMove) => {
+    window.once('move', () => { resolveMove(true) })
+  })
+  console.log(`NATIVE_WINDOW_DRAG_READY ${JSON.stringify({ stage, point })}`)
+  const didMove = await Promise.race([
+    moved,
+    new Promise<boolean>(resolveWait => setTimeout(() => { resolveWait(false) }, shouldMove ? 15_000 : 3_000)),
+  ])
+  if (didMove) await new Promise(resolveWait => setTimeout(resolveWait, 300))
+  const after = window.getBounds()
+  const changed = after.x !== before.x || after.y !== before.y
+  if (changed !== shouldMove) {
+    throw new Error(
+      `desktop native drag acceptance: ${stage} expected move=${String(shouldMove)}; before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+    )
+  }
+  const result = { stage, point, before, after }
+  console.log(`NATIVE_WINDOW_DRAG_STAGE ${JSON.stringify(result)}`)
+  return result
+}
+
+/** Exercise real AppKit window movement through externally injected OS pointer events. */
+async function acceptNativeWindowDrag(lifecycle: DesktopLifecycle): Promise<void> {
+  const { window, ready } = bootWindow(lifecycle)
+  await ready
+  if (lifecycle.phase !== 'running') {
+    throw new Error(`desktop native drag acceptance: Host did not reach the running phase (${lifecycle.phase})`)
+  }
+  const stages: NativeWindowDragStage[] = []
+  try {
+    await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+    await waitForRenderer(window, "document.querySelector('[role=\"dialog\"] [data-window-drag-surface]')", 60_000)
+    stages.push(await acceptNativeDragStage(
+      window,
+      'onboarding',
+      '[role="dialog"] [data-window-drag-surface]',
+      true,
+    ))
+    await completeOnboarding(window)
+
+    const { sessionId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    await submitRecordedPrompt(window, RECORDED_PROMPT)
+    await waitForTurnCompleted(currentSupervisor(lifecycle), window, sessionId, {
+      toolName: 'bash',
+      toolResultContains: 'TERMINAL_OK',
+      settledSelector: SETTLED_BASH_CARD,
+    })
+    await waitForRenderer(window, "document.querySelector('[data-conversation-header]:not([aria-hidden=\"true\"])')")
+
+    if (await window.webContents.executeJavaScript("document.querySelector('[data-sidebar-reveal]') !== null")) {
+      await clickAt(window, '[data-sidebar-reveal]')
+      await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    }
+    stages.push(await acceptNativeDragStage(window, 'expanded', '[data-sidebar-control-row]', true))
+
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    stages.push(await acceptNativeDragStage(
+      window,
+      'collapsed',
+      '[data-conversation-header]:not([aria-hidden="true"])',
+      true,
+    ))
+    stages.push(await acceptNativeDragStage(window, 'control', LIVE_COMPOSER, false))
+    const activeElement = await window.webContents.executeJavaScript(
+      'document.activeElement?.tagName ?? null',
+    ) as unknown
+    if (activeElement !== 'TEXTAREA') {
+      throw new Error(`desktop native drag acceptance: no-drag control did not remain interactive (${String(activeElement)})`)
+    }
+    console.log(`NATIVE_WINDOW_DRAG_ACCEPTANCE ${JSON.stringify({ stages, activeElement })}`)
+  } finally {
     window.destroy()
     await stopAfterJourney(lifecycle, true)
   }
@@ -1577,6 +1722,7 @@ async function recordNativeWindow(
     await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
     await recorder.capture('launch')
     await completeOnboarding(window)
+    await recorder.capture('native-drag-surface')
 
     const blurred = onceWindowEvent(window, 'blur')
     other = new BrowserWindow({ width: 240, height: 160, show: true })
@@ -1967,7 +2113,10 @@ async function inspectNativeWindow(): Promise<void> {
           <button data-sidebar-new-session>New Session</button>
           <div role="treeitem" aria-selected="true">Selected Session</div>
         </aside>
-        <main data-dsh-conversation-surface><textarea id="editor"></textarea></main>
+        <main data-slot="conversation" data-dsh-conversation-surface>
+          <header data-conversation-header>Conversation</header>
+          <textarea id="editor"></textarea>
+        </main>
         <section data-dsh-details-surface>Details</section>
       </div>
     `)}`)
@@ -2005,7 +2154,7 @@ async function inspectNativeWindow(): Promise<void> {
           opaqueDark: inspectSurface('dark', 'opaque-dark'),
         },
         controlRegion: getComputedStyle(document.querySelector('#control')).webkitAppRegion,
-        dragRegion: getComputedStyle(document.body).webkitAppRegion,
+        dragRegion: getComputedStyle(document.querySelector('[data-conversation-header]')).webkitAppRegion,
       })
     `) as unknown
     console.log(`NATIVE_WINDOW_STATE ${JSON.stringify({
@@ -2111,6 +2260,7 @@ void app.whenReady().then(() => {
       return
     }
     const acceptance = process.argv.includes('--accept-native-window')
+    const nativeDragAcceptance = process.argv.includes('--accept-native-window-drag')
     const recording = process.argv.includes('--record-native-window')
     const nativeActionsRecording = process.argv.includes('--record-native-actions')
     const recoveryRecording = process.argv.includes('--record-recovery')
@@ -2118,6 +2268,7 @@ void app.whenReady().then(() => {
     const smoke = parseSmokeInvocation(process.argv)
     const smokeReopen = parseSmokeReopenInvocation(process.argv)
     const headlessBoot = smoke !== undefined || smokeReopen !== undefined
+      || nativeDragAcceptance
       || recording || nativeActionsRecording || recoveryRecording
       || sidebarGlassAcceptance !== undefined
     const options = app.isPackaged
@@ -2132,9 +2283,43 @@ void app.whenReady().then(() => {
       : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
     registerAssetProtocol(webDist)
     const headless = smoke !== undefined || smokeReopen !== undefined || acceptance
+      || nativeDragAcceptance
       || recording || nativeActionsRecording || recoveryRecording
       || sidebarGlassAcceptance !== undefined
     installQuitOwner(lifecycle, () => currentWindow, headless)
+
+    if (nativeDragAcceptance) {
+      // The external pointer driver may fail independently of Electron. Its
+      // SIGTERM cleanup request must still enter the application's one quit
+      // owner so the supervised Host reaches quiescence before Electron exits.
+      const requestQuit = (): void => { app.quit() }
+      process.once('SIGTERM', requestQuit)
+      const replay = parseReplayInvocation(process.argv)
+      if (replay.replayFile === undefined) {
+        console.error('desktop native drag acceptance requires --smoke-replay <file>')
+        process.off('SIGTERM', requestQuit)
+        app.exit(1)
+        return
+      }
+      const replayProvider = app.isPackaged
+        ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
+        : packageDir('@deepseek-ai/dsh-llm-replay')
+      prepareSmokeProfile(replay.replayFile, replayProvider, replay.childReplays)
+      try {
+        await acceptNativeWindowDrag(lifecycle)
+      } catch (error) {
+        console.error(`desktop native drag acceptance failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          console.error('desktop native drag acceptance failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      } finally {
+        process.off('SIGTERM', requestQuit)
+      }
+      app.exit(0)
+      return
+    }
 
     if (nativeActionsRecording) {
       try {
