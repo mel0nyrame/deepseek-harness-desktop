@@ -35,6 +35,14 @@ export type { AppearanceRowState } from './settings-store.ts'
 export type { ThemeKey } from './locales.ts'
 export type { ThemePreference, ThemeSettings } from '../theme-settings.ts'
 
+interface NativeThemeBridge {
+  setPreference(preference: ThemePreference): void
+}
+
+interface DesktopThemeWindow {
+  dshNativeTheme?: NativeThemeBridge
+}
+
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
 
@@ -391,6 +399,18 @@ export function apply(ctx: ClientContext): void {
   const host = ctx.settingsScope.bind<ThemeSettings>({ namespace: THEME_SETTINGS_NAMESPACE })
   const theme = new ThemeRuntime(ctx, host)
   ctx.provide('theme', theme)
+
+  const nativeThemeBridge = (globalThis as DesktopThemeWindow).dshNativeTheme
+  if (nativeThemeBridge !== undefined) {
+    let lastPreference: ThemePreference | undefined
+    const syncNativeTheme = (snapshot: ThemeSnapshot): void => {
+      if (snapshot.preference === lastPreference) return
+      lastPreference = snapshot.preference
+      nativeThemeBridge.setPreference(snapshot.preference)
+    }
+    ctx.on('theme/change', syncNativeTheme)
+    syncNativeTheme(theme.getTheme())
+  }
 
   const sidebarHost = ctx.settingsScope.bind<SidebarGlassSettings>({
     namespace: SIDEBAR_GLASS_SETTINGS_NAMESPACE,

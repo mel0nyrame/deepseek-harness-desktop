@@ -21,6 +21,10 @@ interface SidebarGlassRendererState {
     readonly newSession: string | null
     readonly selectedSession: string | null
   }
+  readonly nativeTheme: {
+    readonly source: 'light' | 'dark' | 'system'
+    readonly dark: boolean
+  }
 }
 
 /** Main-process capabilities shared with the other installed-app journeys. */
@@ -30,13 +34,17 @@ export interface SidebarGlassAcceptanceHarness {
   completeOnboarding(window: BrowserWindow): Promise<void>
   clickAt(window: BrowserWindow, selector: string): Promise<void>
   waitForRenderer(window: BrowserWindow, expression: string, timeoutMs?: number): Promise<void>
+  nativeThemeState(): SidebarGlassRendererState['nativeTheme']
   supervisor(): DshSupervisor
   stop(): Promise<void>
 }
 
 /** Read the assembled renderer's saved switch and effective surface pixels. */
-function rendererState(window: BrowserWindow): Promise<SidebarGlassRendererState> {
-  return window.webContents.executeJavaScript(`(() => {
+async function rendererState(
+  harness: SidebarGlassAcceptanceHarness,
+  window: BrowserWindow,
+): Promise<SidebarGlassRendererState> {
+  const renderer = await window.webContents.executeJavaScript(`(() => {
     const color = (selector) => {
       const element = document.querySelector(selector);
       return element === null ? null : getComputedStyle(element).backgroundColor;
@@ -60,7 +68,8 @@ function rendererState(window: BrowserWindow): Promise<SidebarGlassRendererState
         selectedSession: color('[role="treeitem"][aria-selected="true"]'),
       },
     };
-  })()`) as Promise<SidebarGlassRendererState>
+  })()`) as Omit<SidebarGlassRendererState, 'nativeTheme'>
+  return { ...renderer, nativeTheme: harness.nativeThemeState() }
 }
 
 /** Open General settings and wait for the macOS-only Appearance switch. */
@@ -117,6 +126,22 @@ function assertState(
   }
 }
 
+/** Wait until Electron main has applied the selected native theme source. */
+async function waitForNativeTheme(
+  harness: SidebarGlassAcceptanceHarness,
+  expected: 'light' | 'dark' | 'system',
+): Promise<void> {
+  const deadline = Date.now() + 30_000
+  let observed = harness.nativeThemeState()
+  while (Date.now() < deadline) {
+    observed = harness.nativeThemeState()
+    if (observed.source === expected
+      && (expected === 'system' || observed.dark === (expected === 'dark'))) return
+    await new Promise(resolveWait => setTimeout(resolveWait, 25))
+  }
+  throw new Error(`desktop sidebar glass acceptance: native theme did not become ${expected}: ${JSON.stringify(observed)}`)
+}
+
 /** Whether a computed color is a visible, non-opaque rgba overlay. */
 function isTranslucentColor(color: string | null): boolean {
   const alpha = color?.match(/^rgba\([^,]+,[^,]+,[^,]+,\s*(\d*\.?\d+)\)$/)?.[1]
@@ -146,13 +171,14 @@ export async function acceptSidebarGlass(
     if (phase === 'default-off') await harness.completeOnboarding(window)
     await openSettings(harness, window)
 
-    const initial = await rendererState(window)
+    await waitForNativeTheme(harness, phase === 'reopen-enabled' ? 'light' : 'system')
+    const initial = await rendererState(harness, window)
     if (phase === 'default-off') {
       assertState(initial, true, 'glass')
       await harness.clickAt(window, '[data-sidebar-glass-toggle]')
       await harness.waitForRenderer(window, "document.querySelector('[data-sidebar-glass-toggle]')?.getAttribute('aria-checked') === 'false' && document.body.dataset.dshSidebarMaterial?.startsWith('opaque-')")
       await waitForPersisted(harness.supervisor(), false)
-      const afterToggle = await rendererState(window)
+      const afterToggle = await rendererState(harness, window)
       assertState(afterToggle, false, 'opaque')
       console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, initial, afterToggle })}`)
       return
@@ -168,17 +194,18 @@ export async function acceptSidebarGlass(
     await harness.clickAt(window, '[data-sidebar-glass-toggle]')
     await harness.waitForRenderer(window, "document.querySelector('[data-sidebar-glass-toggle]')?.getAttribute('aria-checked') === 'true' && document.body.dataset.dshSidebarMaterial?.startsWith('glass-')")
     await waitForPersisted(harness.supervisor(), true)
-    const afterToggle = await rendererState(window)
+    const afterToggle = await rendererState(harness, window)
     assertState(afterToggle, true, 'glass')
 
     await harness.clickAt(window, "[data-theme-preference='dark']")
     await harness.waitForRenderer(window, "document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshSidebarMaterial === 'glass-dark'")
-    const dark = await rendererState(window)
+    await waitForNativeTheme(harness, 'dark')
+    const dark = await rendererState(harness, window)
     assertState(dark, true, 'glass')
 
     await window.webContents.executeJavaScript("document.body.dataset.dshTransparency = 'reduced'")
     await harness.waitForRenderer(window, "document.body.dataset.dshSidebarMaterial === 'opaque-dark' && document.querySelector('[role=\"status\"]') !== null")
-    const reduced = await rendererState(window)
+    const reduced = await rendererState(harness, window)
     assertState(reduced, true, 'opaque')
     if (!reduced.overrideVisible) {
       throw new Error('desktop sidebar glass acceptance: Reduce Transparency override copy is absent')
@@ -188,7 +215,8 @@ export async function acceptSidebarGlass(
     await harness.waitForRenderer(window, "document.body.dataset.dshSidebarMaterial === 'glass-dark' && document.querySelector('[role=\"status\"]') === null")
     await harness.clickAt(window, "[data-theme-preference='light']")
     await harness.waitForRenderer(window, "!document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshSidebarMaterial === 'glass-light'")
-    const restored = await rendererState(window)
+    await waitForNativeTheme(harness, 'light')
+    const restored = await rendererState(harness, window)
     assertState(restored, true, 'glass')
     console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, initial, afterToggle, dark, reduced, restored })}`)
   } finally {

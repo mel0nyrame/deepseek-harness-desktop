@@ -347,6 +347,7 @@ describe('packaged desktop application', () => {
         overrideVisible: boolean
         surfaces: { frame: string | null; sidebar: string | null; conversation: string | null; details: string | null }
         overlays: { newSession: string | null; selectedSession: string | null }
+        nativeTheme: { source: 'light' | 'dark' | 'system'; dark: boolean }
       }
       type JourneyState = {
         phase: 'default-off' | 'reopen-on' | 'reopen-enabled'
@@ -375,11 +376,15 @@ describe('packaged desktop application', () => {
         expect(state.surfaces.conversation).not.toBe(transparent)
         expect(state.surfaces.details).not.toBe(transparent)
       }
+      const expectGlassSidebar = (state: SurfaceState): void => {
+        expect(state.surfaces.sidebar).toBe(transparent)
+      }
 
       const first = await runPhase('default-off')
       expect(first.initial.enabled).toBe('true')
       expect(first.initial.material).toMatch(/^glass-(?:light|dark)$/)
-      expect(first.initial.surfaces.sidebar).toBe(transparent)
+      expect(first.initial.nativeTheme).toEqual({ source: 'system', dark: first.initial.dark })
+      expectGlassSidebar(first.initial)
       expectContentOpaque(first.initial)
       expect(first.afterToggle?.enabled).toBe('false')
       expect(first.afterToggle?.material).toMatch(/^opaque-(?:light|dark)$/)
@@ -389,9 +394,13 @@ describe('packaged desktop application', () => {
       const second = await runPhase('reopen-on')
       expect(second.initial.enabled).toBe('false')
       expect(second.initial.material).toMatch(/^opaque-(?:light|dark)$/)
+      expect(second.initial.nativeTheme).toEqual({ source: 'system', dark: second.initial.dark })
       expect(second.afterToggle?.enabled).toBe('true')
       expect(second.afterToggle?.material).toMatch(/^glass-(?:light|dark)$/)
+      expectGlassSidebar(second.afterToggle!)
       expect(second.dark).toMatchObject({ enabled: 'true', material: 'glass-dark', dark: true })
+      expect(second.dark?.nativeTheme).toEqual({ source: 'dark', dark: true })
+      expectGlassSidebar(second.dark!)
       expect(second.reduced).toMatchObject({
         enabled: 'true',
         material: 'opaque-dark',
@@ -408,11 +417,14 @@ describe('packaged desktop application', () => {
         dark: false,
         overrideVisible: false,
       })
+      expect(second.restored?.nativeTheme).toEqual({ source: 'light', dark: false })
+      expectGlassSidebar(second.restored!)
 
       const third = await runPhase('reopen-enabled')
       expect(third.initial.enabled).toBe('true')
       expect(third.initial.material).toMatch(/^glass-(?:light|dark)$/)
-      expect(third.initial.surfaces.sidebar).toBe(transparent)
+      expect(third.initial.nativeTheme).toEqual({ source: 'light', dark: false })
+      expectGlassSidebar(third.initial)
       expectContentOpaque(third.initial)
 
       assertNoSurvivors()

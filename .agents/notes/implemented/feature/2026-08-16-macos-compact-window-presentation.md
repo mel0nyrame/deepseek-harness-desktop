@@ -14,7 +14,7 @@ The compact native window frame is implemented by the [macOS native window found
 
 On macOS, the sidebar's first row shares the native traffic-light region with the sidebar control, the wordmark occupies the following row, and the conversation surface reaches the window top. Empty chrome remains a drag region while controls, content, and overlays opt out. A collapsed sidebar resolves to a zero-width grid track; its material, contents, resize handle, and divider disappear, while a frame-owned reveal control restores the last usable width. Native full screen leaves traffic-light visibility to AppKit and moves the reveal control to the sidebar content inset.
 
-The expanded sidebar uses one continuous native translucent material, while conversation and details remain opaque. General → Appearance renders the macOS-only `Sidebar glass effect` switch from the `ui-sidebar-glass-macos.enabled` Host setting. The default is enabled, writes apply immediately, and the value survives restart. Reduce Transparency selects the theme-matched opaque material without rewriting the saved preference; restoring transparency therefore reveals glass again when the preference remains enabled. The desktop bundle inserts the Host contribution only when `process.platform === 'darwin'`, so Web, Windows, and Linux do not register or display this control.
+The expanded sidebar uses one continuous native translucent material, while conversation and details remain opaque. Both glass variants expose that material directly; the [native light sidebar material note](../bug-fix/2026-08-18-native-light-sidebar-material.md) owns how the application preference selects the matching AppKit appearance. General → Appearance renders the macOS-only `Sidebar glass effect` switch from the `ui-sidebar-glass-macos.enabled` Host setting. The default is enabled, writes apply immediately, and the value survives restart. Reduce Transparency selects the theme-matched opaque material without rewriting the saved preference; restoring transparency therefore reveals glass again when the preference remains enabled. The desktop bundle inserts the Host contribution only when `process.platform === 'darwin'`, so Web, Windows, and Linux do not register or display this control.
 
 ## Alternatives considered
 
@@ -25,6 +25,8 @@ The expanded sidebar uses one continuous native translucent material, while conv
 **Create a separate Appearance page.** Rejected because General → Appearance already owns theme preferences and is the existing platform-aware settings surface.
 
 **Persist the glass state in renderer storage.** Rejected because the preference is global and must survive restart. Host-backed settings provide the durable boundary and allow Reduce Transparency to override only the visible material.
+
+**Override Electron's global native theme from the renderer preference.** This original choice is superseded by the [native light sidebar material note](../bug-fix/2026-08-18-native-light-sidebar-material.md): a local tint cannot turn a dark AppKit substrate into native light material, so matching OS-rendered chrome and Electron UI to the explicit application preference is now intentional.
 
 **Register the preference in every composition.** Rejected because the native material and macOS accessibility fact do not exist on Web, Windows, or Linux. The dedicated macOS Host contribution keeps the platform boundary explicit.
 

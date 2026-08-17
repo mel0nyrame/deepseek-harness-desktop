@@ -41,6 +41,7 @@ import {
   parseRendererRecoveryAction,
   parseRendererRequest,
   parseRendererSubscription,
+  parseRendererThemePreference,
   toRendererStreamEvent,
 } from './renderer-ipc.ts'
 
@@ -408,6 +409,15 @@ function installIpc(
     // it to the child so its pump may send the next frame.
     maybeSupervisor()?.ackStream(id)
   })
+  ipcMain.on('dsh:set-theme-preference', (event, value: unknown) => {
+    if (!senderAllowed(event)) return
+    const preference = parseRendererThemePreference(value)
+    if (preference === undefined) {
+      console.error('[desktop-main] dropped malformed theme preference')
+      return
+    }
+    nativeTheme.themeSource = preference
+  })
   ipcMain.handle('dsh:recovery', (event, value: unknown) => {
     if (!statusSenderAllowed(event)) throw new Error('desktop IPC rejected an unknown recovery sender')
     const action = parseRendererRecoveryAction(value)
@@ -464,7 +474,7 @@ function installIpc(
     }
     ipcMain.removeHandler('dsh:request')
     ipcMain.removeHandler('dsh:recovery')
-    for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription', 'dsh:stream-ack']) {
+    for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription', 'dsh:stream-ack', 'dsh:set-theme-preference']) {
       ipcMain.removeAllListeners(channel)
     }
   }
@@ -2214,6 +2224,10 @@ void app.whenReady().then(() => {
           completeOnboarding,
           clickAt,
           waitForRenderer,
+          nativeThemeState: () => ({
+            source: nativeTheme.themeSource,
+            dark: nativeTheme.shouldUseDarkColors,
+          }),
           supervisor: () => currentSupervisor(lifecycle),
           stop: () => stopAfterJourney(lifecycle, true),
         }, sidebarGlassAcceptance.phase)

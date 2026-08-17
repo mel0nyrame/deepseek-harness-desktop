@@ -4,6 +4,7 @@ import {
   parseRendererRequest,
   parseRendererStreamEvent,
   parseRendererSubscription,
+  parseRendererThemePreference,
   toRendererStreamEvent,
 } from '../src/renderer-ipc.ts'
 
@@ -53,6 +54,14 @@ describe('desktop renderer IPC boundary', () => {
       .toEqual({ type: 'error', id: 'stream-1', message: 'broken' })
     expect(toRendererStreamEvent({ type: 'stream-end', id: 'stream-1' }))
       .toEqual({ type: 'end', id: 'stream-1' })
+  })
+
+  it('admits only the three application theme preferences', () => {
+    expect(parseRendererThemePreference('system')).toBe('system')
+    expect(parseRendererThemePreference('light')).toBe('light')
+    expect(parseRendererThemePreference('dark')).toBe('dark')
+    expect(parseRendererThemePreference('sepia')).toBeUndefined()
+    expect(parseRendererThemePreference(null)).toBeUndefined()
   })
 
   it('validates lifecycle messages again at the preload boundary', () => {

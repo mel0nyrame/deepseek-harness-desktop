@@ -113,6 +113,7 @@ afterEach(() => {
   delete document.body.dataset.dshPlatform
   delete document.body.dataset.dshTransparency
   delete document.body.dataset.dshSidebarMaterial
+  delete (globalThis as { dshNativeTheme?: unknown }).dshNativeTheme
 })
 
 describe('ui-theme apply', () => {
@@ -157,6 +158,24 @@ describe('ui-theme apply', () => {
     expect(theme.getTheme().preference).toBe('system')
     expect(instance.getSnapshot().preference).toBe('system')
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
+  })
+
+  it('mirrors preference changes into the desktop native theme without replaying resolved system changes', async () => {
+    const setPreference = vi.fn()
+    ;(globalThis as { dshNativeTheme?: { setPreference(preference: string): void } }).dshNativeTheme = {
+      setPreference,
+    }
+    const b = await bench()
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeRuntime
+
+    expect(setPreference.mock.calls).toEqual([['system']])
+    b.ctx.emit('theme/change', theme.getTheme())
+    expect(setPreference.mock.calls).toEqual([['system']])
+
+    theme.setTheme('dark')
+    theme.setTheme('light')
+    expect(setPreference.mock.calls).toEqual([['system'], ['dark'], ['light']])
   })
 
   it('applies the macOS sidebar material immediately and converges on Host and system facts', async () => {
