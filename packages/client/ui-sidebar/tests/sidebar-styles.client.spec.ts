@@ -35,38 +35,30 @@ describe('SidebarRoot.module.css', () => {
     expect(declarations('.regionArea')?.get('margin-right')).toBe(
       'calc(-1 * var(--dsh-sidebar-inline-padding))',
     )
-    expect(declarations('.collapsed .regionArea')?.get('margin-left')).toBe('0')
-    expect(declarations('.collapsed .regionArea')?.get('padding-left')).toBe('0')
-    expect(declarations('.collapsed .regionArea')?.get('margin-right')).toBe('0')
   })
 
-  it('moves the four upper controls while the settings seat only fades', () => {
-    const animation = 'rail-in 150ms var(--ds-ease-in-out) backwards'
-    for (const selector of [
-      '.railIn .iconButton',
-      '.railIn .newSession',
-      '.railIn .regionArea',
-    ]) {
-      expect(declarations(selector)?.get('animation')).toBe(animation)
-    }
-    expect(declarations('.railIn .footArea')?.get('animation')).toBe(
-      'rail-fade-in 150ms var(--ds-ease-in-out) backwards',
-    )
-    expect(css).toMatch(
-      /@keyframes rail-in\s*\{\s*from\s*\{\s*opacity: 0;\s*transform: translateX\(49px\);\s*}\s*}/,
-    )
-    expect(css).toMatch(/@keyframes rail-fade-in\s*\{\s*from\s*\{\s*opacity: 0;\s*}\s*}/)
-  })
-
-  it('gives shell rail controls the same base anchor for their shared translation', () => {
-    expect(declarations('.collapsed .logoRow')?.get('justify-content')).toBe('flex-start')
-    expect(declarations('.collapsed .newSession')?.get('align-self')).toBe('flex-start')
-    expect(declarations('.collapsed .newSession')?.get('width')).toBe('36px')
+  it('collapses by crossfading the frozen wide content only (no rail geometry)', () => {
+    expect(declarations('.fading > *')?.get('transition')).toBe('opacity 150ms var(--ds-ease-in-out)')
+    expect(declarations('.fading > *')?.get('opacity')).toBe('0')
+    expect(declarations('.wide')?.get('animation')).toBe('wide-in 200ms var(--ds-ease-in-out)')
+    expect(css).toMatch(/@keyframes wide-in\s*\{\s*from\s*\{\s*opacity: 0;\s*}\s*}/)
+    // Issue #33: the 56px compact rail is gone — no rail selectors, no rail
+    // entry translations, no rail icon swap remain.
+    expect(css).not.toContain('.collapsed')
+    expect(css).not.toContain('.railIn')
+    expect(css).not.toContain('rail-in')
+    expect(css).not.toContain('56px')
   })
 
   it('keeps the wordmark in the first row by default and hides the compact brand-row seam', () => {
     expect(declarations('.logoRow')?.get('justify-content')).toBe('flex-end')
     expect(declarations('.logoRow')?.get('height')).toBe('60px')
     expect(declarations('.brandRow')?.get('display')).toBe('none')
+  })
+
+  it('respects reduced motion for the collapse crossfade', () => {
+    const reduced = css.match(/@media \(prefers-reduced-motion: reduce\)\s*\{([\s\S]*?)\}/)?.[1] ?? ''
+    expect(reduced).toContain('.fading > *')
+    expect(reduced).toContain('animation: none')
   })
 })

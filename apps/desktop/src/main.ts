@@ -724,6 +724,78 @@ async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
   window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
 }
 
+/** Drag the sidebar resize handle with real pointer input to a new edge x. */
+async function dragSidebarHandle(window: BrowserWindow, toX: number): Promise<void> {
+  const point = await window.webContents.executeJavaScript(`(() => {
+    const handle = document.querySelector('[data-side="sidebar"]');
+    if (handle === null) return null;
+    const box = handle.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+  if (point === null) {
+    const state = await window.webContents.executeJavaScript(`(() => {
+      const frame = document.querySelector('[data-side="sidebar"]')?.parentElement;
+      return {
+        innerWidth,
+        collapsed: document.querySelector('[data-sidebar-collapsed]') !== null,
+        reveal: document.querySelector('[data-sidebar-reveal]') !== null,
+        toggle: document.querySelector('[data-sidebar-toggle]') !== null,
+        sides: Array.from(document.querySelectorAll('[data-side]')).map(el => el.getAttribute('data-side')),
+        frameTemplate: frame === null ? null : getComputedStyle(frame).gridTemplateColumns,
+        frameAttrs: frame === null ? null : frame.getAttributeNames(),
+      };
+    })()`) as unknown
+    throw new Error(`desktop acceptance: sidebar resize handle is not rendered; frame state: ${JSON.stringify(state)}`)
+  }
+  window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  await new Promise(resolveWait => setTimeout(resolveWait, 100))
+  window.webContents.sendInputEvent({
+    type: 'mouseMove',
+    x: toX,
+    y: point.y,
+    movementX: toX - point.x,
+    movementY: 0,
+    modifiers: ['leftbuttondown'],
+  })
+  await new Promise(resolveWait => setTimeout(resolveWait, 100))
+  window.webContents.sendInputEvent({ type: 'mouseUp', x: toX, y: point.y, button: 'left', clickCount: 1 })
+  await new Promise(resolveWait => setTimeout(resolveWait, 150))
+  const landed = await window.webContents.executeJavaScript(`(() => {
+    const handle = document.querySelector('[data-side="sidebar"]');
+    const frame = document.querySelector('[data-side="sidebar"]')?.parentElement;
+    return {
+      handleLeft: handle === null ? null : handle.style.left,
+      frameTemplate: frame === null ? null : getComputedStyle(frame).gridTemplateColumns,
+      active: document.activeElement?.tagName,
+    };
+  })()`) as unknown
+  if (typeof landed === 'object' && landed !== null
+    && (landed as Record<string, unknown>)['handleLeft'] !== `${toX}px`) {
+    throw new Error(`desktop acceptance: sidebar drag did not land on ${toX}px: ${JSON.stringify(landed)}`)
+  }
+}
+
+/** Measure the collapsed-sidebar contract: zero-width track, reveal control
+ * position, conversation-header clearance, and the reclaimed conversation
+ * surface (issue #33). */
+function collapsedSidebarGeometry(window: BrowserWindow): Promise<unknown> {
+  return window.webContents.executeJavaScript(`(() => {
+    const frame = document.querySelector('[data-sidebar-collapsed]');
+    const reveal = document.querySelector('[data-sidebar-reveal]');
+    const header = document.querySelector('[data-conversation-header]');
+    const conversation = document.querySelector('[data-center-column]');
+    const track = frame === null ? null : getComputedStyle(frame).gridTemplateColumns;
+    return {
+      track,
+      reveal: reveal === null ? null : reveal.getBoundingClientRect().toJSON(),
+      headerPaddingLeft: header === null ? null : getComputedStyle(header).paddingLeft,
+      conversation: conversation === null
+        ? null
+        : { ...conversation.getBoundingClientRect().toJSON(), viewport: innerWidth },
+    };
+  })()`)
+}
+
 type AcceptanceRpcResult =
   | { readonly ok: true; readonly value: Record<string, unknown> }
   | { readonly ok: false; readonly error: { readonly code: string; readonly message: string } }
@@ -772,7 +844,25 @@ const SETTLED_BASH_CARD = '[data-sample="bash"][data-state="ok"]'
 async function completeOnboarding(window: BrowserWindow): Promise<void> {
   const dialog = '[role="dialog"]'
   const title = `${dialog} h2`
-  await waitForRenderer(window, `document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Internal Testing Notice'`)
+  try {
+    // The welcome notice needs a settings round trip through the desktop
+    // wire; the first boot can take a while on a busy machine.
+    await waitForRenderer(window, `document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Internal Testing Notice'`, 60_000)
+  } catch (error) {
+    const state = await window.webContents.executeJavaScript(`(() => {
+      const dialogs = [...document.querySelectorAll('[role="dialog"]')].map(dialogEl => ({
+        h2: dialogEl.querySelector('h2')?.textContent?.trim() ?? null,
+        heading: dialogEl.querySelector('h1, h2, h3')?.textContent?.trim() ?? null,
+      }));
+      return {
+        dialogs,
+        innerWidth,
+        assembled: document.querySelector('#root > *') !== null,
+        bodyPrefix: document.body?.textContent?.trim().slice(0, 160) ?? null,
+      };
+    })()`).catch(() => null) as unknown
+    throw new Error(`${String(error)}; page state: ${JSON.stringify(state)}`)
+  }
   await clickAt(window, `${dialog} button`)
   await waitForRenderer(window, `!document.querySelector(${JSON.stringify(dialog)}) || document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Add an API key to get started'`)
   const secondTitle = await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(title)})?.textContent?.trim()`) as string | undefined
@@ -833,6 +923,7 @@ async function reachLiveComposer(
   window.webContents.reload()
   await loaded
   await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+  await applyRendererNativeState(window)
   await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
 
   await waitForRenderer(window, "document.querySelector('textarea[aria-haspopup]') && !document.querySelector('textarea').disabled")
@@ -1216,7 +1307,10 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     throw new Error(`desktop acceptance: Host did not reach the running phase (${lifecycle.phase})`)
   }
   const focus: string[] = []
-  window.setBounds({ x: 120, y: 120, width: 960, height: 700 })
+  // Keep the window above SIDEBAR_AUTO_COLLAPSE (1024px). Work-area clamping
+  // can narrow it again, so the phase re-expands the sidebar before dragging
+  // when necessary.
+  window.setBounds({ x: 120, y: 120, width: 1160, height: 700 })
   window.show()
   window.focus()
   focus.push('active')
@@ -1299,6 +1393,47 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
         keyboardValue: textarea.value,
       };
     })()`) as unknown
+
+    // The collapsed sidebar must leave a zero-width track, give the
+    // conversation the reclaimed width, clear native traffic lights in a
+    // window, move to the content inset in full screen, and restore the exact
+    // user width after reveal.
+    // Work-area clamping may auto-collapse after setBounds; expand before drag.
+    window.setBounds({ x: 120, y: 120, width: 1160, height: 700 })
+    await new Promise(resolveWait => setTimeout(resolveWait, 300))
+    if (await window.webContents.executeJavaScript("document.querySelector('[data-sidebar-reveal]') !== null")) {
+      await clickAt(window, '[data-sidebar-reveal]')
+      await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    }
+    await dragSidebarHandle(window, 350)
+    await waitForRenderer(window, "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns.startsWith('350px')")
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    await waitForRenderer(window, "getComputedStyle(document.querySelector('[data-sidebar-collapsed]')).gridTemplateColumns.startsWith('0px')")
+    const collapsed = await collapsedSidebarGeometry(window)
+    let collapsedFullscreen: unknown
+    let collapsedFullscreenActive: unknown
+    await exerciseFullscreen(window, async () => {
+      collapsedFullscreen = await collapsedSidebarGeometry(window)
+      collapsedFullscreenActive = await window.webContents.executeJavaScript(
+        'document.body.dataset.dshFullscreen',
+      ) as unknown
+    })
+    const collapsedAfter = await window.webContents.executeJavaScript(
+      'document.body.dataset.dshFullscreen',
+    ) as unknown
+    await clickAt(window, '[data-sidebar-reveal]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    await waitForRenderer(window, "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns.startsWith('350px')")
+    const restoredTrack = await window.webContents.executeJavaScript(
+      "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns",
+    ) as unknown
+    // A reveal cycle must not detach the resize interaction.
+    await dragSidebarHandle(window, 380)
+    const resizedAfterCycle = await window.webContents.executeJavaScript(
+      "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns",
+    ) as unknown
+
     console.log(`NATIVE_WINDOW_ACCEPTANCE ${JSON.stringify({
       focus,
       window: {
@@ -1314,6 +1449,14 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
         after: fullscreenAfter,
       },
       renderer: { ...(renderer as Record<string, unknown>), keyboardBeforeMinimize },
+      collapse: {
+        windowed: collapsed,
+        fullscreen: collapsedFullscreen,
+        fullscreenActive: collapsedFullscreenActive,
+        fullscreenAfter: collapsedAfter,
+        restoredTrack,
+        resizedAfterCycle,
+      },
     })}`)
   } finally {
     other?.destroy()
@@ -1398,7 +1541,10 @@ async function recordNativeWindow(
   }
   const recorder = createFrameRecorder(window, framesDir)
   const focus: string[] = []
-  window.setBounds({ x: 120, y: 120, width: 960, height: 700 })
+  // Keep the window above SIDEBAR_AUTO_COLLAPSE (1024px). Work-area clamping
+  // can narrow it again, so the phase re-expands the sidebar before dragging
+  // when necessary.
+  window.setBounds({ x: 120, y: 120, width: 1160, height: 700 })
   window.show()
   window.focus()
   focus.push('active')
@@ -1451,6 +1597,23 @@ async function recordNativeWindow(
     await recorder.capture('restored')
 
     await exerciseFullscreen(window, () => recorder.capture('fullscreen'))
+
+    // Capture the collapsed layout in both windowed and full-screen geometry;
+    // work-area clamping may require an explicit reveal before the toggle is
+    // available.
+    if (await window.webContents.executeJavaScript("document.querySelector('[data-sidebar-reveal]') !== null")) {
+      await clickAt(window, '[data-sidebar-reveal]')
+      await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    }
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    await new Promise(resolveWait => setTimeout(resolveWait, 400))
+    await recorder.capture('sidebar-collapsed')
+    await exerciseFullscreen(window, () => recorder.capture('fullscreen-collapsed'))
+    await clickAt(window, '[data-sidebar-reveal]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    await new Promise(resolveWait => setTimeout(resolveWait, 400))
+    await recorder.capture('sidebar-revealed')
 
     nativeTheme.themeSource = 'dark'
     await new Promise(resolveWait => setTimeout(resolveWait, 250))

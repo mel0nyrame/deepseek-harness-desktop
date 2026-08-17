@@ -63,19 +63,17 @@ describe('sidebar shell snapshots', () => {
     await runtime.dispose()
   })
 
-  it('renders the collapsed rail after the crossfade settles, in place', async () => {
+  it('collapses to nothing after the crossfade settles (zero-width track)', async () => {
     const { runtime } = await bench({ locale: 'en' })
     const slot = runtime.renderSlot('sidebar', { collapsed: false, width: 300 })
-    const shell = slot.container.firstElementChild
-    slot.update({ collapsed: true, width: 56 })
-    // The wide content (wordmark shortcut) unmounts at the 150ms settle;
-    // only the rail's capsule remains a New-session button.
+    slot.update({ collapsed: true, width: 0 })
+    // The wide content survives the 150ms crossfade (frozen width, fading),
+    // then the shell unmounts: the zero-width track carries nothing, and the
+    // frame's own reveal control (outside this slot) takes over.
     await waitFor(() => {
-      expect(slot.view.getAllByRole('button', { name: 'New session' })).toHaveLength(1)
+      expect(slot.container.firstElementChild).toBeNull()
     })
-    expect(slot.container).toMatchSnapshot()
-    // Same tree position: the owner flip re-rendered the shell in place.
-    expect(slot.container.firstElementChild).toBe(shell)
+    expect(slot.view.queryByRole('button')).toBeNull()
     await runtime.dispose()
   })
 

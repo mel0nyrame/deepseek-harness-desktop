@@ -39,14 +39,14 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
       ) => {
         if (key === 'sidebar.settings') {
           settingsOwner = owner
-          return <div data-testid="settings-seat" data-wide={owner.wide} />
+          return <div data-testid="settings-seat" />
         }
         if (key === 'sidebar.footer.action') {
           footerActionOwner = owner
-          return <div data-testid="footer-action-seat" data-wide={owner.wide} />
+          return <div data-testid="footer-action-seat" />
         }
-        regionOwner = owner as SidebarSectionOwnerProps
-        return <div data-testid="region" data-wide={owner.wide} />
+        regionOwner = owner
+        return <div data-testid="region" />
       }) as SidebarRootComponentProps['renderSlot']}
     />
   )
@@ -98,35 +98,32 @@ describe('SidebarRoot shell', () => {
     expect(brandRow?.querySelector('button')?.getAttribute('aria-label')).toBe('New session')
   })
 
-  it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {
+  it('hands child seats no collapse compatibility state', () => {
     const b = mountShell()
-    expect(b.regionOwner().wide).toBe(true)
-    // The settings seat rides the same wide flag (ui-settings renders the row).
-    expect(b.settingsOwner().wide).toBe(true)
-    expect(b.footerActionOwner().wide).toBe(true)
-    // Expanded: the request is a no-op (no accidental collapse).
-    b.regionOwner().expandSidebar()
-    expect(b.toggleSidebar).not.toHaveBeenCalled()
+    expect(b.regionOwner()).toEqual({})
+    expect(b.settingsOwner()).toEqual({})
+    expect(b.footerActionOwner()).toEqual({})
   })
 
-  it('keeps the region mounted through collapse and expands on its request', () => {
+  it('keeps the region mounted through the crossfade, then unmounts at the zero-width settle', () => {
     vi.useFakeTimers()
     const b = mountShell()
-    b.rerender({ collapsed: true })
-    // Wide content survives the crossfade window, then settles into the rail.
-    expect(b.regionOwner().wide).toBe(true)
+    b.rerender({ collapsed: true, width: 0 })
+    // Content survives the crossfade window (frozen width, fading).
+    expect(b.regionOwner()).toEqual({})
     vi.advanceTimersByTime(200)
     b.rerender({})
-    expect(b.regionOwner().wide).toBe(false)
-    expect(b.footerActionOwner().wide).toBe(false)
-    expect(screen.getByTestId('region')).toBeTruthy()
-    b.regionOwner().expandSidebar()
-    expect(b.toggleSidebar).toHaveBeenCalledOnce()
+    // At settle the zero-width track carries nothing: the shell unmounts and
+    // the frame's reveal control takes over (AppFrame owns that affordance).
+    expect(screen.queryByTestId('region')).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Collapse sidebar' })).toBeNull()
   })
 
-  it('renders statically collapsed on a cold start (no crossfade classes)', () => {
-    const b = mountShell({ collapsed: true })
-    expect(b.regionOwner().wide).toBe(false)
-    expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
+  it('renders nothing on a cold collapsed start (no rail, no crossfade classes)', () => {
+    mountShell({ collapsed: true, width: 0 })
+    expect(screen.queryByTestId('region')).toBeNull()
+    expect(screen.queryByTestId('settings-seat')).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+    expect(document.querySelector('[data-sidebar-toggle]')).toBeNull()
   })
 })

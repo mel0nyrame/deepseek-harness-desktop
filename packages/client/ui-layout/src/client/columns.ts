@@ -4,13 +4,13 @@
  * details, then auto-closing it (derived zero width — preferred width
  * preferences are never rewritten, so widening the window restores them).
  * The sidebar never concedes: its rendered width is always the drag
- * preference (or the collapsed rail), and center absorbs any remaining
+ * preference (or zero when closed), and center absorbs any remaining
  * deficit as the last resort. Inputs are the layout store's plain width
- * preferences (0 = closed); a closed sidebar resolves to the fixed
- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
- * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
- * the effective sidebar preference before solving; the solver itself stays
- * breakpoint-free.
+ * preferences (0 = closed); a closed sidebar resolves to a zero-width track
+ * (the collapse reveal control lives outside the column, AppFrame) while
+ * closed details resolve to zero width too. The SIDEBAR_AUTO_COLLAPSE
+ * breakpoint is consumed by AppFrame, which decides the effective sidebar
+ * preference before solving; the solver itself stays breakpoint-free.
  */
 
 /** Resolved widths for one frame; center may drop below CENTER_MIN only at the final fallback. */
@@ -25,9 +25,7 @@ export const SIDEBAR_MIN = 264
 export const SIDEBAR_MAX = 420
 /** Sidebar width before any user drag. */
 export const SIDEBAR_DEFAULT = 280
-/** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
-export const SIDEBAR_COLLAPSED = 56
-/** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
+/** Viewport width below which the sidebar auto-collapses to zero width (deepsuite
  * LG breakpoint); a manual toggle below it re-expands over the squeezed center
  * (stores.ts narrowExpanded). */
 export const SIDEBAR_AUTO_COLLAPSE = 1024
@@ -57,11 +55,13 @@ export function clampWidth(px: number, min: number, max: number): number {
  * @param viewport - available frame width in px.
  * @param sidebar - sidebar width preference in px (0 = closed).
  * @param details - details width preference in px (0 = closed).
- * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
+ * @returns resolved widths; 0 means visually closed — details never unmounts,
+ * and a closed sidebar keeps nothing on its zero-width track (the reveal
+ * control is a frame child, outside the sidebar subtree).
  */
 export function computeColumns(viewport: number, sidebar: number, details: number): Columns {
-  // The sidebar is fixed at its preference (or the rail) — it never concedes.
-  const s = sidebar === 0 ? SIDEBAR_COLLAPSED : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
+  // The sidebar is fixed at its preference (or zero) — it never concedes.
+  const s = sidebar === 0 ? 0 : clampWidth(sidebar, SIDEBAR_MIN, SIDEBAR_MAX)
   const d0 = details === 0 ? 0 : clampWidth(details, DETAILS_MIN, DETAILS_MAX)
 
   // Step 1: everything fits at preferred widths.

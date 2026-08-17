@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
   DESKTOP_SURFACE_CSS,
+  MACOS_COLLAPSED_HEADER_INSET_PX,
   MACOS_CONTROL_ROW_INSET_PX,
+  MACOS_FULLSCREEN_HEADER_INSET_PX,
+  MACOS_FULLSCREEN_REVEAL_INSET_PX,
+  MACOS_REVEAL_INSET_PX,
   MACOS_TRAFFIC_LIGHT_POSITION,
   desktopWindowOptions,
   rendererSurfaceState,
@@ -69,20 +73,57 @@ describe('native macOS desktop window contract', () => {
     expect(compact?.[1]).toContain(`padding: 0 0 0 ${MACOS_CONTROL_ROW_INSET_PX}px !important`)
     expect(compact?.[1]).toContain('justify-content: flex-start !important')
     expect(compact?.[1]).toContain('height: 28px !important')
-    const railOverride = rules.find(([selector]) => selector.includes('[data-sidebar-collapsed]'))
-    expect(railOverride).toBeDefined()
-    expect(railOverride?.[1]).toContain('height: 36px !important')
     expect(rules.some(([selector, declarations]) =>
       selector.includes('[data-sidebar-brand-inline]') && declarations.includes('display: none !important'),
     )).toBe(true)
     expect(rules.some(([selector, declarations]) =>
       selector.includes('[data-sidebar-brand-row]') && declarations.includes('display: flex !important'),
     )).toBe(true)
-    const fullscreen = rules.filter(([selector]) => selector.includes("data-dsh-fullscreen='true'"))
+    // Full screen returns the sidebar's own control and wordmark rows to the
+    // left content inset (the reveal and header rules are asserted separately).
+    const fullscreen = rules.filter(([selector]) =>
+      selector.includes("data-dsh-fullscreen='true'")
+      && (selector.includes('[data-sidebar-control-row]') || selector.includes('[data-sidebar-brand-row]')),
+    )
     expect(fullscreen.length).toBeGreaterThan(0)
     for (const [, declarations] of fullscreen) {
       expect(declarations).toContain('padding-left: 0 !important')
     }
+  })
+
+  it('positions the collapsed reveal control and clears the conversation header (issue #33)', () => {
+    const rules = cssRules(DESKTOP_SURFACE_CSS)
+
+    // The collapsed rail override is gone: no rule targets the sidebar's
+    // control row under data-sidebar-collapsed (zero-width collapse leaves
+    // no rail for the shell to lay out).
+    expect(rules.some(([selector]) =>
+      selector.includes('[data-sidebar-collapsed]') && selector.includes('[data-sidebar-control-row]'),
+    )).toBe(false)
+
+    // Windowed: the reveal control clears the native traffic-light group;
+    // full screen returns it to the sidebar's left content inset.
+    const reveal = rules.find(([selector]) => selector.endsWith('[data-sidebar-reveal]'))
+    expect(reveal).toBeDefined()
+    expect(reveal?.[1]).toContain(`left: ${MACOS_REVEAL_INSET_PX}px !important`)
+    const revealFullscreen = rules.find(([selector]) =>
+      selector.includes("data-dsh-fullscreen='true'") && selector.endsWith('[data-sidebar-reveal]'),
+    )
+    expect(revealFullscreen).toBeDefined()
+    expect(revealFullscreen?.[1]).toContain(`left: ${MACOS_FULLSCREEN_REVEAL_INSET_PX}px !important`)
+
+    // The conversation header clears the top-left chrome cluster in both
+    // states — never the former sidebar width.
+    const header = rules.find(([selector]) =>
+      selector.includes('[data-sidebar-collapsed]') && selector.endsWith('[data-conversation-header]'),
+    )
+    expect(header).toBeDefined()
+    expect(header?.[1]).toContain(`padding-left: ${MACOS_COLLAPSED_HEADER_INSET_PX}px !important`)
+    const headerFullscreen = rules.find(([selector]) =>
+      selector.includes("data-dsh-fullscreen='true'") && selector.endsWith('[data-conversation-header]'),
+    )
+    expect(headerFullscreen).toBeDefined()
+    expect(headerFullscreen?.[1]).toContain(`padding-left: ${MACOS_FULLSCREEN_HEADER_INSET_PX}px !important`)
   })
 
   it('keeps reduced-transparency surfaces opaque and keyboard focus visible', () => {

@@ -6,16 +6,19 @@
  * (the real one is framework-wired to the renderer host; its own behavior is
  * web-react's spec territory). Drag sequences (pointer capture + rAF flush),
  * concession response to viewport change, and details staying mounted at
- * zero width are the preserved behavior assertions. jsdom has no layout
- * engine, so the frame width comes from a mocked getBoundingClientRect and
- * resizes are driven through the ResizeObserver stub.
+ * zero width are the preserved behavior assertions. The zero-width collapse
+ * contract lives here too: the collapsed sidebar is a zero-width grid track,
+ * its reveal control is a frame child outside the sidebar subtree, and
+ * expand restores the last usable width. jsdom has no layout engine, so the
+ * frame width comes from a mocked getBoundingClientRect and resizes are
+ * driven through the ResizeObserver stub.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import { AppFrame } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
 import type { AppFrameProps } from '@deepseek-ai/dsh-client-ui-layout/src/client/AppFrame.tsx'
-import { SIDEBAR_COLLAPSED } from '@deepseek-ai/dsh-client-ui-layout/src/client/columns.ts'
+import { en } from '@deepseek-ai/dsh-client-ui-layout/src/client/locales.ts'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
 import type {
   SessionId, SessionListState, WorkspaceListState,
@@ -88,6 +91,7 @@ function mountFrame() {
       useSessions={useSessions}
       useWorkspaces={((sel: (s: WorkspaceListState) => unknown) => sel(workspaceState)) as never}
       SessionProvider={SessionProviderStub}
+      t={key => (en as Record<string, string>)[key] ?? key}
     />
   )
   const utils = render(element())
@@ -251,14 +255,42 @@ describe('AppFrame', () => {
     expect(frame.hasAttribute('data-details-collapsed')).toBe(true)
   })
 
-  it('closed sidebar keeps its compact rail with mounted slot content and collapsed owner props', () => {
+  it('collapsed sidebar resolves to a zero-width track with the reveal control outside the sidebar subtree', () => {
     const { frame, instance, slotCalls, getByTestId } = mountFrame()
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(tracks(frame)).toEqual([0, 0])
+    // The slot stays mounted on the zero-width track and sees its state;
+    // the reveal control is a frame child, not part of the sidebar subtree.
     expect(getByTestId('sidebar-content')).toBeTruthy()
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
     const lastSidebarCall = slotCalls.filter(c => c.key === 'sidebar').at(-1)!
-    expect(lastSidebarCall.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
+    expect(lastSidebarCall.props).toEqual({ collapsed: true, width: 0 })
+    const reveal = frame.querySelector('[data-sidebar-reveal]')
+    expect(reveal).not.toBeNull()
+    expect(reveal?.parentElement).toBe(frame)
+    expect(frame.querySelector('[data-center-column]')).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Open sidebar' })).toBeTruthy()
+  })
+
+  it('the reveal control expands and restores the last usable width, not the default', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.setSidebar(400) })
+    act(() => { instance.actions.toggleSidebar() })
+    expect(tracks(frame)).toEqual([0, 0])
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }))
+    expect(tracks(frame)).toEqual([400, 0])
+    expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
+    expect(frame.querySelector('[data-sidebar-reveal]')).toBeNull()
+  })
+
+  it('sidebar resizing remains functional after a collapse/expand cycle', () => {
+    const { frame, instance } = mountFrame()
+    act(() => { instance.actions.toggleSidebar() })
+    fireEvent.click(screen.getByRole('button', { name: 'Open sidebar' }))
+    const handles = frame.querySelectorAll('[class*="handle"]')
+    drag(handles[0]!, 280, 330)
+    expect(tracks(frame)[0]).toBe(330)
+    expect(instance.getSnapshot().sidebar).toBe(330)
   })
 
   it('viewport shrink triggers the concession chain via ResizeObserver', () => {
@@ -285,12 +317,13 @@ describe('AppFrame', () => {
 })
 
 describe('AppFrame — narrow-viewport auto-collapse', () => {
-  it('mounts collapsed below the breakpoint with no sidebar handle', () => {
+  it('mounts collapsed below the breakpoint on a zero-width track with the reveal control', () => {
     frameWidth = 980
     const { frame, slotCalls } = mountFrame()
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(tracks(frame)).toEqual([0, 0])
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(true)
-    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: SIDEBAR_COLLAPSED })
+    expect(slotCalls.filter(c => c.key === 'sidebar').at(-1)!.props).toEqual({ collapsed: true, width: 0 })
+    expect(frame.querySelector('[data-sidebar-reveal]')).not.toBeNull()
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(0)
   })
 
@@ -302,7 +335,8 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     expect(frame.hasAttribute('data-sidebar-collapsed')).toBe(false)
     expect(frame.querySelectorAll('[class*="handle"]')).toHaveLength(1)
     act(() => { instance.actions.toggleSidebar() })
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(tracks(frame)).toEqual([0, 0])
+    expect(frame.querySelector('[data-sidebar-reveal]')).not.toBeNull()
   })
 
   it('a wide-closed preference re-expands at the contract default while narrow', () => {
@@ -321,7 +355,7 @@ describe('AppFrame — narrow-viewport auto-collapse', () => {
     act(() => { instance.actions.setSidebar(400) })
     frameWidth = 980
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
-    expect(tracks(frame)).toEqual([SIDEBAR_COLLAPSED, 0])
+    expect(tracks(frame)).toEqual([0, 0])
     frameWidth = 1920
     act(() => { fireResize?.(); vi.advanceTimersByTime(20) })
     expect(tracks(frame)).toEqual([400, 0])

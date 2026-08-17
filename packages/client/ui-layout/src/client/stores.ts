@@ -14,13 +14,14 @@ import {
 } from './columns.ts'
 
 /**
- * Layout store state: panel width preferences in px (0 = closed), plus the
+ * Layout store state: panel width preferences in px (0 = closed), the
+ * sidebar's last usable width (the manual expand restore target), plus the
  * narrow-viewport pair — `narrow` mirrors AppFrame's breakpoint reading
  * (viewport < SIDEBAR_AUTO_COLLAPSE) so toggleSidebar can pick semantics, and
  * `narrowExpanded` is the manual override that re-expands the auto-collapsed
  * sidebar over the squeezed center without rewriting the width preference.
  */
-type LayoutState = { sidebar: number; details: number; narrow: boolean; narrowExpanded: boolean }
+type LayoutState = { sidebar: number; sidebarLast: number; details: number; narrow: boolean; narrowExpanded: boolean }
 
 /**
  * Annotation twin of the actions literal below (the export needs a declared
@@ -36,26 +37,40 @@ type LayoutActions = {
 }
 
 /**
- * Create the layout panel store handle. The preference IS the width, so
- * closing a panel forgets its drag width — reopening restores the contract
- * default. Actions are the complete write set: drag writes clamp
- * into the panel's contract range and never cross the open/closed line;
- * open/close transitions write 0 / the default explicitly. Below the
- * auto-collapse breakpoint (AppFrame feeds setNarrow) the sidebar toggle
- * flips the narrowExpanded override instead of the preference.
+ * Create the layout panel store handle. `sidebar` IS the width, so closing
+ * writes 0 while `sidebarLast` keeps the last usable width for the expand
+ * restore; `setSidebar` refreshes `sidebarLast` on every open write. Actions
+ * are the complete write set: drag writes clamp into the panel's contract
+ * range and never cross the open/closed line; open/close transitions write
+ * 0 / the restore width explicitly. Below the auto-collapse breakpoint
+ * (AppFrame feeds setNarrow) the sidebar toggle flips the narrowExpanded
+ * override instead of the preference.
  * @returns the store handle (spec + type + identity + factory in one).
  */
 export function createLayoutStore(): EngineStoreHandle<LayoutState, LayoutActions>  {
   const handle = defineStore({
-    init: (): LayoutState => ({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false }),
+    init: (): LayoutState => ({
+      sidebar: SIDEBAR_DEFAULT,
+      sidebarLast: SIDEBAR_DEFAULT,
+      details: 0,
+      narrow: false,
+      narrowExpanded: false,
+    }),
     actions: {
-      setSidebar: (d, px: number) => { d.sidebar = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX) },
+      setSidebar: (d, px: number) => {
+        const width = clampWidth(px, SIDEBAR_MIN, SIDEBAR_MAX)
+        d.sidebar = width
+        d.sidebarLast = width
+      },
       setDetails: (d, px: number) => { d.details = clampWidth(px, DETAILS_MIN, DETAILS_MAX) },
-      // Narrow toggles flip only the override: the width preference survives
-      // untouched, so re-widening restores the pre-squeeze layout.
+      // Wide toggles close by remembering the current width and opening by
+      // restoring it (never the contract default once a width exists); narrow
+      // toggles flip only the override, so the width preference survives
+      // untouched and re-widening restores the pre-squeeze layout.
       toggleSidebar: (d) => {
         if (d.narrow) d.narrowExpanded = !d.narrowExpanded
-        else d.sidebar = d.sidebar === 0 ? SIDEBAR_DEFAULT : 0
+        else if (d.sidebar === 0) d.sidebar = d.sidebarLast
+        else { d.sidebarLast = d.sidebar; d.sidebar = 0 }
       },
       // Crossing the breakpoint in either direction drops the override: the
       // narrow default is auto-collapsed, the wide state is the preference.

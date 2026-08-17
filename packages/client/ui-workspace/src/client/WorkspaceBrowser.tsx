@@ -2,10 +2,8 @@
  * The workspace/session browsing region filling the sidebar shell's
  * `sidebar.workspaces` hole: section header (title + view options + add
  * workspace), search, the grouped tree or flat list, and the workspace
- * dialogs. Wide state renders the full browser; rail state renders the two
- * region icons (search / add workspace) as 36px controls on the shell's shared
- * rail entry path, each requesting expansion through the owner share. Adding
- * is the header button's one action, so it raises the directory flow with no
+ * dialogs. Adding is the header button's one action, so it raises the
+ * directory flow with no
  * menu in between; the flow and its error dialog live in WorkspacePicker
  * (same package — direct composition, no slot between them).
  */
@@ -26,11 +24,6 @@ import { FLAT_SESSION_ORDER_KEY } from './stores.ts'
 import { WorkspacePickFlow } from './WorkspacePicker.tsx'
 import css from './WorkspaceBrowser.module.css'
 
-/**
- * Column slide length (--ds-transition-duration-slow): rail-search focus waits it out —
- * focus() forces a synchronous layout and would jank the slide.
- */
-const EXPAND_SLIDE_MS = 300
 /** Pause between the latest keystroke and a Host content-search request. */
 const SEARCH_DEBOUNCE_MS = 250
 /** `session.search` wire bound, measured in JavaScript UTF-16 code units. */
@@ -739,8 +732,6 @@ function SearchResults({
  * @returns the region element tree.
  */
 export function WorkspaceBrowser({
-  wide,
-  expandSidebar,
   useSessions,
   useWorkspaces,
   useStore,
@@ -780,8 +771,6 @@ export function WorkspaceBrowser({
       ...workspaces.map(workspace => workspace.workspaceId as string),
     ])
   }, [actions.retainAccountKeys, workspacePhase, workspaces])
-  // The query outlives the tree and the input (both wide-only) so collapsing
-  // does not silently drop an in-progress filter.
   const [query, setQuery] = useState('')
   const [searchExpanded, setSearchExpanded] = useState(false)
   const normalizedQuery = sanitizeSearchQuery(query).trim()
@@ -793,32 +782,18 @@ export function WorkspaceBrowser({
   })
   const searchRoot = useRef<HTMLDivElement | null>(null)
   const searchInput = useRef<HTMLInputElement | null>(null)
-  // Section-header ＋ opens the picker menu (same popover in wide and rail
-  // states; the menu anchors on this button).
+  // Section-header ＋ opens the picker menu anchored on this button.
   const [wsPickerOpen, setWsPickerOpen] = useState(false)
   const wsPlusRef = useRef<HTMLButtonElement>(null)
   const composingRef = useRef(false)
 
-  // Rail search = expand + land in the search box: the flag arms before the
-  // expand request; once the shell flips wide the input mounts and takes focus.
-  const [searchOnExpand, setSearchOnExpand] = useState(false)
   useEffect(() => {
-    if (wide && searchOnExpand) {
-      const timer = window.setTimeout(() => {
-        searchInput.current?.focus({ preventScroll: true })
-        setSearchOnExpand(false)
-      }, EXPAND_SLIDE_MS)
-      return () => { window.clearTimeout(timer) }
-    }
-  }, [wide, searchOnExpand])
-
-  useEffect(() => {
-    if (!wide || !searchExpanded || searchOnExpand) return
+    if (!searchExpanded) return
     searchInput.current?.focus({ preventScroll: true })
-  }, [wide, searchExpanded, searchOnExpand])
+  }, [searchExpanded])
 
   useEffect(() => {
-    if (!wide || !searchExpanded) return
+    if (!searchExpanded) return
     const onClick = (event: MouseEvent): void => {
       if (!(event.target instanceof Node) || searchRoot.current?.contains(event.target) === true) return
       searchInput.current?.blur()
@@ -827,7 +802,7 @@ export function WorkspaceBrowser({
     }
     document.addEventListener('click', onClick)
     return () => { document.removeEventListener('click', onClick) }
-  }, [normalizedQuery, wide, searchExpanded])
+  }, [normalizedQuery, searchExpanded])
 
   useEffect(() => {
     if (normalizedQuery === '') {
@@ -973,80 +948,74 @@ export function WorkspaceBrowser({
   }
 
   return (
-    <div className={clsx(css.root, !wide && css.rail)}>
+    <div className={css.root}>
       <div className={css.sectionHeader}>
-        {wide && (
-          <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
-            {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
-          </span>
-        )}
-        {wide && (
-          <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
-            <div
-              ref={searchRoot}
-              className={clsx(css.search, searchExpanded && css.searchExpanded)}
-              onClick={() => {
-                setWsPickerOpen(false)
-                setSearchExpanded(true)
-                searchInput.current?.focus()
+        <span className={clsx(css.sectionLabel, css.wide, searchExpanded && css.sectionLabelHidden)}>
+          {groupBy === 'flat' ? t('section.sessions') : t('section.workspaces')}
+        </span>
+        <div className={clsx(css.searchSlot, searchExpanded && css.searchSlotExpanded)}>
+          <div
+            ref={searchRoot}
+            className={clsx(css.search, searchExpanded && css.searchExpanded)}
+            onClick={() => {
+              setWsPickerOpen(false)
+              setSearchExpanded(true)
+              searchInput.current?.focus()
+            }}
+          >
+            <Tooltip label={t('search')} side="bottom" delayMs={500} disabled={searchExpanded}>
+              <button
+                type="button"
+                className={css.searchButton}
+                aria-label={t('search.sessions.aria')}
+                aria-expanded={searchExpanded}
+                onClick={() => {
+                  setWsPickerOpen(false)
+                  setSearchExpanded(true)
+                }}
+              >
+                <IconSearchOutline16 size={searchExpanded ? 11 : 14} />
+              </button>
+            </Tooltip>
+            <input
+              ref={searchInput}
+              className={css.searchInput}
+              type="text"
+              placeholder={t('search.placeholder')}
+              maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
+              value={query}
+              tabIndex={searchExpanded ? 0 : -1}
+              onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
+              onKeyDown={(e) => {
+                if (e.key !== 'Escape') return
+                setQuery('')
+                setSearchExpanded(false)
               }}
-            >
-              <Tooltip label={t('search')} side="bottom" delayMs={500} disabled={searchExpanded}>
-                <button
-                  type="button"
-                  className={css.searchButton}
-                  aria-label={t('search.sessions.aria')}
-                  aria-expanded={searchExpanded}
-                  onClick={() => {
-                    setWsPickerOpen(false)
-                    setSearchExpanded(true)
-                  }}
-                >
-                  <IconSearchOutline16 size={searchExpanded ? 11 : 14} />
-                </button>
-              </Tooltip>
-              <input
-                ref={searchInput}
-                className={css.searchInput}
-                type="text"
-                placeholder={t('search.placeholder')}
-                maxLength={SEARCH_QUERY_MAX_CODE_UNITS}
-                value={query}
-                tabIndex={searchExpanded ? 0 : -1}
-                onChange={(e) => { setQuery(sanitizeSearchQuery(e.target.value)) }}
-                onKeyDown={(e) => {
-                  if (e.key !== 'Escape') return
+            />
+            {searchExpanded && (
+              <button
+                type="button"
+                className={css.clearButton}
+                aria-label={t('search.clear')}
+                onClick={(e) => {
+                  e.stopPropagation()
                   setQuery('')
                   setSearchExpanded(false)
                 }}
-              />
-              {searchExpanded && (
-                <button
-                  type="button"
-                  className={css.clearButton}
-                  aria-label={t('search.clear')}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    setQuery('')
-                    setSearchExpanded(false)
-                  }}
-                >
-                  <IconCloseFill14 />
-                </button>
-              )}
-            </div>
+              >
+                <IconCloseFill14 />
+              </button>
+            )}
           </div>
-        )}
-        <div className={clsx(css.headerActions, wide && searchExpanded && css.headerActionsHidden)}>
-          {wide && (
-            <ViewOptionsMenu
-              groupBy={groupBy}
-              orderBy={orderBy}
-              onGroupPick={(mode) => { actions.setGroupBy(mode) }}
-              onOrderPick={(mode) => { actions.setOrderBy(mode) }}
-              t={t}
-            />
-          )}
+        </div>
+        <div className={clsx(css.headerActions, searchExpanded && css.headerActionsHidden)}>
+          <ViewOptionsMenu
+            groupBy={groupBy}
+            orderBy={orderBy}
+            onGroupPick={(mode) => { actions.setGroupBy(mode) }}
+            onOrderPick={(mode) => { actions.setOrderBy(mode) }}
+            t={t}
+          />
           {/* Adding is the button's one action, so a composition with no
               picking affordance has nothing to offer here: the region hides the
               button rather than leaving a dead one in the header. */}
@@ -1061,7 +1030,7 @@ export function WorkspaceBrowser({
                   setWsPickerOpen(v => !v)
                 }}
               >
-                <IconProjectAddOutline16 size={wide ? 16 : 18} />
+                <IconProjectAddOutline16 size={16} />
               </button>
             </Tooltip>
           )}
@@ -1085,28 +1054,8 @@ export function WorkspaceBrowser({
         />
       </div>
 
-      {/* The collapsed rail keeps search as its own 36px control. */}
-      {!wide && <div className={css.search}>
-        <Tooltip label={t('search')}>
-          <button
-            type="button"
-            className={css.searchButton}
-            aria-label={t('search.sessions.aria')}
-            onClick={() => {
-              setSearchExpanded(true)
-              setSearchOnExpand(true)
-              expandSidebar()
-            }}
-          >
-            <IconSearchOutline16 size={18} />
-          </button>
-        </Tooltip>
-      </div>}
-
-      {/* Always-mounted seat keeps the region's flex slot while the list
-          itself is wide-only. */}
       <div className={css.listArea}>
-        {wide && (normalizedQuery !== ''
+        {normalizedQuery !== ''
           ? (
             <SearchResults
               useSessions={useSessions}
@@ -1163,7 +1112,7 @@ export function WorkspaceBrowser({
                   setDeleteError(null)
                 }}
               />
-            ))}
+            )}
       </div>
 
       <Modal

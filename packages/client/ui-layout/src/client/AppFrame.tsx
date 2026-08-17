@@ -2,30 +2,39 @@
  * Three-column shell frame, registered into the built-in 'root' slot (the web
  * shell renders only 'root'). Owns the grid tracks (sidebar | center |
  * details), the drag handles (pointer capture + rAF throttle), the concession
- * chain (columns.ts), and the child-slot render decisions: the sidebar slot
- * renders HERE with live parameters from the concession solve, and the
- * session-aware occupants render in fixed column positions; strict entries
- * gate themselves on current-session availability while session-maybe
- * entries retain identity. Pure component: everything arrives
- * through the three framework shares — zero cordis or framework imports,
+ * chain (columns.ts), the child-slot render decisions, and the collapsed
+ * reveal control: the sidebar slot renders HERE with live parameters from the
+ * concession solve, and the session-aware occupants render in fixed column
+ * positions; strict entries gate themselves on current-session availability
+ * while session-maybe entries retain identity. A collapsed sidebar resolves
+ * to a zero-width track, so its reveal control is a frame child OUTSIDE the
+ * sidebar subtree (data-sidebar-reveal): the desktop shell positions it
+ * beside the native traffic lights (windowed macOS) or at the left content
+ * inset (full screen) via DESKTOP_SURFACE_CSS. Pure component: everything
+ * arrives through the framework shares — zero cordis or framework imports,
  * zero self-made hooks.
  */
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import type { PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import {
+  IconPanelLeftOutline16,
+  Tooltip,
+} from '@deepseek-ai/dsh-client-ui-primitives'
+import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { computeColumns, SIDEBAR_AUTO_COLLAPSE, SIDEBAR_DEFAULT } from './columns.ts'
 import type { createLayoutStore } from './stores.ts'
 import css from './AppFrame.module.css'
 
-/** Full composed props: runtime share + child-slot render share + store share. */
+/** Full composed props: runtime share + child-slot render share + store share + locale share. */
 export type AppFrameProps =
   & PropsRuntime<'root'>
   & PropsRenderSlots<'sidebar' | 'conversation' | 'details' | 'shell.overlay'>
   & PropsStore<ReturnType<typeof createLayoutStore>>
+  & PropsLocale<'layout'>
 
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol}>{props.children}</div>
+  return <div className={css.centerCol} data-center-column="">{props.children}</div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
@@ -89,6 +98,7 @@ export function AppFrame({
   useSessions,
   actions,
   renderSlot,
+  t,
 }: AppFrameProps) {
   const panels = useStore(s => s)
   const detailsSession = useSessions((s) => {
@@ -172,10 +182,10 @@ export function AppFrame({
     >
       <div className={css.sidebarCol}>
         {/* Render-site slot call with live concession output: a closed
-            sidebar keeps the mounted slot at the compact-rail width, and the
+            sidebar keeps the slot mounted on its zero-width track, and the
             component sees its rendered state as owner params decided here
-            (collapsed follows the resolved rail, so a derived auto-collapse
-            renders the rail UI too). */}
+            (collapsed follows the resolved track, so a derived auto-collapse
+            renders the same zero-width result). */}
         {renderSlot('sidebar', {
           collapsed: sidebarCollapsed,
           width: cols.sidebar,
@@ -193,7 +203,23 @@ export function AppFrame({
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
       </div>
-      {/* The collapsed rail is fixed-width: no resize handle while closed. */}
+      {/* The zero-width track has no resize handle; the reveal control is a
+          frame child so it stays visible and interactive outside the sidebar
+          subtree. The desktop shell repositions it (traffic-light row,
+          full-screen content inset) under body[data-dsh-platform='darwin']. */}
+      {sidebarCollapsed && (
+        <Tooltip label={t('toggle.open')} delayMs={500}>
+          <button
+            type="button"
+            className={css.reveal}
+            data-sidebar-reveal=""
+            aria-label={t('toggle.open')}
+            onClick={() => { actions.toggleSidebar() }}
+          >
+            <IconPanelLeftOutline16 className={css.revealIcon} size={18} />
+          </button>
+        </Tooltip>
+      )}
       {!sidebarCollapsed && <DragHandle side="sidebar" left={cols.sidebar} onStart={onSidebarStart} onDrag={onSidebarDrag} onEnd={onDragEnd} />}
       {cols.details > 0 && <DragHandle side="details" left={viewport - cols.details} onStart={onDetailsStart} onDrag={onDetailsDrag} onEnd={onDragEnd} />}
     </div>

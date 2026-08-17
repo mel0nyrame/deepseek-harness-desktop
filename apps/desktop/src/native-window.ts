@@ -12,6 +12,21 @@ export const MACOS_TRAFFIC_LIGHT_POSITION = { x: 16, y: 14 } as const
  */
 export const MACOS_CONTROL_ROW_INSET_PX = 64
 
+/** Collapsed reveal-control left inset (windowed): the toggle's own left edge
+ * (64px row inset + 12px sidebar content padding). */
+export const MACOS_REVEAL_INSET_PX = 76
+
+/** Native full screen: the reveal control returns to the sidebar's left content inset. */
+export const MACOS_FULLSCREEN_REVEAL_INSET_PX = 12
+
+/** Conversation-header clearance while the sidebar is collapsed (windowed):
+ * the reveal control spans 76..104, the title clears it with an 8px gap —
+ * the top-left chrome cluster, never the former sidebar width. */
+export const MACOS_COLLAPSED_HEADER_INSET_PX = 112
+
+/** Full-screen header clearance: the reveal control spans 12..40, plus 8px gap. */
+export const MACOS_FULLSCREEN_HEADER_INSET_PX = 48
+
 /** Renderer chrome injected only by the desktop shell, leaving Web presentation unchanged. */
 export const DESKTOP_SURFACE_CSS = `
 html,
@@ -55,8 +70,7 @@ body[data-dsh-platform='darwin'] [data-slot='details'] {
    row immediately right of the native light group, and the wordmark moves
    to the following row. The sidebar shell keeps the wordmark in the first
    row by default; these rules flip the header under the darwin platform
-   fact, so Web and other desktop platforms keep the previous shell. The
-   collapsed rail keeps its own geometry (issue #33 replaces the rail). */
+   fact, so Web and other desktop platforms keep the previous shell. */
 body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-brand-inline] {
   display: none !important;
 }
@@ -66,13 +80,6 @@ body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-control-row
   height: 28px !important;
   padding: 0 0 0 ${MACOS_CONTROL_ROW_INSET_PX}px !important;
   margin-bottom: 8px !important;
-}
-
-body[data-dsh-platform='darwin'] [data-sidebar-collapsed] [data-slot='sidebar'] [data-sidebar-control-row] {
-  justify-content: flex-start !important;
-  height: 36px !important;
-  padding: 0 !important;
-  margin-bottom: 12px !important;
 }
 
 body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-brand-row] {
@@ -89,6 +96,29 @@ body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-brand-row] 
 body[data-dsh-platform='darwin'][data-dsh-fullscreen='true'] [data-slot='sidebar'] [data-sidebar-control-row],
 body[data-dsh-platform='darwin'][data-dsh-fullscreen='true'] [data-slot='sidebar'] [data-sidebar-brand-row] {
   padding-left: 0 !important;
+}
+
+/* Zero-width collapse (issue #33): the frame's reveal control is the only
+   sidebar affordance while collapsed, positioned outside the zero-width
+   sidebar subtree. Windowed it clears the native traffic-light group; native
+   full screen hides the lights and returns it to the sidebar's left content
+   inset. The conversation header clears the same top-left chrome cluster so
+   the title never sits under the control — the collapsed track reclaimed
+   the former sidebar width, so only this cluster is avoided. */
+body[data-dsh-platform='darwin'] [data-sidebar-reveal] {
+  left: ${MACOS_REVEAL_INSET_PX}px !important;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-fullscreen='true'] [data-sidebar-reveal] {
+  left: ${MACOS_FULLSCREEN_REVEAL_INSET_PX}px !important;
+}
+
+body[data-dsh-platform='darwin'] [data-sidebar-collapsed] [data-slot='conversation'] [data-conversation-header] {
+  padding-left: ${MACOS_COLLAPSED_HEADER_INSET_PX}px !important;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-fullscreen='true'] [data-sidebar-collapsed] [data-slot='conversation'] [data-conversation-header] {
+  padding-left: ${MACOS_FULLSCREEN_HEADER_INSET_PX}px !important;
 }
 
 body[data-dsh-transparency='reduced'] {

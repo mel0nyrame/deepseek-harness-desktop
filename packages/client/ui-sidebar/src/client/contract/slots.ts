@@ -1,7 +1,7 @@
 /**
  * Sidebar slot contract: the registrant-side props composition for the
  * layout-owned `sidebar` slot, plus the holes this shell declares. The shell
- * owns column geometry (fold state machine, brand row, New Session);
+ * owns column geometry (collapse fade, brand row, New Session);
  * everything between the section header and the list bottom is the
  * `sidebar.workspaces` registrant's (ui-workspace), and the foot is the
  * `sidebar.settings` registrant's (ui-settings), followed by optional footer
@@ -25,41 +25,36 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     /**
      * The settings seat at the sidebar foot. Declared by this package's
      * 'sidebar' entry; ui-settings registers its trigger row + modal panel.
-     * The sidebar passes only its column state — it holds no settings state.
+     * The sidebar passes no state — it holds no settings state.
      */
     'sidebar.settings': { kind: 'single'; scope: 'root'; owner: SidebarSettingsOwnerProps }
     /**
      * Optional actions beside Settings at the sidebar foot. Declared by this
-     * package's 'sidebar' entry; each action receives only the column state.
+     * package's 'sidebar' entry; the shell supplies only the render site.
      */
     'sidebar.footer.action': { kind: 'list'; scope: 'root'; owner: SidebarFooterActionOwnerProps }
   }
 }
 
 /**
- * Owner share of the browser hole — the only facts crossing the shell/region
- * boundary. Business data and actions arrive through the region's own inject.
+ * Owner share of the browser hole. Business data and actions arrive through
+ * the region's own inject; the shell supplies only the render site.
  */
 export interface SidebarSectionOwnerProps {
-  /** Shell fold-state output: wide renders the full browser, rail the icon column. */
-  wide: boolean
-  /** Rail icons request expansion; the browser rides the wide flip for focus. */
-  expandSidebar: () => void
+  /** Marker field: the browser owner props are intentionally empty. */
+  children?: never
 }
 
-/**
- * Owner share of the sidebar settings seat: the column display state the
- * occupant's trigger row must render against (wide row vs rail icon).
- */
+/** Owner share of the sidebar settings seat (the shell supplies nothing). */
 export interface SidebarSettingsOwnerProps {
-  /** Whether the sidebar renders wide content (false = 56px rail). */
-  wide: boolean
+  /** Marker field: the settings owner props are intentionally empty. */
+  children?: never
 }
 
 /** Owner share of an action rendered beside Settings at the sidebar foot. */
 export interface SidebarFooterActionOwnerProps {
-  /** Whether the sidebar renders wide content (false = 56px rail). */
-  wide: boolean
+  /** Marker field: action owner props are intentionally empty. */
+  children?: never
 }
 
 /**

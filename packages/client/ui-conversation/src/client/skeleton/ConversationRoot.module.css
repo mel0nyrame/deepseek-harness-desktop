@@ -32,6 +32,16 @@
   border-bottom: 1px solid transparent;
 }
 
+/* Collapsed sidebar (AppFrame's data-sidebar-collapsed frame fact): the
+   frame's reveal control floats over the top-left corner of the reclaimed
+   conversation surface, so the header clears it (12px inset + 28px control +
+   8px gap). The macOS desktop shell adds its own native-control clearance
+   over this seam under body[data-dsh-platform='darwin'] — the title avoids
+   only that top-left chrome cluster, never the former sidebar width. */
+[data-sidebar-collapsed] [data-conversation-header] {
+  padding-left: 48px;
+}
+
 .header::after {
   content: '';
   position: absolute;

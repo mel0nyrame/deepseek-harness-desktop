@@ -222,6 +222,24 @@ describe('packaged desktop application', () => {
           keyboardValue: string
           keyboardBeforeMinimize: { activeElement: string; value: string }
         }
+        collapse: {
+          windowed: {
+            track: string | null
+            reveal: { x: number; y: number; width: number; height: number } | null
+            headerPaddingLeft: string | null
+            conversation: { left: number; width: number; viewport: number } | null
+          }
+          fullscreen: {
+            track: string | null
+            reveal: { x: number; y: number; width: number; height: number } | null
+            headerPaddingLeft: string | null
+            conversation: { left: number; width: number; viewport: number } | null
+          }
+          fullscreenActive: string
+          fullscreenAfter: string
+          restoredTrack: string
+          resizedAfterCycle: string
+        }
       }
       expect(state.focus.slice(0, 3)).toEqual(['active', 'inactive', 'active'])
       expect(state.focus.length).toBeGreaterThanOrEqual(3)
@@ -248,6 +266,41 @@ describe('packaged desktop application', () => {
       // app behavior, not a drag-region or keyboard claim.
       expect(state.renderer.keyboardBeforeMinimize).toEqual({ activeElement: 'TEXTAREA', value: 'KEYBOARD_OK' })
       expect(state.renderer.keyboardValue).toBe('KEYBOARD_OK')
+      // Zero-width collapse (issue #33): the collapsed sidebar resolves to a
+      // zero-width track, the reveal control clears the native traffic-light
+      // group (76px windowed / 12px full screen, same 6px top as the toggle),
+      // the conversation surface is reclaimed, and the header avoids only the
+      // top-left chrome cluster — never the former sidebar width. The reveal
+      // restores the exact dragged width (350px), not the contract default.
+      expect(state.collapse.windowed.track?.startsWith('0px')).toBe(true)
+      const windowedReveal = state.collapse.windowed.reveal
+      expect(windowedReveal).not.toBeNull()
+      // Subpixel-safe: the reveal clears the traffic-light group (76px) at
+      // the toggle's own row (6px), 28x28.
+      expect(Math.abs(windowedReveal!.x - 76)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.y - 6)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.width - 28)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.height - 28)).toBeLessThanOrEqual(1)
+      expect(state.collapse.windowed.headerPaddingLeft).toBe('112px')
+      const conversation = state.collapse.windowed.conversation
+      expect(conversation).not.toBeNull()
+      expect(Math.abs(conversation!.left)).toBeLessThanOrEqual(1)
+      expect(Math.abs(conversation!.width - conversation!.viewport)).toBeLessThanOrEqual(2)
+      expect(state.collapse.fullscreen.track?.startsWith('0px')).toBe(true)
+      const fullscreenReveal = state.collapse.fullscreen.reveal
+      expect(fullscreenReveal).not.toBeNull()
+      // Full screen: the lights disappear and the reveal aligns to the left
+      // content inset (12px) on the same row.
+      expect(Math.abs(fullscreenReveal!.x - 12)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.y - 6)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.width - 28)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.height - 28)).toBeLessThanOrEqual(1)
+      expect(state.collapse.fullscreen.headerPaddingLeft).toBe('48px')
+      expect(state.collapse.fullscreenActive).toBe('true')
+      expect(state.collapse.fullscreenAfter).toBe('false')
+      expect(state.collapse.restoredTrack.startsWith('350px')).toBe(true)
+      // Resizing still works after the collapse/expand cycle.
+      expect(state.collapse.resizedAfterCycle.startsWith('380px')).toBe(true)
       child = undefined
     },
     180_000,
@@ -319,7 +372,8 @@ describe('packaged desktop application', () => {
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
       for (const label of [
         'launch', 'inactive', 'active', 'drag-region-attempt', 'keyboard-typed',
-        'restored', 'fullscreen', 'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+        'restored', 'fullscreen', 'sidebar-collapsed', 'fullscreen-collapsed', 'sidebar-revealed',
+        'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
         'question-pending', 'question-settled', 'approval-pending', 'approval-settled',
       ]) {
         expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)
