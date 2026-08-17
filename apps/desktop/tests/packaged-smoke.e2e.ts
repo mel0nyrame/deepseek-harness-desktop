@@ -137,6 +137,14 @@ describe('packaged desktop application', () => {
       expect(exitCode, `native inspection exited ${String(exitCode)}; output:\n${captured.slice(0, 4000)}`).toBe(0)
       const line = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_STATE '))
       expect(line).toBeDefined()
+      type NativeSurfaceState = {
+        frame: string
+        sidebar: string
+        conversation: string
+        details: string
+        newSession: string
+        selectedSession: string
+      }
       const state = JSON.parse(line!.slice('NATIVE_WINDOW_STATE '.length)) as {
         options: Record<string, unknown>
         actual: { backgroundColor: string; focusable: boolean }
@@ -144,10 +152,10 @@ describe('packaged desktop application', () => {
           activeElement: string
           systemState: { appearance: string; transparency: string; platform: string }
           surfaces: {
-            lightEnabled: string
-            darkEnabled: string
-            lightReduced: string
-            darkReduced: string
+            glassLight: NativeSurfaceState
+            glassDark: NativeSurfaceState
+            opaqueLight: NativeSurfaceState
+            opaqueDark: NativeSurfaceState
           }
           controlRegion: string
           dragRegion: string
@@ -165,10 +173,20 @@ describe('packaged desktop application', () => {
       expect(state.renderer.systemState.appearance).toMatch(/^(light|dark)$/)
       expect(state.renderer.systemState.transparency).toMatch(/^(enabled|reduced)$/)
       expect(state.renderer.systemState.platform).toBe('darwin')
-      expect(state.renderer.surfaces.lightEnabled).toBe('rgba(0, 0, 0, 0)')
-      expect(state.renderer.surfaces.darkEnabled).toBe('rgba(0, 0, 0, 0)')
-      expect(state.renderer.surfaces.lightReduced).toBe('rgba(249, 250, 251, 0.98)')
-      expect(state.renderer.surfaces.darkReduced).toBe('rgba(15, 17, 21, 0.98)')
+      const transparent = 'rgba(0, 0, 0, 0)'
+      expect(state.renderer.surfaces.glassLight.sidebar).toBe(transparent)
+      expect(state.renderer.surfaces.glassDark.sidebar).toBe(transparent)
+      expect(state.renderer.surfaces.opaqueLight.sidebar).toBe('rgb(249, 250, 251)')
+      expect(state.renderer.surfaces.opaqueDark.sidebar).toBe('rgb(27, 27, 28)')
+      for (const surface of Object.values(state.renderer.surfaces)) {
+        expect(surface.frame).toBe(transparent)
+        expect(surface.conversation).not.toBe(transparent)
+        expect(surface.details).not.toBe(transparent)
+      }
+      expect(state.renderer.surfaces.glassLight.newSession).toBe('rgba(38, 49, 72, 0.06)')
+      expect(state.renderer.surfaces.glassLight.selectedSession).toBe('rgba(38, 49, 72, 0.06)')
+      expect(state.renderer.surfaces.glassDark.newSession).toBe('rgba(255, 255, 255, 0.08)')
+      expect(state.renderer.surfaces.glassDark.selectedSession).toBe('rgba(255, 255, 255, 0.08)')
       expect(state.renderer.controlRegion).toBe('no-drag')
       expect(state.renderer.dragRegion).toBe('drag')
       child = undefined
@@ -314,6 +332,93 @@ describe('packaged desktop application', () => {
       child = undefined
     },
     180_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'persists the macOS sidebar glass preference and honors accessibility and theme facts',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-sidebar-glass-'))
+
+      type SurfaceState = {
+        enabled: string | null
+        material: string | null
+        transparency: string | null
+        dark: boolean
+        overrideVisible: boolean
+        surfaces: { frame: string | null; sidebar: string | null; conversation: string | null; details: string | null }
+        overlays: { newSession: string | null; selectedSession: string | null }
+      }
+      type JourneyState = {
+        phase: 'default-off' | 'reopen-on' | 'reopen-enabled'
+        initial: SurfaceState
+        afterToggle?: SurfaceState
+        dark?: SurfaceState
+        reduced?: SurfaceState
+        restored?: SurfaceState
+      }
+      const runPhase = async (phase: JourneyState['phase']): Promise<JourneyState> => {
+        const hangKill = setTimeout(() => {
+          if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+        }, 120_000)
+        const { exitCode, captured } = await launchInstalledApp(home!, [
+          '--accept-sidebar-glass', '--sidebar-glass-phase', phase,
+        ])
+        clearTimeout(hangKill)
+        expect(exitCode, `${phase} launch exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+        expect(captured).not.toContain('desktop sidebar glass acceptance failed')
+        const line = captured.split('\n').find(value => value.startsWith('SIDEBAR_GLASS_ACCEPTANCE '))
+        expect(line, `${phase} launch must report renderer state`).toBeDefined()
+        return JSON.parse(line!.slice('SIDEBAR_GLASS_ACCEPTANCE '.length)) as JourneyState
+      }
+      const transparent = 'rgba(0, 0, 0, 0)'
+      const expectContentOpaque = (state: SurfaceState): void => {
+        expect(state.surfaces.conversation).not.toBe(transparent)
+        expect(state.surfaces.details).not.toBe(transparent)
+      }
+
+      const first = await runPhase('default-off')
+      expect(first.initial.enabled).toBe('true')
+      expect(first.initial.material).toMatch(/^glass-(?:light|dark)$/)
+      expect(first.initial.surfaces.sidebar).toBe(transparent)
+      expectContentOpaque(first.initial)
+      expect(first.afterToggle?.enabled).toBe('false')
+      expect(first.afterToggle?.material).toMatch(/^opaque-(?:light|dark)$/)
+      expect(first.afterToggle?.surfaces.sidebar).not.toBe(transparent)
+      expectContentOpaque(first.afterToggle!)
+
+      const second = await runPhase('reopen-on')
+      expect(second.initial.enabled).toBe('false')
+      expect(second.initial.material).toMatch(/^opaque-(?:light|dark)$/)
+      expect(second.afterToggle?.enabled).toBe('true')
+      expect(second.afterToggle?.material).toMatch(/^glass-(?:light|dark)$/)
+      expect(second.dark).toMatchObject({ enabled: 'true', material: 'glass-dark', dark: true })
+      expect(second.reduced).toMatchObject({
+        enabled: 'true',
+        material: 'opaque-dark',
+        transparency: 'reduced',
+        dark: true,
+        overrideVisible: true,
+      })
+      expect(second.reduced?.surfaces.sidebar).not.toBe(transparent)
+      expectContentOpaque(second.reduced!)
+      expect(second.restored).toMatchObject({
+        enabled: 'true',
+        material: 'glass-light',
+        transparency: 'enabled',
+        dark: false,
+        overrideVisible: false,
+      })
+
+      const third = await runPhase('reopen-enabled')
+      expect(third.initial.enabled).toBe('true')
+      expect(third.initial.material).toMatch(/^glass-(?:light|dark)$/)
+      expect(third.initial.surfaces.sidebar).toBe(transparent)
+      expectContentOpaque(third.initial)
+
+      assertNoSurvivors()
+      child = undefined
+    },
+    360_000,
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(

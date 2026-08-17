@@ -34,6 +34,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { DshSupervisor, type DshChild } from '../src/supervisor.ts'
+import { desktopRpc } from '../src/acceptance.ts'
 import { replayPatch, runSmokeReopen, runSmokeScenario } from '../src/smoke.ts'
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -112,6 +113,43 @@ describe.skipIf(process.platform === 'win32')('desktop real composition', () => 
     await rm(world.home, { recursive: true, force: true })
     world = undefined
   })
+
+  it.skipIf(process.platform !== 'darwin')('registers the macOS sidebar glass settings namespace', async () => {
+    world = await launchChild()
+    try {
+      await world.supervisor.start()
+    } catch (error) {
+      throw new Error(`${String(error)}; child output:\n${world.stdout.join('').slice(-8000)}`, { cause: error })
+    }
+    const inventory = await desktopRpc(world.supervisor, 'desktop-inventory', 'pluginInventory/list', { args: {} })
+    const inventoryEntries = inventory['entries']
+    expect(Array.isArray(inventoryEntries)).toBe(true)
+    const inventoryRows = inventoryEntries as Array<{
+      entryId?: unknown
+      enabled?: unknown
+      fiberPhase?: unknown
+      moduleName?: unknown
+    }>
+    const sidebarGlassEntries = inventoryRows.filter(entry => (
+      String(entry.entryId).includes('sidebar-glass') || String(entry.moduleName).includes('sidebar-glass')
+    ))
+    expect(sidebarGlassEntries).toEqual([{
+      entryId: 'include:ui-sidebar-glass-macos',
+      enabled: true,
+      fiberPhase: 'active',
+      moduleName: '@deepseek-ai/dsh-client-ui-theme/sidebar-glass',
+    }])
+    const described = await desktopRpc(world.supervisor, 'desktop-settings', 'settings.describe', {})
+    const namespaces = described['namespaces']
+    expect(Array.isArray(namespaces)).toBe(true)
+    expect(
+      (namespaces as Array<{ ns?: unknown }>).map(namespace => namespace.ns),
+      `child output:\n${world.stdout.join('').slice(-8000)}`,
+    )
+      .toContain('ui-sidebar-glass-macos')
+    await world.supervisor.stop()
+    expect(world.child.exitCode).toBe(0)
+  }, 90_000)
 
   it('creates a Workspace, streams ordered turns for terminal, question, and approval sessions, and reconstructs every input', async () => {
     world = await launchChild()

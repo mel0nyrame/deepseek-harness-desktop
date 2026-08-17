@@ -81,6 +81,7 @@ describe('SidebarRoot shell', () => {
     // un-styled test DOM.
     const starters = screen.getAllByRole('button', { name: 'New session' })
     expect(starters).toHaveLength(3)
+    expect(document.querySelector('[data-sidebar-new-session]')).toBe(starters[2])
     for (const button of starters) fireEvent.click(button)
     expect(b.startSession).toHaveBeenCalledTimes(3)
     fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }))

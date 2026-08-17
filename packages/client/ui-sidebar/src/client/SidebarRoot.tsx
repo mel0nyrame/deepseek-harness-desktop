@@ -171,6 +171,7 @@ export function SidebarRoot({
       <button
         type="button"
         className={css.newSession}
+        data-sidebar-new-session=""
         aria-label={t('session.new.label')}
         onClick={() => { startSession() }}
       >

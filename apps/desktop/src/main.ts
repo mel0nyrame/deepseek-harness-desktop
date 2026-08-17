@@ -24,6 +24,7 @@ import {
   PACKAGED_CHILD_EXEC_ARGV,
   packagedChildEnv,
   packagedRuntimeLayout,
+  parseSidebarGlassAcceptanceInvocation,
   parseSmokeInvocation,
   parseSmokeReopenInvocation,
 } from './packaged-runtime.ts'
@@ -33,6 +34,7 @@ import {
 } from './smoke.ts'
 import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
 import { createNativeActionHandler, type DesktopNativePlatform } from './native-actions.ts'
+import { acceptSidebarGlass } from './sidebar-glass-acceptance.ts'
 import {
   isDesktopAppUrl,
   parseRendererId,
@@ -61,6 +63,7 @@ protocol.registerSchemesAsPrivileged([{
 const JOURNEY_FLAGS = [
   '--inspect-native-window',
   '--accept-native-window',
+  '--accept-sidebar-glass',
   '--record-native-window',
   '--record-native-actions',
   '--record-recovery',
@@ -1935,7 +1938,29 @@ async function inspectNativeWindow(): Promise<void> {
     },
   })
   try {
-    await window.loadURL('data:text/html,<button id="control">Control</button><textarea id="editor"></textarea>')
+    await window.loadURL(`data:text/html,${encodeURIComponent(`
+      <style>
+        body {
+          --dsw-alias-bg-base: rgb(249, 250, 251);
+          --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+          --dsw-static-neutral-bluish-900: rgb(27, 27, 28);
+          --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+        }
+        body[data-ds-dark-theme] {
+          --dsw-alias-bg-base: rgb(15, 17, 21);
+          --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+        }
+      </style>
+      <div data-dsh-frame-surface>
+        <aside data-dsh-sidebar-surface>
+          <button id="control">Control</button>
+          <button data-sidebar-new-session>New Session</button>
+          <div role="treeitem" aria-selected="true">Selected Session</div>
+        </aside>
+        <main data-dsh-conversation-surface><textarea id="editor"></textarea></main>
+        <section data-dsh-details-surface>Details</section>
+      </div>
+    `)}`)
     await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
     const state = rendererSurfaceState(
       nativeTheme.shouldUseDarkColors,
@@ -1945,21 +1970,29 @@ async function inspectNativeWindow(): Promise<void> {
     const renderer = await window.webContents.executeJavaScript(`
       document.body.dataset.dshPlatform = ${JSON.stringify(state.platform)};
       document.body.dataset.dshFullscreen = 'false';
-      const inspectSurface = (appearance, transparency) => {
+      const inspectSurface = (appearance, material) => {
         document.body.toggleAttribute('data-ds-dark-theme', appearance === 'dark');
         document.body.dataset.dshAppearance = appearance;
-        document.body.dataset.dshTransparency = transparency;
-        return getComputedStyle(document.body).backgroundColor;
+        document.body.dataset.dshSidebarMaterial = material;
+        const color = (selector) => getComputedStyle(document.querySelector(selector)).backgroundColor;
+        return {
+          frame: color('[data-dsh-frame-surface]'),
+          sidebar: color('[data-dsh-sidebar-surface]'),
+          conversation: color('[data-dsh-conversation-surface]'),
+          details: color('[data-dsh-details-surface]'),
+          newSession: color('[data-sidebar-new-session]'),
+          selectedSession: color('[role="treeitem"][aria-selected="true"]'),
+        };
       };
       document.querySelector('#control').focus();
       ({
         activeElement: document.activeElement?.id,
         systemState: ${JSON.stringify(state)},
         surfaces: {
-          lightEnabled: inspectSurface('light', 'enabled'),
-          darkEnabled: inspectSurface('dark', 'enabled'),
-          lightReduced: inspectSurface('light', 'reduced'),
-          darkReduced: inspectSurface('dark', 'reduced'),
+          glassLight: inspectSurface('light', 'glass-light'),
+          glassDark: inspectSurface('dark', 'glass-dark'),
+          opaqueLight: inspectSurface('light', 'opaque-light'),
+          opaqueDark: inspectSurface('dark', 'opaque-dark'),
         },
         controlRegion: getComputedStyle(document.querySelector('#control')).webkitAppRegion,
         dragRegion: getComputedStyle(document.body).webkitAppRegion,
@@ -2071,10 +2104,12 @@ void app.whenReady().then(() => {
     const recording = process.argv.includes('--record-native-window')
     const nativeActionsRecording = process.argv.includes('--record-native-actions')
     const recoveryRecording = process.argv.includes('--record-recovery')
+    const sidebarGlassAcceptance = parseSidebarGlassAcceptanceInvocation(process.argv)
     const smoke = parseSmokeInvocation(process.argv)
     const smokeReopen = parseSmokeReopenInvocation(process.argv)
     const headlessBoot = smoke !== undefined || smokeReopen !== undefined
       || recording || nativeActionsRecording || recoveryRecording
+      || sidebarGlassAcceptance !== undefined
     const options = app.isPackaged
       ? packagedChildOptions(headlessBoot)
       : developmentChildOptions()
@@ -2088,6 +2123,7 @@ void app.whenReady().then(() => {
     registerAssetProtocol(webDist)
     const headless = smoke !== undefined || smokeReopen !== undefined || acceptance
       || recording || nativeActionsRecording || recoveryRecording
+      || sidebarGlassAcceptance !== undefined
     installQuitOwner(lifecycle, () => currentWindow, headless)
 
     if (nativeActionsRecording) {
@@ -2163,6 +2199,33 @@ void app.whenReady().then(() => {
       // patch, and the replay-provider fallback link); the reopen launch boots
       // that exact durable home untouched.
       app.exit(await bootSmokeReopen(lifecycle, smokeReopen.home))
+      return
+    }
+    if (sidebarGlassAcceptance !== undefined) {
+      if (sidebarGlassAcceptance.phase === undefined) {
+        console.error('desktop sidebar glass acceptance requires --sidebar-glass-phase <default-off|reopen-on|reopen-enabled>')
+        app.exit(1)
+        return
+      }
+      try {
+        await acceptSidebarGlass({
+          bootWindow: () => bootWindow(lifecycle),
+          hostPhase: () => lifecycle.phase,
+          completeOnboarding,
+          clickAt,
+          waitForRenderer,
+          supervisor: () => currentSupervisor(lifecycle),
+          stop: () => stopAfterJourney(lifecycle, true),
+        }, sidebarGlassAcceptance.phase)
+      } catch (error) {
+        console.error(`desktop sidebar glass acceptance failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          console.error('desktop sidebar glass acceptance failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      }
+      app.exit(0)
       return
     }
     if (acceptance) {

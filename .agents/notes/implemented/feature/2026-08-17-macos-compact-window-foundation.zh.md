@@ -24,3 +24,4 @@ Status: implemented
 - 侧边栏 shell 默认把字标保留在第一行，并提供隐藏的 `data-sidebar-control-row` / `data-sidebar-brand-row` / `data-sidebar-brand-inline` 接缝；macOS 桌面 CSS 将头部切换为紧凑控制行与字标行。
 - 窗口态控制行与原生 traffic lights 灯组留出明确间距（`MACOS_CONTROL_ROW_INSET_PX`）；全屏时两行回到侧边栏左侧内容内缩位置，且应用不强制控制原生窗口按钮显隐。
 - 打包验收现在断言 root top 为 0 且内容为全高，而不是 44 像素标题区域。
+- 问题 #33 的零宽收起和问题 #34 的侧栏材质偏好由[macOS 紧凑桌面窗口呈现 Agent Note](2026-08-16-macos-compact-window-presentation.md)负责，并建立在本窗口框架基础之上。

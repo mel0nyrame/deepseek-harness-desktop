@@ -24,3 +24,4 @@ The desktop uses the approved A — Compact macOS frame as the platform-aware wi
 - The sidebar shell keeps the wordmark in the first row by default and exposes hidden `data-sidebar-control-row` / `data-sidebar-brand-row` / `data-sidebar-brand-inline` seams; the macOS desktop CSS switches the header to the compact control and wordmark rows.
 - The windowed control row clears the native traffic-light group with an intentional gap (`MACOS_CONTROL_ROW_INSET_PX`); full screen returns both rows to the sidebar's left content inset without forcing native window-button visibility.
 - Packaged acceptance now asserts root top 0 and full content height instead of the 44-pixel strip.
+- Issue #33 zero-width collapse and Issue #34 sidebar material preference are owned by the [compact macOS desktop window presentation note](2026-08-16-macos-compact-window-presentation.md), which builds on this frame foundation.

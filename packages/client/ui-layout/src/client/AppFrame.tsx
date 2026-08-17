@@ -34,12 +34,12 @@ export type AppFrameProps =
 
 /** Center column grid item (session-body building block). */
 function CenterColumn(props: { children?: ReactNode }) {
-  return <div className={css.centerCol} data-center-column="">{props.children}</div>
+  return <div className={css.centerCol} data-center-column="" data-dsh-conversation-surface="">{props.children}</div>
 }
 
 /** Details column grid item; width 0 keeps the subtree mounted (never unmount on close). */
 function DetailsColumn(props: { children?: ReactNode }) {
-  return <div className={css.detailsCol}>{props.children}</div>
+  return <div className={css.detailsCol} data-dsh-details-surface="">{props.children}</div>
 }
 
 /**
@@ -179,8 +179,9 @@ export function AppFrame({
       data-sidebar-collapsed={sidebarCollapsed || undefined}
       data-details-collapsed={cols.details === 0 || undefined}
       data-dragging={dragging || undefined}
+      data-dsh-frame-surface=""
     >
-      <div className={css.sidebarCol}>
+      <div className={css.sidebarCol} data-dsh-sidebar-surface="">
         {/* Render-site slot call with live concession output: a closed
             sidebar keeps the slot mounted on its zero-width track, and the
             component sees its rendered state as owner params decided here

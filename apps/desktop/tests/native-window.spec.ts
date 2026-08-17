@@ -189,9 +189,40 @@ describe('native macOS desktop window contract', () => {
     expect(mainSource.includes('setWindowButtonVisibility')).toBe(false)
   })
 
-  it('keeps reduced-transparency surfaces opaque and keyboard focus visible', () => {
-    expect(DESKTOP_SURFACE_CSS).toMatch(/data-dsh-transparency='reduced'[\s\S]*background: rgb\(249 250 251/)
-    expect(DESKTOP_SURFACE_CSS).toMatch(/data-ds-dark-theme[^}]*data-dsh-transparency='reduced'[\s\S]*background: rgb\(15 17 21/)
+  it('isolates native material to the sidebar while content columns stay opaque', () => {
+    const rules = cssRules(DESKTOP_SURFACE_CSS)
+    const sidebarBase = rules.find(([selector]) => selector.endsWith('[data-dsh-sidebar-surface]'))
+    expect(sidebarBase?.[0]).toContain("[data-dsh-platform='darwin']")
+    expect(sidebarBase?.[1]).toContain('--dsw-specific-sidebar-fill: transparent')
+
+    const material = (name: string) => rules.find(([selector]) =>
+      selector.includes(`[data-dsh-sidebar-material='${name}']`)
+      && selector.endsWith('[data-dsh-sidebar-surface]'),
+    )
+    expect(material('glass-light')?.[1]).toContain('background: transparent !important')
+    expect(material('glass-dark')?.[1]).toContain('background: transparent !important')
+    expect(material('opaque-light')?.[1]).toContain('background: var(--dsw-static-neutral-bluish-50) !important')
+    expect(material('opaque-dark')?.[1]).toContain('background: var(--dsw-static-neutral-bluish-900) !important')
+
+    const glassOverlays = rules.find(([selector]) =>
+      selector.includes("[data-dsh-sidebar-material^='glass-']")
+      && selector.includes('[data-sidebar-new-session]')
+      && selector.includes("[aria-selected='true']"),
+    )
+    expect(glassOverlays?.[1]).toContain('background: var(--dsw-alias-interactive-bg-hover) !important')
+
+    const content = rules.find(([selector]) =>
+      selector.includes('[data-dsh-conversation-surface]')
+      && selector.includes('[data-dsh-details-surface]'),
+    )
+    expect(content?.[0]).toContain("[data-dsh-platform='darwin']")
+    expect(content?.[1]).toContain('background: var(--dsw-alias-bg-base) !important')
+    expect(DESKTOP_SURFACE_CSS).not.toMatch(
+      /body\[data-dsh-transparency='enabled'\]\s*\{[^}]*--dsw-alias-bg-base:\s*transparent/,
+    )
+  })
+
+  it('keeps keyboard focus visible over every native material', () => {
     expect(DESKTOP_SURFACE_CSS).toContain(':focus-visible')
     expect(DESKTOP_SURFACE_CSS).toContain('outline: 2px solid')
   })

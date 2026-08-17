@@ -5,6 +5,14 @@ import { SettingsProvider, settingsNamespace, type SettingsNamespace } from '@de
 import {
   DEFAULT_PREFERENCE, THEME_SETTINGS_NAMESPACE, apply,
 } from '@deepseek-ai/dsh-client-ui-theme'
+import {
+  apply as applySidebarGlass,
+  inject as sidebarGlassInject,
+} from '../src/sidebar-glass.ts'
+import {
+  DEFAULT_SIDEBAR_GLASS_EFFECT,
+  SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+} from '../src/sidebar-glass-settings.ts'
 
 class MemorySettings extends SettingsProvider {
   readonly writable = true
@@ -15,6 +23,23 @@ class MemorySettings extends SettingsProvider {
 }
 
 describe('ui-theme host', () => {
+  it('registers the default-enabled macOS sidebar preference only for its desktop contribution', async () => {
+    const ctx = new Context()
+    await ctx.plugin(MemorySettings).await()
+    const fiber = ctx.plugin({
+      apply: applySidebarGlass,
+      inject: sidebarGlassInject,
+    })
+    await fiber.await()
+    const ns = settingsNamespace(SIDEBAR_GLASS_SETTINGS_NAMESPACE)
+    expect(ctx.settings.get(ns)).toEqual({ enabled: DEFAULT_SIDEBAR_GLASS_EFFECT })
+    await ctx.settings.update(ns, { enabled: false })
+    expect(ctx.settings.get(ns)).toEqual({ enabled: false })
+    await expect(ctx.settings.update(ns, { enabled: 'yes' })).rejects.toThrow()
+    await fiber.dispose()
+    expect(ctx.settings.describe().map(row => row.ns)).not.toContain(ns)
+  })
+
   it('registers, validates, and disposes the durable theme namespace with its fiber', async () => {
     const ctx = new Context()
     await ctx.plugin(MemorySettings).await()

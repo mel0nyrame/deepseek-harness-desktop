@@ -22,7 +22,7 @@ The Electron main process owns windows, menus, system dialogs, path opening, sig
 
 The renderer loads the existing production client from packaged files and uses an Electron adapter for the existing client connection interface. A narrow preload bridge carries validated unary requests and long-lived event streams through Electron IPC. Development Web builds retain their HTTP and WebSocket adapters; desktop packaging does not start a browser-facing HTTP server.
 
-The first product target is a signed and notarized macOS application for Apple silicon and Intel Macs. Its window uses the macOS inset title-bar treatment, native traffic lights, Electron's AppKit-backed vibrancy, and transparent client surfaces. A native addon is deferred unless the supported Electron APIs cannot provide the required region-specific visual effect. The approved presentation details live in the [compact macOS window proposal](2026-08-16-macos-compact-window-presentation.md).
+The first product target is a signed and notarized macOS application for Apple silicon and Intel Macs. Its window uses the macOS inset title-bar treatment, native traffic lights, Electron's AppKit-backed vibrancy, and transparent client surfaces. A native addon is deferred unless the supported Electron APIs cannot provide the required region-specific visual effect. The approved presentation details live in the [compact macOS window decision](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md).
 
 ### User Stories
 
@@ -158,7 +158,7 @@ Issue #4 shipped the native macOS window slice:
 - This host's macOS lacks screen-recording and accessibility-automation permissions, so the recorded frames come from `webContents.capturePage()`: they exclude native traffic-light glyphs, and synthetic input cannot move the native window the way an OS pointer drag does. The evidence pair is the frames plus the inspected configured and observed native window state; a permissioned machine can replace the frames with an OS-level capture without changing the assertions.
 - Supported Electron APIs satisfy the required layout, so no native visual-effect addon is present.
 
-The 44-pixel strip above is the implemented Issue #4 baseline, not the approved target presentation. The [compact macOS window proposal](2026-08-16-macos-compact-window-presentation.md) owns its replacement, zero-width sidebar behavior, and persistent sidebar glass preference through Issues #32–#34. Issues #33 and #34 depend on Issue #32 and may proceed independently after that foundation lands.
+The 44-pixel strip above is the implemented Issue #4 baseline, not the approved target presentation. The [compact macOS window decision](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md) owns its replacement, zero-width sidebar behavior, and persistent sidebar glass preference through Issues #32–#34. Issues #33 and #34 depend on Issue #32 and may proceed independently after that foundation lands.
 
 Issue #5 shipped the carrier-hardening slice:
 

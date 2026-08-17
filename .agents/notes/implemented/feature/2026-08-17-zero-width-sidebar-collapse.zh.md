@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-零宽度收起是已批准的[紧凑 macOS 窗口呈现](../../proposed/feature/2026-08-16-macos-compact-window-presentation.md)（Issue #32–#34）中侧边栏的一半。收起侧边栏时仍会留下一个固定的 56px 紧凑轨道：侧边栏材质、内容、缩放手柄与分隔线都留在屏幕上，对话区只收回轨道宽度，而收起开关本身也住在轨道里。紧凑 macOS 窗口框架（Issue #32）还让轨道几何与原生 traffic lights 行冲突——轨道有自己的收起几何，收起状态下开关无法与灯组共处同一行。
+零宽度收起是已批准的[紧凑 macOS 窗口呈现](2026-08-16-macos-compact-window-presentation.md)（Issue #32–#34）中侧边栏的一半。收起侧边栏时仍会留下一个固定的 56px 紧凑轨道：侧边栏材质、内容、缩放手柄与分隔线都留在屏幕上，对话区只收回轨道宽度，而收起开关本身也住在轨道里。紧凑 macOS 窗口框架（Issue #32）还让轨道几何与原生 traffic lights 行冲突——轨道有自己的收起几何，收起状态下开关无法与灯组共处同一行。
 
 ## Decision
 

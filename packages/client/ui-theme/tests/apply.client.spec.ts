@@ -1,8 +1,9 @@
+// @vitest-environment jsdom
 /** ui-theme apply wiring: service provision, settings dictionaries riding the
  * locale service, declaration-aware Appearance row registration, snapshot
  * projection into the row store, and HMR collapse recovery. */
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { TestRemote, usePinnedBrowserLanguages } from '@deepseek-ai/dsh-client-test-runtime'
@@ -10,6 +11,10 @@ import { SettingsScopeBinder } from '@deepseek-ai/dsh-client-ui-settings/client'
 import { apply, inject, SETTINGS_NS } from '@deepseek-ai/dsh-client-ui-theme/client'
 import type { AppearanceRowInjected, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
 import { THEME_SETTINGS_NAMESPACE, ThemeSettingsSchema } from '../src/theme-settings.ts'
+import {
+  SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+  SidebarGlassSettingsSchema,
+} from '../src/sidebar-glass-settings.ts'
 import { AppearanceRow } from '../src/client/AppearanceRow.tsx'
 import type { createAppearanceRowStore } from '../src/client/settings-store.ts'
 
@@ -25,16 +30,25 @@ function deferred<T>() {
   return { promise, resolve }
 }
 
-async function bench(isLoopback = true) {
+async function bench(isLoopback = true, includeSidebarGlass = true, writable = true) {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   const locale = new LocaleRuntime(ctx)
   ctx.provide('locale', locale)
   let preference = 'system'
-  const namespace = () => ({
+  let sidebarGlass = true
+  const themeNamespace = () => ({
     ns: THEME_SETTINGS_NAMESPACE,
     schema: ThemeSettingsSchema.toJSON(),
     value: { preference },
+    applies: 'live' as const,
+    secrets: [],
+    revision: 0,
+  })
+  const sidebarGlassNamespace = () => ({
+    ns: SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+    schema: SidebarGlassSettingsSchema.toJSON(),
+    value: { enabled: sidebarGlass },
     applies: 'live' as const,
     secrets: [],
     revision: 0,
@@ -43,14 +57,27 @@ async function bench(isLoopback = true) {
     rpcId: 'theme-describe' as never,
     result: {
       ok: true as const,
-      value: { writable: true, hasDocument: true, namespaces: [namespace()] },
+      value: {
+        writable,
+        hasDocument: true,
+        namespaces: [themeNamespace(), ...(includeSidebarGlass ? [sidebarGlassNamespace()] : [])],
+      },
     },
   }))
-  const mutate = vi.fn((request: { ops: { value: string }[] }) => {
-    preference = request.ops[0]!.value
+  const mutate = vi.fn((request: { ns: string; ops: { value: string | boolean }[] }) => {
+    if (request.ns === THEME_SETTINGS_NAMESPACE) {
+      preference = request.ops[0]!.value as string
+    } else if (request.ns === SIDEBAR_GLASS_SETTINGS_NAMESPACE) {
+      sidebarGlass = request.ops[0]!.value as boolean
+    }
     return Promise.resolve({
       rpcId: 'theme-mutate' as never,
-      result: { ok: true as const, value: namespace() },
+      result: {
+        ok: true as const,
+        value: request.ns === THEME_SETTINGS_NAMESPACE
+          ? themeNamespace()
+          : sidebarGlassNamespace(),
+      },
     })
   })
   ctx.provide('connection', { api: { settings: { describe, mutate } }, isLoopback } as never)
@@ -60,6 +87,7 @@ async function bench(isLoopback = true) {
   return {
     ctx, slots: ctx.get('slots') as SlotRegistry, locale, describe, mutate,
     setHostPreference: (next: string) => { preference = next },
+    setHostSidebarGlass: (next: boolean) => { sidebarGlass = next },
   }
 }
 
@@ -80,6 +108,12 @@ function faceOf(slots: SlotRegistry) {
   const face = (entry.inject as unknown as (a: typeof instance.actions) => AppearanceRowInjected)(instance.actions)
   return { entry, instance, face }
 }
+
+afterEach(() => {
+  delete document.body.dataset.dshPlatform
+  delete document.body.dataset.dshTransparency
+  delete document.body.dataset.dshSidebarMaterial
+})
 
 describe('ui-theme apply', () => {
   it('declares the slot and locale services', () => {
@@ -125,6 +159,73 @@ describe('ui-theme apply', () => {
     await vi.waitFor(() => { expect(b.mutate).toHaveBeenCalledTimes(2) })
   })
 
+  it('applies the macOS sidebar material immediately and converges on Host and system facts', async () => {
+    document.body.dataset.dshPlatform = 'darwin'
+    document.body.dataset.dshTransparency = 'enabled'
+    const b = await bench()
+    declareItems(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const theme = b.ctx.get('theme') as ThemeRuntime
+    const { instance, face } = faceOf(b.slots)
+
+    await vi.waitFor(() => {
+      expect(instance.getSnapshot()).toMatchObject({
+        sidebarGlassAvailable: true,
+        sidebarGlassEnabled: true,
+        sidebarGlassSystemOverride: false,
+      })
+      expect(document.body.dataset.dshSidebarMaterial).toBe('glass-light')
+    })
+
+    face.setSidebarGlassEffect(false)
+    expect(instance.getSnapshot().sidebarGlassEnabled).toBe(false)
+    expect(document.body.dataset.dshSidebarMaterial).toBe('opaque-light')
+    await vi.waitFor(() => {
+      expect(b.mutate).toHaveBeenCalledWith(expect.objectContaining({
+        ns: SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+        ops: [{ op: 'set', path: ['enabled'], value: false }],
+      }))
+    })
+
+    b.setHostSidebarGlass(true)
+    b.ctx.remote.$dispatch('settings/document-updated', [SIDEBAR_GLASS_SETTINGS_NAMESPACE, 0])
+    await vi.waitFor(() => {
+      expect(instance.getSnapshot().sidebarGlassEnabled).toBe(true)
+      expect(document.body.dataset.dshSidebarMaterial).toBe('glass-light')
+    })
+
+    document.body.dataset.dshTransparency = 'reduced'
+    await vi.waitFor(() => {
+      expect(instance.getSnapshot().sidebarGlassSystemOverride).toBe(true)
+      expect(document.body.dataset.dshSidebarMaterial).toBe('opaque-light')
+    })
+    theme.setTheme('dark')
+    expect(document.body.dataset.dshSidebarMaterial).toBe('opaque-dark')
+    expect(b.mutate.mock.calls.filter(([request]) =>
+      request.ns === SIDEBAR_GLASS_SETTINGS_NAMESPACE)).toHaveLength(1)
+  })
+
+  it('hides the switch and uses an opaque fallback when the macOS Host namespace is absent', async () => {
+    document.body.dataset.dshPlatform = 'darwin'
+    document.body.dataset.dshTransparency = 'enabled'
+    const b = await bench(true, false)
+    declareItems(b.slots)
+    await b.ctx.plugin({ inject: [...inject], apply }).await()
+    const { instance, face } = faceOf(b.slots)
+
+    await vi.waitFor(() => {
+      expect(instance.getSnapshot()).toMatchObject({
+        sidebarGlassAvailable: false,
+        sidebarGlassEnabled: true,
+      })
+      expect(document.body.dataset.dshSidebarMaterial).toBe('opaque-light')
+    })
+    face.setSidebarGlassEffect(false)
+    await Promise.resolve()
+    expect(b.mutate.mock.calls.some(([request]) =>
+      request.ns === SIDEBAR_GLASS_SETTINGS_NAMESPACE)).toBe(false)
+  })
+
   it('loads Host settings at boot, refreshes its namespace, and keeps remote browsers process-local', async () => {
     const b = await bench()
     b.setHostPreference('dark')
@@ -133,7 +234,7 @@ describe('ui-theme apply', () => {
     const theme = b.ctx.get('theme') as ThemeRuntime
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('dark') })
     b.ctx.remote.$dispatch('settings/document-updated', ['unrelated', 0])
-    expect(b.describe).toHaveBeenCalledOnce()
+    expect(b.describe).toHaveBeenCalledTimes(2)
     b.setHostPreference('light')
     b.ctx.remote.$dispatch('settings/document-updated', [THEME_SETTINGS_NAMESPACE, 0])
     await vi.waitFor(() => { expect(theme.getTheme().preference).toBe('light') })
@@ -171,7 +272,7 @@ describe('ui-theme apply', () => {
     b.setHostPreference('sepia')
     await b.ctx.plugin({ inject: [...inject], apply }).await()
     const theme = b.ctx.get('theme') as ThemeRuntime
-    await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledOnce() })
+    await vi.waitFor(() => { expect(b.describe).toHaveBeenCalledTimes(2) })
     expect(theme.getTheme().preference).toBe('system')
   })
 

@@ -253,7 +253,11 @@ function referencedImage(events: readonly SessionEvent[], attachmentId: string):
  * that choice write it through `settings.update`, so it has to cross the
  * configuration boundary or the pickers silently fail to persist.
  */
-const PRODUCT_SETTINGS_NAMESPACES = new Set(['ui-onboarding', AGENT_PRESET_SETTINGS_NAMESPACE])
+const PRODUCT_SETTINGS_NAMESPACES = new Set([
+  'ui-onboarding',
+  'ui-sidebar-glass-macos',
+  AGENT_PRESET_SETTINGS_NAMESPACE,
+])
 
 /** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
 const IANA_TIME_ZONE = /^[A-Za-z][A-Za-z0-9_+.-]*(?:\/[A-Za-z0-9_+.-]+)+$/

@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal authority;
-# after editing either side, bring the other along and re-record with:
-#   pnpm run verify-translation-pairing --write .agents/notes/proposed/feature/2026-08-16-macos-compact-window-presentation.md
-2026-08-16-macos-compact-window-presentation.md: 750ff36dd18004ea42ae46bd86ba1b2370f6d26f
-2026-08-16-macos-compact-window-presentation.zh.md: a4f1bab2793bf2c41186555fc28f829a227cd6be

@@ -13,6 +13,14 @@
 - id: client-hmr
   disabled: true
 
+# The durable Appearance contribution is its own macOS-only Host plugin. Web
+# and other desktop platforms never register the namespace, while the shared
+# ui-theme row remains unchanged across products.
+- insert:
+    - id: ui-sidebar-glass-macos
+      name: '@deepseek-ai/dsh-client-ui-theme/sidebar-glass'
+      disabled: !!js process.platform !== 'darwin'
+
 # The auto picker resolves browse vs. native from the Web server; without one
 # it can never settle. The desktop runtime itself provides the native
 # directoryPicker through its reverse Electron-main request owner, while this

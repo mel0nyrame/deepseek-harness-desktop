@@ -162,16 +162,43 @@ body[data-dsh-platform='darwin'][data-dsh-fullscreen='true'] [data-sidebar-colla
   padding-left: ${MACOS_FULLSCREEN_HEADER_INSET_PX}px !important;
 }
 
-body[data-dsh-transparency='reduced'] {
-  background: rgb(249 250 251 / 0.98) !important;
+/* The native material belongs to one stable layout surface. Descendants use
+   transparent sidebar tokens so hover/selection treatments remain overlays;
+   conversation and details keep the normal opaque application background. */
+body[data-dsh-platform='darwin'] [data-dsh-frame-surface] {
+  background: transparent !important;
 }
 
-body[data-ds-dark-theme][data-dsh-transparency='reduced'] {
-  background: rgb(15 17 21 / 0.98) !important;
+body[data-dsh-platform='darwin'] [data-dsh-sidebar-surface] {
+  --dsw-specific-sidebar-fill: transparent;
+  background: var(--dsw-alias-bg-base) !important;
 }
 
-body[data-dsh-transparency='enabled'] {
-  --dsw-alias-bg-base: transparent;
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material='glass-light'] [data-dsh-sidebar-surface],
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material='glass-dark'] [data-dsh-sidebar-surface] {
+  background: transparent !important;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material^='glass-'] [data-sidebar-new-session],
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material^='glass-'] [role='treeitem'][aria-selected='true'] {
+  background: var(--dsw-alias-interactive-bg-hover) !important;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material^='glass-'] [data-sidebar-new-session]:hover {
+  background: var(--dsw-alias-interactive-bg-hover-accent) !important;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material='opaque-light'] [data-dsh-sidebar-surface] {
+  background: var(--dsw-static-neutral-bluish-50) !important;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-sidebar-material='opaque-dark'] [data-dsh-sidebar-surface] {
+  background: var(--dsw-static-neutral-bluish-900) !important;
+}
+
+body[data-dsh-platform='darwin'] [data-dsh-conversation-surface],
+body[data-dsh-platform='darwin'] [data-dsh-details-surface] {
+  background: var(--dsw-alias-bg-base) !important;
 }
 
 :focus-visible {

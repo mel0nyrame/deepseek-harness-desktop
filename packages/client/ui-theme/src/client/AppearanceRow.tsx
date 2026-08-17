@@ -1,9 +1,8 @@
 /**
- * Appearance preference row registered into the General section item slot
- * (figma 501:30012 'Frame 2117131228'): title + three preference cubes.
- * Registered by this package — the theme feature owns its own settings
- * surface. Selection follows the persisted preference, never the resolved
- * active theme.
+ * Appearance preference row registered into the General section item slot:
+ * three theme cubes plus the durable sidebar-material switch when the macOS
+ * Host contribution is ready. Selection follows persisted preferences, never
+ * only their resolved visual effects.
  */
 import clsx from 'clsx'
 import {
@@ -20,6 +19,8 @@ import css from './AppearanceRow.module.css'
 export interface AppearanceRowInjected {
   /** Switch the theme preference. */
   setTheme: (id: ThemePreference) => void
+  /** Switch the saved macOS sidebar glass preference. */
+  setSidebarGlassEffect: (enabled: boolean) => void
 }
 
 /** Full component props: runtime share + store share + locale seat + injected face. */
@@ -39,8 +40,11 @@ const CUBES: readonly { id: ThemePreference; labelKey: ThemeKey; Icon: typeof Ic
  * @param props - composed slot props.
  * @returns the row element tree.
  */
-export function AppearanceRow({ t, setTheme, useStore }: AppearanceRowComponentProps) {
+export function AppearanceRow({ t, setTheme, setSidebarGlassEffect, useStore }: AppearanceRowComponentProps) {
   const preference = useStore(s => s.preference)
+  const sidebarGlassAvailable = useStore(s => s.sidebarGlassAvailable)
+  const sidebarGlassEnabled = useStore(s => s.sidebarGlassEnabled)
+  const sidebarGlassSystemOverride = useStore(s => s.sidebarGlassSystemOverride)
   return (
     <div className={css.group}>
       <div className={css.title}>{t('appearance.title')}</div>
@@ -50,6 +54,7 @@ export function AppearanceRow({ t, setTheme, useStore }: AppearanceRowComponentP
             key={id}
             type="button"
             className={clsx(css.themeCube, preference === id && css.selected)}
+            data-theme-preference={id}
             aria-pressed={preference === id}
             onClick={() => { setTheme(id) }}
           >
@@ -58,6 +63,28 @@ export function AppearanceRow({ t, setTheme, useStore }: AppearanceRowComponentP
           </button>
         ))}
       </div>
+      {sidebarGlassAvailable && (
+        <div className={css.glassRow}>
+          <div className={css.glassCopy}>
+            <div className={css.glassTitle}>{t('sidebarGlass.title')}</div>
+            <p className={css.glassDescription}>{t('sidebarGlass.description')}</p>
+            {sidebarGlassSystemOverride && (
+              <p className={css.glassOverride} role="status">{t('sidebarGlass.override')}</p>
+            )}
+          </div>
+          <button
+            type="button"
+            role="switch"
+            data-sidebar-glass-toggle=""
+            aria-label={t('sidebarGlass.title')}
+            aria-checked={sidebarGlassEnabled}
+            className={css.switch}
+            onClick={() => { setSidebarGlassEffect(!sidebarGlassEnabled) }}
+          >
+            <span className={css.switchThumb} aria-hidden="true" />
+          </button>
+        </div>
+      )}
     </div>
   )
 }

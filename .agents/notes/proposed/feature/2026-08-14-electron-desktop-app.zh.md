@@ -22,7 +22,7 @@ Electron main 进程负责窗口、菜单、系统对话框、路径打开、与
 
 renderer 从打包文件加载现有生产客户端，并通过现有客户端连接接口的 Electron adapter 通信。一个窄 preload bridge 通过 Electron IPC 传递经过校验的一元请求和长生命周期事件流。开发环境的 Web 构建继续使用 HTTP 和 WebSocket adapter；桌面打包产物不启动面向浏览器的 HTTP 服务器。
 
-第一个产品目标是适用于 Apple silicon 和 Intel Mac、经过签名和公证的 macOS 应用。窗口使用 macOS inset title bar、原生 traffic lights、Electron 基于 AppKit 的 vibrancy，以及透明客户端表面。除非 Electron 支持的接口无法提供所需的分区视觉效果，否则推迟原生 addon。已批准的呈现细节由[紧凑 macOS 窗口提案](2026-08-16-macos-compact-window-presentation.md)负责。
+第一个产品目标是适用于 Apple silicon 和 Intel Mac、经过签名和公证的 macOS 应用。窗口使用 macOS inset title bar、原生 traffic lights、Electron 基于 AppKit 的 vibrancy，以及透明客户端表面。除非 Electron 支持的接口无法提供所需的分区视觉效果，否则推迟原生 addon。已批准的呈现细节由[紧凑 macOS 窗口决策](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md)负责。
 
 ### 用户故事
 
@@ -158,7 +158,7 @@ Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因�
 - 本机 macOS 缺少屏幕录制与辅助功能自动化权限，因此录制帧来自 `webContents.capturePage()`：帧不含原生 traffic lights 图形，合成输入也无法像操作系统指针拖拽那样移动原生窗口。证据由帧与受检的已配置／已观测原生窗口状态共同构成；具备权限的机器可以用系统级捕获替换帧，而断言无需改动。
 - Electron 支持的接口已满足所需布局，因此未加入原生视觉效果 addon。
 
-上述 44 像素标题条是问题 #4 已实现的基线，而不是已经批准的目标呈现。[紧凑 macOS 窗口提案](2026-08-16-macos-compact-window-presentation.md)负责通过问题 #32–#34 替换该基线、实现零宽侧栏行为和持久化侧栏玻璃偏好。问题 #33 与 #34 依赖问题 #32，并可在该基础工作完成后分别推进。
+上述 44 像素标题条是问题 #4 已实现的基线，而不是已经批准的目标呈现。[紧凑 macOS 窗口决策](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md)负责通过问题 #32–#34 替换该基线、实现零宽侧栏行为和持久化侧栏玻璃偏好。问题 #33 与 #34 依赖问题 #32，并可在该基础工作完成后分别推进。
 
 问题 #5 已交付载体加固切片：
 

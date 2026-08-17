@@ -6,7 +6,7 @@ English | [中文](2026-08-17-zero-width-sidebar-collapse.zh.md)
 
 ## Problem
 
-The zero-width collapse is the sidebar half of the approved [compact macOS window presentation](../../proposed/feature/2026-08-16-macos-compact-window-presentation.md) (Issues #32–#34). Collapsing the sidebar left a fixed 56px compact rail: the sidebar material, contents, resize handle, and divider stayed on screen, the conversation only recovered the rail's width, and the collapse toggle lived inside the rail itself. The compact macOS frame (Issue #32) also made the rail's geometry conflict with the native traffic-light row — the rail had its own collapsed geometry and the toggle could not share the light group's position while collapsed.
+The zero-width collapse is the sidebar half of the approved [compact macOS window presentation](2026-08-16-macos-compact-window-presentation.md) (Issues #32–#34). Collapsing the sidebar left a fixed 56px compact rail: the sidebar material, contents, resize handle, and divider stayed on screen, the conversation only recovered the rail's width, and the collapse toggle lived inside the rail itself. The compact macOS frame (Issue #32) also made the rail's geometry conflict with the native traffic-light row — the rail had its own collapsed geometry and the toggle could not share the light group's position while collapsed.
 
 ## Decision
 
