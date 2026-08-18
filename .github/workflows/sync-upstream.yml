@@ -63,11 +63,15 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           if gh pr view --head "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
                --json number -q .number >/dev/null 2>&1; then
+            echo "recreated=false" >> "$GITHUB_ENV"
             git checkout "$SYNC_BRANCH" 2>/dev/null || git checkout -b "$SYNC_BRANCH" "origin/$PR_BASE"
             git merge --ff-only "origin/$PR_BASE" 2>/dev/null \
               || git merge "origin/$PR_BASE" -m "chore: merge base" \
               || { git add -A; git commit -m "chore: merge base (conflicts pending)"; }
           else
+            # 无 PR 时分支是按 base 重建的一次性载体：远端可能残留上次
+            # 失败运行的推送（如 PR 创建失败），Push 步骤需要强制覆盖
+            echo "recreated=true" >> "$GITHUB_ENV"
             git checkout -B "$SYNC_BRANCH" "origin/$PR_BASE"
           fi
 
@@ -110,7 +114,14 @@ jobs:
 
       - name: Push sync branch
         if: env.skip != 'true'
-        run: git push origin "$SYNC_BRANCH"
+        run: |
+          if [ "$recreated" = "true" ]; then
+            # 分支是本次重建的一次性载体，远端若有上次失败运行的残留，
+            # 直接强制覆盖（有 PR 时走普通推送，绝不覆盖手动解决）
+            git push --force origin "$SYNC_BRANCH"
+          else
+            git push origin "$SYNC_BRANCH"
+          fi
 
       - name: Open or update pull request
         if: env.skip != 'true'
