@@ -193,6 +193,9 @@ jobs:
             ARM64) image=quay.io/pypa/manylinux_2_28_aarch64 ;;
             *) echo "::error::Unsupported Linux runner architecture $RUNNER_ARCH"; exit 1 ;;
           esac
+          # A pnpm side-effects cache hit can restore a node-gyp Makefile whose
+          # relative dependency paths came from another install topology.
+          npm_config_build_from_source=true pnpm rebuild node-pty
           addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"
           addon="$addon_dir/build/Release/pty.node"
           [ -f "$addon_dir/build/Makefile" ] || {
