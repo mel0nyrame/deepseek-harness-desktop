@@ -86,9 +86,12 @@ jobs:
           git merge --no-commit --no-edit "upstream/$UPSTREAM_BRANCH" || true
           # 本仓库的 .github/workflows/* 一律保留本仓库版本：上游对工作流的
           # 增、改、删（含新增文件）都不合入，避免覆盖本地定制的 CI。
-          # 用 checkout HEAD（而非 git restore）：合并后这些路径处于
-          # unmerged 状态，只有 checkout <tree> -- <path> 能直接覆盖解决
-          git checkout HEAD -- .github/workflows
+          # 必须先 git rm -f 清掉合并残留再重建：modify/delete 冲突（上游改、
+          # 本仓库删，如 docs-pages.yml）会把上游版本留在工作区，单独
+          # checkout 不会清掉，之后 git add -A 会把它加回提交，导致推送被
+          # GitHub 以"创建/更新工作流文件"为由拒绝
+          git rm -q -rf --ignore-unmatch .github/workflows
+          git checkout -q HEAD -- .github/workflows
           if git ls-files -u | grep -q .; then
             echo "merge_clean=false" >> "$GITHUB_ENV"
             git diff --name-only --diff-filter=U > /tmp/conflicted-files.txt
