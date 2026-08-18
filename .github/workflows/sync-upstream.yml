@@ -1,0 +1,172 @@
+# Daily upstream sync: merges deepseek-ai/deepseek-harness master into this
+# fork and opens/updates a pull request listing every new commit (type, scope,
+# subject, and diff stats) — no external AI required. When the merge conflicts,
+# the markers are committed and pushed; GitHub blocks merging the PR while
+# markers are present, so resolution happens locally and is pushed back.
+name: Sync upstream daily
+
+on:
+  schedule:
+    - cron: '0 15 * * *' # 23:00 UTC+8 (Beijing) every day
+  workflow_dispatch:
+    inputs:
+      base:
+        description: '把上游合并进哪个分支（PR 的 base）'
+        required: false
+        default: 'master'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream
+  cancel-in-progress: false
+
+env:
+  UPSTREAM_REPO: deepseek-ai/deepseek-harness
+  UPSTREAM_BRANCH: master
+  SYNC_BRANCH: sync/upstream
+  PR_BASE: ${{ inputs.base || 'master' }}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.PR_BASE }}
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        run: |
+          git remote add upstream "https://github.com/$UPSTREAM_REPO.git" 2>/dev/null \
+            || git remote set-url upstream "https://github.com/$UPSTREAM_REPO.git"
+          git fetch upstream "$UPSTREAM_BRANCH"
+          git fetch origin --prune
+
+      - name: Reuse or recreate sync branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          if gh pr view --head "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
+               --json number -q .number >/dev/null 2>&1; then
+            git checkout "$SYNC_BRANCH" 2>/dev/null || git checkout -b "$SYNC_BRANCH" "origin/$PR_BASE"
+            git merge --ff-only "origin/$PR_BASE" 2>/dev/null \
+              || git merge "origin/$PR_BASE" -m "chore: merge base" \
+              || { git add -A; git commit -m "chore: merge base (conflicts pending)"; }
+          else
+            git checkout -B "$SYNC_BRANCH" "origin/$PR_BASE"
+          fi
+
+      - name: Skip if previous conflicts are still unresolved
+        run: |
+          if git grep -q '^<<<<<<< ' HEAD -- . 2>/dev/null; then
+            PR_NUM=$(gh pr view --head "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
+              --json number -q .number 2>/dev/null || true)
+            [ -n "$PR_NUM" ] && gh pr comment "$PR_NUM" --repo "$GITHUB_REPOSITORY" \
+              --body "⚠️ 上一次同步的冲突仍未解决（分支里还有冲突标记），本次自动同步跳过。解决并推送后，在 Actions 页手动重新运行本工作流。" || true
+            echo "skip=true" >> "$GITHUB_ENV"
+          else
+            echo "skip=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Merge upstream, commit markers on conflict
+        if: env.skip != 'true'
+        run: |
+          git log --oneline --no-merges "origin/$PR_BASE".."upstream/$UPSTREAM_BRANCH" \
+            > /tmp/new-commits.txt || true
+          if git merge --no-edit "upstream/$UPSTREAM_BRANCH"; then
+            echo "merge_clean=true" >> "$GITHUB_ENV"
+          elif git ls-files -u | grep -q .; then
+            echo "merge_clean=false" >> "$GITHUB_ENV"
+            git diff --name-only --diff-filter=U > /tmp/conflicted-files.txt
+            git add -A
+            git commit -m "chore: sync upstream $(date +%F): conflicts pending manual resolution"
+          else
+            echo "::error::merge failed for a non-conflict reason"
+            exit 1
+          fi
+
+      - name: Push sync branch
+        if: env.skip != 'true'
+        run: git push origin "$SYNC_BRANCH"
+
+      - name: Open or update pull request
+        if: env.skip != 'true'
+        run: |
+          # ---- 汇总数据（纯 git，无 AI）----
+          RANGE="origin/$PR_BASE..upstream/$UPSTREAM_BRANCH"
+          TOTAL=$(git rev-list --count "$RANGE")
+          MERGES=$(git rev-list --count --merges "$RANGE")
+          NONMERGE=$((TOTAL - MERGES))
+          OVERALL=$(git diff --shortstat "origin/$PR_BASE" "upstream/$UPSTREAM_BRANCH" | tail -1)
+          TYPES=$(git log --format='%s' "$RANGE" --no-merges \
+            | grep -oE '^(feat|fix|docs|test|ci|refactor|chore|perf|build|revert|release)\b' \
+            | sort | uniq -c | sort -rn | awk '{printf "%s %s · ", $2, $1}')
+          {
+            echo "## 每日上游同步 $(date -u +%F)"
+            echo ""
+            echo "来源: [$UPSTREAM_REPO](https://github.com/$UPSTREAM_REPO) \`$UPSTREAM_BRANCH\` → 本仓库 \`$PR_BASE\`"
+            echo ""
+            echo "**上游共 $TOTAL 条提交**（$NONMERGE 条实质改动 + $MERGES 条 merge）| 总体改动: $OVERALL"
+            echo ""
+            echo "按类型: ${TYPES%·}"
+            echo ""
+            if [ "$merge_clean" = "true" ]; then
+              echo "✅ 自动合并成功，无冲突，review 后合并即可。"
+            else
+              echo "⚠️ 自动合并**有冲突**，GitHub 已阻止合并本 PR，请手动解决："
+              echo ""
+              echo "冲突文件："
+              sed 's/^/  - /' /tmp/conflicted-files.txt
+              echo ""
+              echo '```sh'
+              echo "git fetch origin && git checkout $SYNC_BRANCH"
+              echo "git merge upstream/master   # 解决冲突后: git add -A && git commit"
+              echo "git push origin $SYNC_BRANCH"
+              echo '```'
+            fi
+            echo ""
+            echo "## 各 commit 具体做了什么"
+            echo ""
+            echo "| commit | 类型 | 说明 | 改动 |"
+            echo "|--------|------|------|------|"
+            git log --format='%h%x1f%an%x1f%s' "$RANGE" --no-merges | while IFS=$'\x1f' read -r sha author subj; do
+              case "$subj" in
+                feat*)     t=feat;;
+                fix*)      t=fix;;
+                docs*)     t=docs;;
+                test*)     t=test;;
+                ci*)       t=ci;;
+                refactor*) t=refactor;;
+                chore*)    t=chore;;
+                perf*)     t=perf;;
+                build*)    t=build;;
+                release*)  t=release;;
+                revert*)   t=revert;;
+                *)         t=其他;;
+              esac
+              stats=$(git show --shortstat --format= "$sha" | tail -1)
+              [ -z "$stats" ] && stats="-"
+              stats=$(echo "$stats" | sed 's/^ *//; s/ *$//')
+              safe=$(echo "$subj" | sed 's/|/\\|/g')
+              echo "| \`$sha\` | $t | $safe | ${stats} |"
+            done
+            echo ""
+            echo "<details>"
+            echo "<summary>完整提交说明（含正文）</summary>"
+            echo ""
+            git log --format='### \`%h\` %s%n%b' "$RANGE" --no-merges
+            echo "</details>"
+          } > /tmp/pr-body.md
+          PR_NUM=$(gh pr view --head "$SYNC_BRANCH" --repo "$GITHUB_REPOSITORY" \
+            --json number -q .number 2>/dev/null || true)
+          if [ -n "$PR_NUM" ]; then
+            gh pr edit "$PR_NUM" --repo "$GITHUB_REPOSITORY" \
+              --title "chore: sync upstream $(date -u +%F)" --body-file /tmp/pr-body.md
+          else
+            gh pr create --repo "$GITHUB_REPOSITORY" --base "$PR_BASE" --head "$SYNC_BRANCH" \
+              --title "chore: sync upstream $(date -u +%F)" --body-file /tmp/pr-body.md
+          fi
