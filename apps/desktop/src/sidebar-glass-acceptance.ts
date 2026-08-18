@@ -249,9 +249,9 @@ export async function acceptSidebarGlass(
     assertState(afterToggle, true, 'glass')
 
     await harness.clickAt(window, "[data-theme-preference='dark']")
-    await harness.waitForRenderer(window, "document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshSidebarMaterial === 'glass-dark'")
     await waitForNativeTheme(harness, 'dark')
-    const dark = await rendererState(harness, window)
+    await harness.waitForRenderer(window, "document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshAppearance === 'dark'")
+    const dark = await normalizeTransparency(harness, window, await rendererState(harness, window), true)
     assertState(dark, true, 'glass')
 
     await window.webContents.executeJavaScript("document.body.dataset.dshTransparency = 'reduced'")
@@ -265,10 +265,10 @@ export async function acceptSidebarGlass(
     await window.webContents.executeJavaScript("document.body.dataset.dshTransparency = 'enabled'")
     await harness.waitForRenderer(window, "document.body.dataset.dshSidebarMaterial === 'glass-dark' && document.querySelector('[role=\"status\"]') === null")
     await harness.clickAt(window, "[data-theme-preference='light']")
-    await harness.waitForRenderer(window, "!document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshSidebarMaterial === 'glass-light'")
     await waitForNativeTheme(harness, 'light')
+    await harness.waitForRenderer(window, "!document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshAppearance === 'light'")
+    const restored = await normalizeTransparency(harness, window, await rendererState(harness, window), true)
     await waitForThemePersisted(harness.supervisor(), 'light')
-    const restored = await rendererState(harness, window)
     assertState(restored, true, 'glass')
     console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, ...systemState, initial, afterToggle, dark, reduced, restored })}`)
   } finally {

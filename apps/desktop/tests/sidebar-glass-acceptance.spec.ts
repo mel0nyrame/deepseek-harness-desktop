@@ -74,12 +74,12 @@ describe('sidebar glass installed-app acceptance', () => {
     }
   })
 
-  it('waits for the light preference to persist before closing the journey', async () => {
+  it('restores glass after native theme updates and waits for final persistence', async () => {
     let nativeTheme: 'light' | 'dark' | 'system' = 'system'
     const state = {
       enabled: 'false',
       material: 'opaque-light',
-      transparency: 'enabled',
+      transparency: 'reduced',
       dark: false,
       overrideVisible: false,
       surfaces: {
@@ -103,9 +103,13 @@ describe('sidebar glass installed-app acceptance', () => {
       }
       if (script === "document.body.dataset.dshTransparency = 'enabled'") {
         state.transparency = 'enabled'
-        state.material = 'glass-dark'
+        state.material = state.enabled === 'true'
+          ? `glass-${state.dark ? 'dark' : 'light'}`
+          : `opaque-${state.dark ? 'dark' : 'light'}`
         state.overrideVisible = false
-        state.surfaces.sidebar = 'rgba(0, 0, 0, 0)'
+        state.surfaces.sidebar = state.enabled === 'true'
+          ? 'rgba(0, 0, 0, 0)'
+          : 'rgb(242, 242, 242)'
       }
       return undefined
     })
@@ -129,12 +133,18 @@ describe('sidebar glass installed-app acceptance', () => {
         if (selector === "[data-theme-preference='dark']") {
           nativeTheme = 'dark'
           state.dark = true
-          state.material = 'glass-dark'
+          state.transparency = 'reduced'
+          state.material = 'opaque-dark'
+          state.overrideVisible = true
+          state.surfaces.sidebar = 'rgb(31, 31, 31)'
         }
         if (selector === "[data-theme-preference='light']") {
           nativeTheme = 'light'
           state.dark = false
-          state.material = 'glass-light'
+          state.transparency = 'reduced'
+          state.material = 'opaque-light'
+          state.overrideVisible = true
+          state.surfaces.sidebar = 'rgb(242, 242, 242)'
         }
       },
       waitForRenderer: async () => {},
@@ -160,7 +170,7 @@ describe('sidebar glass installed-app acceptance', () => {
       })
       expect(stop).not.toHaveBeenCalled()
       persistTheme()
-      await accepting
+      await expect(accepting).resolves.toBeUndefined()
       expect(stop).toHaveBeenCalledOnce()
     } finally {
       log.mockRestore()
