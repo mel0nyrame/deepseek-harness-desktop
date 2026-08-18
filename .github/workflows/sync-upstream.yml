@@ -18,6 +18,8 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # 上游提交会改动 .github/workflows/*，合并推送这些改动需要 workflows 权限
+  workflows: write
 
 concurrency:
   group: sync-upstream
