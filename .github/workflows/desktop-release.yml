@@ -1,19 +1,16 @@
 # Release-grade desktop artifacts: build, ad-hoc sign, verify, smoke-test,
-# and upload the macOS dmg for both architectures. This is not a pull-request
-# gate — the PR lane (desktop-packaged in ci.yml) already runs the packaged
-# smoke on one arm64 runner, and this matrix doubles the macOS runner
-# minutes — but the release path that produces the x64 artifact an arm64
-# development machine cannot build: the packaging script rebuilds node-pty
-# against the host architecture, so x64 needs an Intel runner.
+# and upload the macOS dmg for both architectures. This is a v* tag-only
+# release path that produces both the x64 and arm64 artifacts an arm64
+# development machine cannot build alone: the packaging script rebuilds
+# node-pty against the host architecture, so x64 needs an Intel runner.
 #
-# Triggers: workflow_dispatch and v* tags. Ad-hoc signing needs no secrets;
-# when a Developer ID certificate arrives, fill the identity/notarize wiring
-# documented in apps/desktop/electron-builder.yml and the packaging
-# pipeline's signature verification extends to the produced signature.
+# Trigger: v* tags only. Ad-hoc signing needs no secrets; when a Developer
+# ID certificate arrives, fill the identity/notarize wiring documented in
+# apps/desktop/electron-builder.yml and the packaging pipeline's signature
+# verification extends to the produced signature.
 name: Desktop release artifacts
 
 on:
-  workflow_dispatch:
   push:
     tags: ['v*']
 
@@ -54,6 +51,7 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
 
       - name: Install (immutable)
         run: pnpm install --frozen-lockfile

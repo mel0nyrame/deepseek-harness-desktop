@@ -4,9 +4,8 @@ name: Build single-exe
 # .agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.
 # A full target run retains one SDK wheel and three runtime wheels; subset
 # dispatch retains the SDK wheel and selected runtime wheels. Bare executables
-# and source closures are test inputs. Run manually, label a PR `build-exe`
-# (remove and reapply to rerun), or call it from the Python release workflow.
-# Checkout uses the triggering ref, so dispatch needs no separate ref input.
+# and source closures are test inputs. This reusable workflow is called only
+# from the v* tag release lane in ci.yml.
 on:
   workflow_call:
     inputs:
@@ -20,23 +19,6 @@ on:
         type: boolean
         required: false
         default: false
-      ci:
-        description: Run as the required Linux x64 Python runtime pull-request check.
-        type: boolean
-        required: false
-        default: false
-  workflow_dispatch:
-    inputs:
-      targets:
-        description: >-
-          Comma-separated pkg targets to build. Any subset of:
-          node24-linux-x64, node24-linux-arm64, node24-macos-arm64.
-          Empty builds all three.
-        type: string
-        required: false
-        default: ''
-  pull_request:
-    types: [labeled]
 
 concurrency:
   # Keep the called workflow distinct from its caller's concurrency group;
@@ -58,7 +40,6 @@ jobs:
   # construct the matrix before the dependent jobs.
   plan:
     name: plan targets
-    if: inputs.ci || inputs.release || github.event_name == 'workflow_dispatch' || github.event.label.name == 'build-exe'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -85,7 +66,7 @@ jobs:
       - name: Compute matrix from targets input
         id: plan
         env:
-          # Label runs and blank dispatch inputs build all targets.
+          # Blank input builds all targets.
           TARGETS: ${{ inputs.targets || 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64' }}
         run: |
           set -euo pipefail
@@ -194,9 +175,22 @@ jobs:
             *) echo "::error::Unsupported Linux runner architecture $RUNNER_ARCH"; exit 1 ;;
           esac
           # A pnpm side-effects cache hit can restore a node-gyp Makefile whose
-          # relative dependency paths came from another install topology.
-          npm_config_build_from_source=true pnpm rebuild node-pty
+          # relative dependency paths came from another install topology. Delete
+          # only this addon's generated build tree, then invoke the exact
+          # node-gyp resolved from the lockfile so the Makefile is regenerated
+          # with paths valid for this checkout.
           addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"
+          [ -d "$addon_dir" ] || {
+            echo "::error::node-pty addon directory not found at $addon_dir"
+            exit 1
+          }
+          rm -rf "$addon_dir/build"
+          node_gyp="$(node -p "const { createRequire } = require('node:module'); const { resolve } = require('node:path'); const desktop = createRequire(resolve('apps/desktop/package.json')); const rebuild = createRequire(desktop.resolve('@electron/rebuild')); rebuild.resolve('node-gyp/bin/node-gyp.js')")"
+          [ -n "$node_gyp" ] || {
+            echo "::error::Could not resolve node-gyp from the lockfile"
+            exit 1
+          }
+          node "$node_gyp" rebuild
           addon="$addon_dir/build/Release/pty.node"
           [ -f "$addon_dir/build/Makefile" ] || {
             echo "::error::node-pty install did not generate $addon_dir/build/Makefile"

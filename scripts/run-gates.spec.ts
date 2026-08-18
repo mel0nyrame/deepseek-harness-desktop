@@ -3,6 +3,7 @@ import {
   defaultConcurrency,
   formatGateResultReason,
   gatesForMode,
+  parseMode,
   runGate,
   runGates,
   type Gate,
@@ -58,6 +59,9 @@ describe('gate graph validation', () => {
   it.each([
     'ci-primary',
     'ci-linux-primary',
+    'ci-pr',
+    'ci-pr-static',
+    'ci-tag-snapshots',
     'ci-static',
     'ci-lint-contracts-ready',
     'ci-coverage',
@@ -75,6 +79,10 @@ describe('gate graph validation', () => {
     const execute = vi.fn(async (item: Gate) => resultFor(item))
 
     await expect(runGates(subject, subject.length, execute)).resolves.toHaveLength(subject.length)
+  })
+
+  it('lists the PR and tag snapshot modes in invalid-mode diagnostics', () => {
+    expect(() => parseMode('ci-not-real')).toThrow(/ci-pr \| ci-pr-static \| ci-tag-snapshots/)
   })
 
   it('keeps the public repository link policy in the documentation gate', () => {
@@ -230,6 +238,28 @@ describe('Node 24 lane ownership', () => {
 
     expect(subject.map(item => item.id)).not.toContain('build')
     expect(subject.map(item => item.id)).not.toContain('doc-typecheck')
+  })
+
+  it('keeps pull-request checks free of coverage, snapshots, and artifacts', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-pr'))
+    const ids = subject.map(item => item.id)
+
+    expect(ids).toContain('typecheck')
+    expect(ids).toContain('lint')
+    expect(ids).toContain('doc-typecheck')
+    expect(ids).toContain('test')
+    expect(ids).not.toContain('coverage')
+    expect(ids).not.toContain('snapshot')
+    expect(ids).not.toContain('build')
+    expect(subject.find(item => item.id === 'test')?.needs).toEqual(['lint'])
+  })
+
+  it('builds once before running tag snapshots in parallel', () => {
+    const subject = withPnpmEntrypoint(() => gatesForMode('ci-tag-snapshots'))
+
+    expect(subject.map(item => item.id)).toEqual(['build', 'snapshot', 'web-snapshot'])
+    expect(subject.find(item => item.id === 'snapshot')?.needs).toEqual(['build'])
+    expect(subject.find(item => item.id === 'web-snapshot')?.needs).toEqual(['build'])
   })
 
   it('owns the build and orders its artifact consumers', () => {
