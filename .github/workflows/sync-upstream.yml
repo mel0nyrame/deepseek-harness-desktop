@@ -3,6 +3,8 @@
 # subject, and diff stats) — no external AI required. When the merge conflicts,
 # the markers are committed and pushed; GitHub blocks merging the PR while
 # markers are present, so resolution happens locally and is pushed back.
+# .github/workflows/* is always kept fork-side: upstream workflow changes
+# (additions, edits, deletions) never enter this repository.
 name: Sync upstream daily
 
 on:
@@ -18,6 +20,9 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  # 合并的上游提交会改动 .github/workflows/*（虽然这些改动最终被本仓库版本
+  # 覆盖，推送同步分支仍需要 workflows 权限）
+  workflows: write
 
 concurrency:
   group: sync-upstream
@@ -72,21 +77,26 @@ jobs:
             echo "skip=false" >> "$GITHUB_ENV"
           fi
 
-      - name: Merge upstream, commit markers on conflict
+      - name: Merge upstream, keep fork workflows, commit markers on conflict
         if: env.skip != 'true'
         run: |
           git log --oneline --no-merges "origin/$PR_BASE".."upstream/$UPSTREAM_BRANCH" \
             > /tmp/new-commits.txt || true
-          if git merge --no-edit "upstream/$UPSTREAM_BRANCH"; then
-            echo "merge_clean=true" >> "$GITHUB_ENV"
-          elif git ls-files -u | grep -q .; then
+          # 合并但不自动提交；是否冲突在下面统一判断
+          git merge --no-commit --no-edit "upstream/$UPSTREAM_BRANCH" || true
+          # 本仓库的 .github/workflows/* 一律保留本仓库版本：上游对工作流的
+          # 增、改、删（含新增文件）都不合入，避免覆盖本地定制的 CI。
+          # 用 checkout HEAD（而非 git restore）：合并后这些路径处于
+          # unmerged 状态，只有 checkout <tree> -- <path> 能直接覆盖解决
+          git checkout HEAD -- .github/workflows
+          if git ls-files -u | grep -q .; then
             echo "merge_clean=false" >> "$GITHUB_ENV"
             git diff --name-only --diff-filter=U > /tmp/conflicted-files.txt
             git add -A
             git commit -m "chore: sync upstream $(date +%F): conflicts pending manual resolution"
           else
-            echo "::error::merge failed for a non-conflict reason"
-            exit 1
+            echo "merge_clean=true" >> "$GITHUB_ENV"
+            git commit --no-edit
           fi
 
       - name: Push sync branch
@@ -109,6 +119,8 @@ jobs:
             echo "## 每日上游同步 $(date -u +%F)"
             echo ""
             echo "来源: [$UPSTREAM_REPO](https://github.com/$UPSTREAM_REPO) \`$UPSTREAM_BRANCH\` → 本仓库 \`$PR_BASE\`"
+            echo ""
+            echo "🔒 本仓库的 \`.github/workflows/*\` 始终保持本仓库版本，上游工作流改动（增/改/删）自动排除，不会覆盖本地定制的 CI。"
             echo ""
             echo "**上游共 $TOTAL 条提交**（$NONMERGE 条实质改动 + $MERGES 条 merge）| 总体改动: $OVERALL"
             echo ""
