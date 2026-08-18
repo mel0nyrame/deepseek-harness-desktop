@@ -37,6 +37,8 @@ env:
   UPSTREAM_BRANCH: master
   SYNC_BRANCH: sync/upstream
   PR_BASE: ${{ inputs.base || 'master' }}
+  # runner 不会自动导出 GITHUB_TOKEN，gh 在 Actions 里必须显式拿到 token
+  GH_TOKEN: ${{ github.token }}
 
 jobs:
   sync:
