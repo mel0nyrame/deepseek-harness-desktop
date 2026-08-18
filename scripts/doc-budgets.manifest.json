@@ -1,9 +1,14 @@
 {
+<<<<<<< HEAD
   ".agents/notes/AGENTS.md": 75,
   ".agents/notes/implemented/AGENTS.md": 75,
   ".github/AGENTS.md": 70,
   "AGENTS.md": 700,
   "docs/AGENTS.md": 500,
+=======
+  "AGENTS.md": 1950,
+  "docs/AGENTS.md": 1320,
+>>>>>>> upstream/master
   "docs/architecture.md": 2400,
   "docs/cordis-primer.md": 600,
   "docs/defensive-patterns.md": 550,
