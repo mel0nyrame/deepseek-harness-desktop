@@ -928,7 +928,7 @@ async function reachLiveComposer(
   supervisor: DshSupervisor,
   window: BrowserWindow,
 ): Promise<{ sessionId: string; workspaceId: string }> {
-  const workspaceDir = join(app.getPath('userData'), 'acceptance-workspace')
+  const workspaceDir = join(app.getPath('userData'), 'dsh-desktop-demo')
   await mkdir(workspaceDir, { recursive: true })
   const created = await desktopRpc(supervisor, 'accept-workspace', 'workspace.create', { path: workspaceDir })
   const workspace = created['workspace'] as Record<string, unknown>
@@ -1747,6 +1747,9 @@ async function recordNativeWindow(
     await recorder.capture('drag-region-attempt')
 
     const { sessionId, workspaceId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    nativeTheme.themeSource = 'light'
+    await new Promise(resolveWait => setTimeout(resolveWait, 250))
+    await recorder.capture('readme-product')
     const keyboard = await typeIntoComposer(window)
     const controlBounds = window.getBounds()
     await recorder.capture('keyboard-typed')
@@ -1847,7 +1850,7 @@ async function recordNativeWindow(
     console.log('SMOKE_OK approval-session')
     // A stale notes.txt from an earlier run must not satisfy the assertion:
     // remove it so the escalated write is the only source of the file.
-    const approvalFile = join(app.getPath('userData'), 'acceptance-workspace', APPROVAL_FILE)
+    const approvalFile = join(app.getPath('userData'), 'dsh-desktop-demo', APPROVAL_FILE)
     rmSync(approvalFile, { force: true })
     await submitRecordedPrompt(window, APPROVAL_PROMPT, true)
     await waitForRenderer(window, "document.querySelector('[data-approval-key]') !== null", 120_000)

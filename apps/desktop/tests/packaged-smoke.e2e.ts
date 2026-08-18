@@ -583,9 +583,9 @@ describe('packaged desktop application', () => {
       expect(state.questionSessionId).not.toBe('')
       expect(state.approvalSessionId).not.toBe('')
       expect(state.questionSessionId).not.toBe(state.approvalSessionId)
-      // The escalated write lands in the acceptance workspace under the
+      // The escalated write lands in the recording workspace under the
       // application's own user-data directory, not the harness home.
-      expect(state.approvalFile.endsWith(join('acceptance-workspace', 'notes.txt'))).toBe(true)
+      expect(state.approvalFile.endsWith(join('dsh-desktop-demo', 'notes.txt'))).toBe(true)
       expect(captured).not.toContain('UnhandledPromiseRejectionWarning')
       expect(captured).not.toContain('Object has been destroyed')
       expect(state.framesDir).toBe(framesDir)
@@ -601,7 +601,7 @@ describe('packaged desktop application', () => {
       expect(state.window.dragAttemptBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
       for (const label of [
-        'launch', 'native-drag-surface', 'inactive', 'active', 'drag-region-attempt', 'keyboard-typed',
+        'launch', 'native-drag-surface', 'inactive', 'active', 'drag-region-attempt', 'readme-product', 'keyboard-typed',
         'restored', 'fullscreen', 'sidebar-collapsed', 'fullscreen-collapsed', 'sidebar-revealed',
         'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
         'session-sidebar-collapsed', 'session-fullscreen-collapsed',

@@ -9,10 +9,10 @@
 `deepseek-harness-desktop` 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 打包为原生 Electron 应用 **DSH Desktop**。桌面外壳是本项目专属的产品层；内置 `dsh` 运行时继续保留插件系统、Session、工具、PTY、持久化、CLI 身份与文档术语。
 
 <p align="center">
-  <img src="./assets/readme/product-window.png" width="100%" alt="真实安装态 DSH Desktop 窗口，显示通过原生操作选取的 Workspace 与装配完成的 agent 输入框">
+  <img src="./assets/readme/product-window.png" width="100%" alt="安装态 DSH Desktop 窗口，显示紧凑 macOS 窗口框架、玻璃侧栏、已选 Workspace 与装配完成的 agent 输入框">
 </p>
 
-<p align="center"><sub>来自已安装 macOS 应用包原生操作验收流程的真实 renderer 捕获。</sub></p>
+<p align="center"><sub>来自已安装 macOS 应用包的 renderer 捕获，以中性背景呈现紧凑窗口框架与默认玻璃侧栏布局。</sub></p>
 
 ## 桌面外壳，完整 harness
 
@@ -23,7 +23,7 @@
       <td align="center" width="50%"><img src="./assets/readme/icons/private-carrier.png" width="112" alt="私有载体插画"><br><strong>私有桌面载体</strong><br>沙箱化 renderer 通过上下文隔离的 preload 桥和经过校验的 IPC 访问 DSH；desktop profile 不会打开面向浏览器的 HTTP 监听。</td>
     </tr>
     <tr>
-      <td align="center" width="50%"><img src="./assets/readme/icons/native-workspace.png" width="112" alt="原生 Workspace 插画"><br><strong>原生 Workspace 操作</strong><br>Electron main 持有目录选择、路径打开、macOS 窗口集成、恢复与进程树清理。</td>
+      <td align="center" width="50%"><img src="./assets/readme/icons/native-workspace.png" width="112" alt="原生 Workspace 插画"><br><strong>原生 macOS 外壳</strong><br>Electron main 持有目录选择、路径打开、紧凑窗口框架与原生拖动、恢复和进程树清理；侧栏使用已保存的玻璃侧栏偏好。</td>
       <td align="center" width="50%"><img src="./assets/readme/icons/shared-state.png" width="112" alt="共享状态插画"><br><strong>共享 DSH 状态</strong><br>DSH Desktop 与 CLI 使用同一个 <code>~/.dsh</code> 主目录，因此两者都能访问 Session、profile 与配置。</td>
     </tr>
   </tbody>
