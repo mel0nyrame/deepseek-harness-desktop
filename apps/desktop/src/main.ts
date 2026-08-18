@@ -24,6 +24,7 @@ import {
   PACKAGED_CHILD_EXEC_ARGV,
   packagedChildEnv,
   packagedRuntimeLayout,
+  parseSidebarGlassAcceptanceInvocation,
   parseSmokeInvocation,
   parseSmokeReopenInvocation,
 } from './packaged-runtime.ts'
@@ -33,12 +34,14 @@ import {
 } from './smoke.ts'
 import { DESKTOP_SURFACE_CSS, desktopWindowOptions, rendererSurfaceState } from './native-window.ts'
 import { createNativeActionHandler, type DesktopNativePlatform } from './native-actions.ts'
+import { acceptSidebarGlass } from './sidebar-glass-acceptance.ts'
 import {
   isDesktopAppUrl,
   parseRendererId,
   parseRendererRecoveryAction,
   parseRendererRequest,
   parseRendererSubscription,
+  parseRendererThemePreference,
   toRendererStreamEvent,
 } from './renderer-ipc.ts'
 
@@ -61,6 +64,8 @@ protocol.registerSchemesAsPrivileged([{
 const JOURNEY_FLAGS = [
   '--inspect-native-window',
   '--accept-native-window',
+  '--accept-native-window-drag',
+  '--accept-sidebar-glass',
   '--record-native-window',
   '--record-native-actions',
   '--record-recovery',
@@ -405,6 +410,15 @@ function installIpc(
     // it to the child so its pump may send the next frame.
     maybeSupervisor()?.ackStream(id)
   })
+  ipcMain.on('dsh:set-theme-preference', (event, value: unknown) => {
+    if (!senderAllowed(event)) return
+    const preference = parseRendererThemePreference(value)
+    if (preference === undefined) {
+      console.error('[desktop-main] dropped malformed theme preference')
+      return
+    }
+    nativeTheme.themeSource = preference
+  })
   ipcMain.handle('dsh:recovery', (event, value: unknown) => {
     if (!statusSenderAllowed(event)) throw new Error('desktop IPC rejected an unknown recovery sender')
     const action = parseRendererRecoveryAction(value)
@@ -461,10 +475,28 @@ function installIpc(
     }
     ipcMain.removeHandler('dsh:request')
     ipcMain.removeHandler('dsh:recovery')
-    for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription', 'dsh:stream-ack']) {
+    for (const channel of ['dsh:boot', 'dsh:cancel-request', 'dsh:subscribe', 'dsh:cancel-subscription', 'dsh:stream-ack', 'dsh:set-theme-preference']) {
       ipcMain.removeAllListeners(channel)
     }
   }
+}
+
+/** Push the current native appearance, platform, and full-screen facts into the renderer. */
+function applyRendererNativeState(window: BrowserWindow): Promise<void> {
+  const state = rendererSurfaceState(
+    nativeTheme.shouldUseDarkColors,
+    nativeTheme.prefersReducedTransparency,
+    process.platform,
+  )
+  const surface = window.webContents.executeJavaScript(`
+    document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
+    document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
+    document.body.dataset.dshPlatform = ${JSON.stringify(state.platform)};
+    document.body.dataset.dshFullscreen = ${JSON.stringify(window.isFullScreen())};
+  `).then(() => undefined, (error: unknown) => {
+    console.error(`desktop renderer boot state update failed: ${String(error)}`)
+  })
+  return surface
 }
 
 /** Serialize page transitions for one window: status page ↔ assembled app. */
@@ -484,6 +516,7 @@ function pageDirector(window: BrowserWindow) {
     if (atPath(pathname)) return
     await window.loadURL(`${APP_ORIGIN}${pathname}`)
     await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+    await applyRendererNativeState(window)
   }
   return {
     status(state: ReturnType<typeof statusStateFor>): void {
@@ -527,23 +560,16 @@ function bootWindow(
   window.webContents.on('will-navigate', (event, url) => {
     if (!isDesktopAppUrl(url)) event.preventDefault()
   })
-  const applySurfaceState = (): void => {
-    const state = rendererSurfaceState(
-      nativeTheme.shouldUseDarkColors,
-      nativeTheme.prefersReducedTransparency,
-    )
-    void window.webContents.executeJavaScript(`
-      document.body.dataset.dshAppearance = ${JSON.stringify(state.appearance)};
-      document.body.dataset.dshTransparency = ${JSON.stringify(state.transparency)};
-    `).catch((error: unknown) => {
-      console.error(`desktop appearance update failed: ${String(error)}`)
-    })
-  }
-  applySurfaceState()
-  nativeTheme.on('updated', applySurfaceState)
+  const applyRendererState = (): void => { void applyRendererNativeState(window) }
+  applyRendererState()
+  nativeTheme.on('updated', applyRendererState)
+  window.on('enter-full-screen', applyRendererState)
+  window.on('leave-full-screen', applyRendererState)
   window.once('closed', () => {
     if (currentWindow === window) currentWindow = undefined
-    nativeTheme.off('updated', applySurfaceState)
+    nativeTheme.off('updated', applyRendererState)
+    window.removeListener('enter-full-screen', applyRendererState)
+    window.removeListener('leave-full-screen', applyRendererState)
   })
   app.on('window-all-closed', () => { app.quit() })
 
@@ -657,7 +683,10 @@ async function stopAfterJourney(lifecycle: DesktopLifecycle, headless: boolean):
   }
 }
 
-function onceWindowEvent(window: BrowserWindow, event: 'focus' | 'blur' | 'minimize' | 'restore'): Promise<void> {
+function onceWindowEvent(
+  window: BrowserWindow,
+  event: 'focus' | 'blur' | 'minimize' | 'restore' | 'enter-full-screen' | 'leave-full-screen',
+): Promise<void> {
   return new Promise((resolveEvent) => {
     const done = (): void => { resolveEvent() }
     switch (event) {
@@ -665,8 +694,23 @@ function onceWindowEvent(window: BrowserWindow, event: 'focus' | 'blur' | 'minim
       case 'blur': window.once('blur', done); break
       case 'minimize': window.once('minimize', done); break
       case 'restore': window.once('restore', done); break
+      case 'enter-full-screen': window.once('enter-full-screen', done); break
+      case 'leave-full-screen': window.once('leave-full-screen', done); break
     }
   })
+}
+
+/** Enter and leave native full screen, re-syncing renderer state at each edge. */
+async function exerciseFullscreen(window: BrowserWindow, during?: () => Promise<void>): Promise<void> {
+  const entered = onceWindowEvent(window, 'enter-full-screen')
+  window.setFullScreen(true)
+  await entered
+  await applyRendererNativeState(window)
+  await during?.()
+  const left = onceWindowEvent(window, 'leave-full-screen')
+  window.setFullScreen(false)
+  await left
+  await applyRendererNativeState(window)
 }
 
 async function waitForRenderer(window: BrowserWindow, expression: string, timeoutMs = 30_000): Promise<void> {
@@ -689,6 +733,86 @@ async function clickAt(window: BrowserWindow, selector: string): Promise<void> {
   if (point === null) throw new Error(`desktop acceptance: ${selector} has no clickable element`)
   window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
   window.webContents.sendInputEvent({ type: 'mouseUp', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+}
+
+/** Drag the sidebar resize handle with real pointer input to a new edge x. */
+async function dragSidebarHandle(window: BrowserWindow, toX: number): Promise<void> {
+  const point = await window.webContents.executeJavaScript(`(() => {
+    const handle = document.querySelector('[data-side="sidebar"]');
+    if (handle === null) return null;
+    const box = handle.getBoundingClientRect();
+    return { x: Math.round(box.x + box.width / 2), y: Math.round(box.y + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+  if (point === null) {
+    const state = await window.webContents.executeJavaScript(`(() => {
+      const frame = document.querySelector('[data-side="sidebar"]')?.parentElement;
+      return {
+        innerWidth,
+        collapsed: document.querySelector('[data-sidebar-collapsed]') !== null,
+        reveal: document.querySelector('[data-sidebar-reveal]') !== null,
+        toggle: document.querySelector('[data-sidebar-toggle]') !== null,
+        sides: Array.from(document.querySelectorAll('[data-side]')).map(el => el.getAttribute('data-side')),
+        frameTemplate: frame === null ? null : getComputedStyle(frame).gridTemplateColumns,
+        frameAttrs: frame === null ? null : frame.getAttributeNames(),
+      };
+    })()`) as unknown
+    throw new Error(`desktop acceptance: sidebar resize handle is not rendered; frame state: ${JSON.stringify(state)}`)
+  }
+  window.webContents.sendInputEvent({ type: 'mouseDown', x: point.x, y: point.y, button: 'left', clickCount: 1 })
+  await new Promise(resolveWait => setTimeout(resolveWait, 100))
+  window.webContents.sendInputEvent({
+    type: 'mouseMove',
+    x: toX,
+    y: point.y,
+    movementX: toX - point.x,
+    movementY: 0,
+    modifiers: ['leftbuttondown'],
+  })
+  await new Promise(resolveWait => setTimeout(resolveWait, 100))
+  window.webContents.sendInputEvent({ type: 'mouseUp', x: toX, y: point.y, button: 'left', clickCount: 1 })
+  await new Promise(resolveWait => setTimeout(resolveWait, 150))
+  const landed = await window.webContents.executeJavaScript(`(() => {
+    const handle = document.querySelector('[data-side="sidebar"]');
+    const frame = document.querySelector('[data-side="sidebar"]')?.parentElement;
+    return {
+      handleLeft: handle === null ? null : handle.style.left,
+      frameTemplate: frame === null ? null : getComputedStyle(frame).gridTemplateColumns,
+      active: document.activeElement?.tagName,
+    };
+  })()`) as unknown
+  if (typeof landed === 'object' && landed !== null
+    && (landed as Record<string, unknown>)['handleLeft'] !== `${toX}px`) {
+    throw new Error(`desktop acceptance: sidebar drag did not land on ${toX}px: ${JSON.stringify(landed)}`)
+  }
+}
+
+/** Measure the collapsed-sidebar contract: zero-width track, reveal control
+ * position, conversation-header clearance, and the reclaimed conversation
+ * surface (issue #33). */
+function collapsedSidebarGeometry(window: BrowserWindow): Promise<unknown> {
+  return window.webContents.executeJavaScript(`(() => {
+    const frame = document.querySelector('[data-sidebar-collapsed]');
+    const reveal = document.querySelector('[data-sidebar-reveal]');
+    const headers = Array.from(document.querySelectorAll('[data-conversation-header]'));
+    const header = headers
+      .find(candidate => candidate.getClientRects().length > 0 && candidate.getAttribute('aria-hidden') !== 'true')
+      ?? headers[0]
+      ?? null;
+    const conversation = document.querySelector('[data-center-column]');
+    const track = frame === null ? null : getComputedStyle(frame).gridTemplateColumns;
+    return {
+      track,
+      reveal: reveal === null ? null : reveal.getBoundingClientRect().toJSON(),
+      headerPaddingLeft: header === null ? null : getComputedStyle(header).paddingLeft,
+      headerPaddingTop: header === null ? null : getComputedStyle(header).paddingTop,
+      header: header === null ? null : header.getBoundingClientRect().toJSON(),
+      title: header?.querySelector('nav')?.getBoundingClientRect().toJSON() ?? null,
+      tabs: header?.querySelector('[role="tablist"]')?.getBoundingClientRect().toJSON() ?? null,
+      conversation: conversation === null
+        ? null
+        : { ...conversation.getBoundingClientRect().toJSON(), viewport: innerWidth },
+    };
+  })()`)
 }
 
 type AcceptanceRpcResult =
@@ -739,7 +863,25 @@ const SETTLED_BASH_CARD = '[data-sample="bash"][data-state="ok"]'
 async function completeOnboarding(window: BrowserWindow): Promise<void> {
   const dialog = '[role="dialog"]'
   const title = `${dialog} h2`
-  await waitForRenderer(window, `document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Internal Testing Notice'`)
+  try {
+    // The welcome notice needs a settings round trip through the desktop
+    // wire; the first boot can take a while on a busy machine.
+    await waitForRenderer(window, `document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Internal Testing Notice'`, 60_000)
+  } catch (error) {
+    const state = await window.webContents.executeJavaScript(`(() => {
+      const dialogs = [...document.querySelectorAll('[role="dialog"]')].map(dialogEl => ({
+        h2: dialogEl.querySelector('h2')?.textContent?.trim() ?? null,
+        heading: dialogEl.querySelector('h1, h2, h3')?.textContent?.trim() ?? null,
+      }));
+      return {
+        dialogs,
+        innerWidth,
+        assembled: document.querySelector('#root > *') !== null,
+        bodyPrefix: document.body?.textContent?.trim().slice(0, 160) ?? null,
+      };
+    })()`).catch(() => null) as unknown
+    throw new Error(`${String(error)}; page state: ${JSON.stringify(state)}`)
+  }
   await clickAt(window, `${dialog} button`)
   await waitForRenderer(window, `!document.querySelector(${JSON.stringify(dialog)}) || document.querySelector(${JSON.stringify(title)})?.textContent?.trim() === 'Add an API key to get started'`)
   const secondTitle = await window.webContents.executeJavaScript(`document.querySelector(${JSON.stringify(title)})?.textContent?.trim()`) as string | undefined
@@ -786,7 +928,7 @@ async function reachLiveComposer(
   supervisor: DshSupervisor,
   window: BrowserWindow,
 ): Promise<{ sessionId: string; workspaceId: string }> {
-  const workspaceDir = join(app.getPath('userData'), 'acceptance-workspace')
+  const workspaceDir = join(app.getPath('userData'), 'dsh-desktop-demo')
   await mkdir(workspaceDir, { recursive: true })
   const created = await desktopRpc(supervisor, 'accept-workspace', 'workspace.create', { path: workspaceDir })
   const workspace = created['workspace'] as Record<string, unknown>
@@ -800,6 +942,7 @@ async function reachLiveComposer(
   window.webContents.reload()
   await loaded
   await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
+  await applyRendererNativeState(window)
   await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
 
   await waitForRenderer(window, "document.querySelector('textarea[aria-haspopup]') && !document.querySelector('textarea').disabled")
@@ -1183,7 +1326,10 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     throw new Error(`desktop acceptance: Host did not reach the running phase (${lifecycle.phase})`)
   }
   const focus: string[] = []
-  window.setBounds({ x: 120, y: 120, width: 960, height: 700 })
+  // Keep the window above SIDEBAR_AUTO_COLLAPSE (1024px). Work-area clamping
+  // can narrow it again, so the phase re-expands the sidebar before dragging
+  // when necessary.
+  window.setBounds({ x: 120, y: 120, width: 1160, height: 700 })
   window.show()
   window.focus()
   focus.push('active')
@@ -1226,6 +1372,28 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
     window.restore()
     await restored
 
+    const rowGeometry = (): string => `(() => {
+      const control = document.querySelector('[data-sidebar-control-row]');
+      const brand = document.querySelector('[data-sidebar-brand-row]');
+      return {
+        controlRowPaddingLeft: control === null ? null : getComputedStyle(control).paddingLeft,
+        brandRowPaddingLeft: brand === null ? null : getComputedStyle(brand).paddingLeft,
+        controlRowTop: control === null ? null : control.getBoundingClientRect().top,
+        brandRowTop: brand === null ? null : brand.getBoundingClientRect().top,
+      };
+    })()`
+    const fullscreenBefore = await window.webContents.executeJavaScript(rowGeometry()) as unknown
+    let fullscreen: unknown
+    await exerciseFullscreen(window, async () => {
+      fullscreen = await window.webContents.executeJavaScript(`(() => {
+        const geometry = ${rowGeometry()};
+        return { active: document.body.dataset.dshFullscreen, ...geometry };
+      })()`) as unknown
+    })
+    const fullscreenAfter = await window.webContents.executeJavaScript(
+      'document.body.dataset.dshFullscreen',
+    ) as unknown
+
     const renderer = await window.webContents.executeJavaScript(`(() => {
       const root = document.querySelector('#root');
       const textarea = document.querySelector('textarea');
@@ -1238,12 +1406,53 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
           height: box.height,
         },
         viewportHeight: innerHeight,
-        dragRegion: getComputedStyle(document.body, '::before').webkitAppRegion,
+        dragRegion: getComputedStyle(document.querySelector('[data-conversation-header]')).webkitAppRegion,
         controlRegion: getComputedStyle(textarea).webkitAppRegion,
         activeElement: document.activeElement?.tagName,
         keyboardValue: textarea.value,
       };
     })()`) as unknown
+
+    // The collapsed sidebar must leave a zero-width track, give the
+    // conversation the reclaimed width, clear native traffic lights in a
+    // window, move to the content inset in full screen, and restore the exact
+    // user width after reveal.
+    // Work-area clamping may auto-collapse after setBounds; expand before drag.
+    window.setBounds({ x: 120, y: 120, width: 1160, height: 700 })
+    await new Promise(resolveWait => setTimeout(resolveWait, 300))
+    if (await window.webContents.executeJavaScript("document.querySelector('[data-sidebar-reveal]') !== null")) {
+      await clickAt(window, '[data-sidebar-reveal]')
+      await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    }
+    await dragSidebarHandle(window, 350)
+    await waitForRenderer(window, "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns.startsWith('350px')")
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    await waitForRenderer(window, "getComputedStyle(document.querySelector('[data-sidebar-collapsed]')).gridTemplateColumns.startsWith('0px')")
+    const collapsed = await collapsedSidebarGeometry(window)
+    let collapsedFullscreen: unknown
+    let collapsedFullscreenActive: unknown
+    await exerciseFullscreen(window, async () => {
+      collapsedFullscreen = await collapsedSidebarGeometry(window)
+      collapsedFullscreenActive = await window.webContents.executeJavaScript(
+        'document.body.dataset.dshFullscreen',
+      ) as unknown
+    })
+    const collapsedAfter = await window.webContents.executeJavaScript(
+      'document.body.dataset.dshFullscreen',
+    ) as unknown
+    await clickAt(window, '[data-sidebar-reveal]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    await waitForRenderer(window, "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns.startsWith('350px')")
+    const restoredTrack = await window.webContents.executeJavaScript(
+      "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns",
+    ) as unknown
+    // A reveal cycle must not detach the resize interaction.
+    await dragSidebarHandle(window, 380)
+    const resizedAfterCycle = await window.webContents.executeJavaScript(
+      "getComputedStyle(document.querySelector('[data-side=\"sidebar\"]')?.parentElement).gridTemplateColumns",
+    ) as unknown
+
     console.log(`NATIVE_WINDOW_ACCEPTANCE ${JSON.stringify({
       focus,
       window: {
@@ -1253,10 +1462,167 @@ async function acceptNativeWindow(lifecycle: DesktopLifecycle): Promise<void> {
         minimized: wasMinimized,
         restored: !window.isMinimized(),
       },
+      fullscreen: {
+        ...(fullscreen as Record<string, unknown>),
+        before: fullscreenBefore,
+        after: fullscreenAfter,
+      },
       renderer: { ...(renderer as Record<string, unknown>), keyboardBeforeMinimize },
+      collapse: {
+        windowed: collapsed,
+        fullscreen: collapsedFullscreen,
+        fullscreenActive: collapsedFullscreenActive,
+        fullscreenAfter: collapsedAfter,
+        restoredTrack,
+        resizedAfterCycle,
+      },
     })}`)
   } finally {
     other?.destroy()
+    window.destroy()
+    await stopAfterJourney(lifecycle, true)
+  }
+}
+
+interface NativeWindowDragStage {
+  readonly stage: 'onboarding' | 'expanded' | 'collapsed' | 'control'
+  readonly point: { readonly x: number; readonly y: number }
+  readonly before: Electron.Rectangle
+  readonly after: Electron.Rectangle
+}
+
+/** Resolve a safe point inside one drag surface, excluding interactive descendants. */
+async function dragSurfacePoint(
+  window: BrowserWindow,
+  selector: string,
+): Promise<{ x: number; y: number }> {
+  const clientPoint = await window.webContents.executeJavaScript(`(() => {
+    const surface = document.querySelector(${JSON.stringify(selector)});
+    if (!(surface instanceof HTMLElement)) return null;
+    const box = surface.getBoundingClientRect();
+    const interactive = 'button, a, input, select, textarea, [role="button"], [role="link"], [contenteditable="true"]';
+    for (let y = Math.ceil(box.top + 4); y < Math.floor(box.bottom - 4); y += 6) {
+      for (let x = Math.floor(box.right - 4); x > Math.ceil(box.left + 4); x -= 6) {
+        const hit = document.elementFromPoint(x, y);
+        if (hit === null || !surface.contains(hit) || hit.closest(interactive) !== null) continue;
+        return { x, y };
+      }
+    }
+    return null;
+  })()`) as { x: number; y: number } | null
+  if (clientPoint === null) {
+    throw new Error(`desktop native drag acceptance: ${selector} has no safe drag point`)
+  }
+  const bounds = window.getBounds()
+  return { x: bounds.x + clientPoint.x, y: bounds.y + clientPoint.y }
+}
+
+/** Resolve the center of one no-drag control in screen coordinates. */
+async function controlPoint(
+  window: BrowserWindow,
+  selector: string,
+): Promise<{ x: number; y: number }> {
+  const clientPoint = await window.webContents.executeJavaScript(`(() => {
+    const control = document.querySelector(${JSON.stringify(selector)});
+    if (!(control instanceof HTMLElement)) return null;
+    const box = control.getBoundingClientRect();
+    if (box.width === 0 || box.height === 0) return null;
+    return { x: Math.round(box.left + box.width / 2), y: Math.round(box.top + box.height / 2) };
+  })()`) as { x: number; y: number } | null
+  if (clientPoint === null) {
+    throw new Error(`desktop native drag acceptance: ${selector} has no control point`)
+  }
+  const bounds = window.getBounds()
+  return { x: bounds.x + clientPoint.x, y: bounds.y + clientPoint.y }
+}
+
+/** Publish one OS-pointer target and assert the resulting native move contract. */
+async function acceptNativeDragStage(
+  window: BrowserWindow,
+  stage: NativeWindowDragStage['stage'],
+  selector: string,
+  shouldMove: boolean,
+): Promise<NativeWindowDragStage> {
+  window.setBounds({ x: 40, y: 60, width: 1160, height: 700 })
+  window.show()
+  window.focus()
+  await new Promise(resolveWait => setTimeout(resolveWait, 250))
+  const point = shouldMove
+    ? await dragSurfacePoint(window, selector)
+    : await controlPoint(window, selector)
+  const before = window.getBounds()
+  const moved = new Promise<boolean>((resolveMove) => {
+    window.once('move', () => { resolveMove(true) })
+  })
+  console.log(`NATIVE_WINDOW_DRAG_READY ${JSON.stringify({ stage, point })}`)
+  const didMove = await Promise.race([
+    moved,
+    new Promise<boolean>(resolveWait => setTimeout(() => { resolveWait(false) }, shouldMove ? 15_000 : 3_000)),
+  ])
+  if (didMove) await new Promise(resolveWait => setTimeout(resolveWait, 300))
+  const after = window.getBounds()
+  const changed = after.x !== before.x || after.y !== before.y
+  if (changed !== shouldMove) {
+    throw new Error(
+      `desktop native drag acceptance: ${stage} expected move=${String(shouldMove)}; before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+    )
+  }
+  const result = { stage, point, before, after }
+  console.log(`NATIVE_WINDOW_DRAG_STAGE ${JSON.stringify(result)}`)
+  return result
+}
+
+/** Exercise real AppKit window movement through externally injected OS pointer events. */
+async function acceptNativeWindowDrag(lifecycle: DesktopLifecycle): Promise<void> {
+  const { window, ready } = bootWindow(lifecycle)
+  await ready
+  if (lifecycle.phase !== 'running') {
+    throw new Error(`desktop native drag acceptance: Host did not reach the running phase (${lifecycle.phase})`)
+  }
+  const stages: NativeWindowDragStage[] = []
+  try {
+    await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
+    await waitForRenderer(window, "document.querySelector('[role=\"dialog\"] [data-window-drag-surface]')", 60_000)
+    stages.push(await acceptNativeDragStage(
+      window,
+      'onboarding',
+      '[role="dialog"] [data-window-drag-surface]',
+      true,
+    ))
+    await completeOnboarding(window)
+
+    const { sessionId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    await submitRecordedPrompt(window, RECORDED_PROMPT)
+    await waitForTurnCompleted(currentSupervisor(lifecycle), window, sessionId, {
+      toolName: 'bash',
+      toolResultContains: 'TERMINAL_OK',
+      settledSelector: SETTLED_BASH_CARD,
+    })
+    await waitForRenderer(window, "document.querySelector('[data-conversation-header]:not([aria-hidden=\"true\"])')")
+
+    if (await window.webContents.executeJavaScript("document.querySelector('[data-sidebar-reveal]') !== null")) {
+      await clickAt(window, '[data-sidebar-reveal]')
+      await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    }
+    stages.push(await acceptNativeDragStage(window, 'expanded', '[data-sidebar-control-row]', true))
+
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    stages.push(await acceptNativeDragStage(
+      window,
+      'collapsed',
+      '[data-conversation-header]:not([aria-hidden="true"])',
+      true,
+    ))
+    stages.push(await acceptNativeDragStage(window, 'control', LIVE_COMPOSER, false))
+    const activeElement = await window.webContents.executeJavaScript(
+      'document.activeElement?.tagName ?? null',
+    ) as unknown
+    if (activeElement !== 'TEXTAREA') {
+      throw new Error(`desktop native drag acceptance: no-drag control did not remain interactive (${String(activeElement)})`)
+    }
+    console.log(`NATIVE_WINDOW_DRAG_ACCEPTANCE ${JSON.stringify({ stages, activeElement })}`)
+  } finally {
     window.destroy()
     await stopAfterJourney(lifecycle, true)
   }
@@ -1314,8 +1680,9 @@ function parseReplayInvocation(argv: readonly string[]): ReplayInvocation {
 
 /**
  * Record truthful renderer frames of the real packaged window: launch, focus
- * transitions, the drag-strip input attempt, keyboard operation, minimize/
- * restore, light/dark appearance, and the replayed tracer-bullet turn in the
+ * transitions, the drag-region input attempt, keyboard operation, minimize/
+ * restore, native full-screen transition, light/dark appearance, and the
+ * replayed tracer-bullet turn in the
  * assembled UI. `capturePage()` sees renderer pixels only, so native
  * traffic-light glyphs and OS-level drag movement are out of frame; the
  * evidence line reports the native window state beside the frame list.
@@ -1337,7 +1704,10 @@ async function recordNativeWindow(
   }
   const recorder = createFrameRecorder(window, framesDir)
   const focus: string[] = []
-  window.setBounds({ x: 120, y: 120, width: 960, height: 700 })
+  // Keep the window above SIDEBAR_AUTO_COLLAPSE (1024px). Work-area clamping
+  // can narrow it again, so the phase re-expands the sidebar before dragging
+  // when necessary.
+  window.setBounds({ x: 120, y: 120, width: 1160, height: 700 })
   window.show()
   window.focus()
   focus.push('active')
@@ -1352,6 +1722,7 @@ async function recordNativeWindow(
     await waitForRenderer(window, "document.querySelector('#root > *') && document.querySelector('textarea')")
     await recorder.capture('launch')
     await completeOnboarding(window)
+    await recorder.capture('native-drag-surface')
 
     const blurred = onceWindowEvent(window, 'blur')
     other = new BrowserWindow({ width: 240, height: 160, show: true })
@@ -1363,7 +1734,7 @@ async function recordNativeWindow(
     await focused
     await recorder.capture('active')
 
-    // Synthetic input exercises the drag strip without OS-level pointer
+    // Synthetic input exercises the compact drag region without OS-level pointer
     // permissions; the evidence line records the resulting bounds against the
     // bounds macOS actually granted — displays shorter than the requested
     // rect (the CI arm64 runner) clamp it, and that granted position is the
@@ -1373,9 +1744,12 @@ async function recordNativeWindow(
     window.webContents.sendInputEvent({ type: 'mouseMove', x: 520, y: 60, movementX: 40, movementY: 40 })
     window.webContents.sendInputEvent({ type: 'mouseUp', x: 520, y: 60, button: 'left', clickCount: 1 })
     const dragAttemptBounds = window.getBounds()
-    await recorder.capture('drag-strip-attempt')
+    await recorder.capture('drag-region-attempt')
 
     const { sessionId, workspaceId } = await reachLiveComposer(currentSupervisor(lifecycle), window)
+    nativeTheme.themeSource = 'light'
+    await new Promise(resolveWait => setTimeout(resolveWait, 250))
+    await recorder.capture('readme-product')
     const keyboard = await typeIntoComposer(window)
     const controlBounds = window.getBounds()
     await recorder.capture('keyboard-typed')
@@ -1388,6 +1762,25 @@ async function recordNativeWindow(
     window.restore()
     await restored
     await recorder.capture('restored')
+
+    await exerciseFullscreen(window, () => recorder.capture('fullscreen'))
+
+    // Capture the collapsed layout in both windowed and full-screen geometry;
+    // work-area clamping may require an explicit reveal before the toggle is
+    // available.
+    if (await window.webContents.executeJavaScript("document.querySelector('[data-sidebar-reveal]') !== null")) {
+      await clickAt(window, '[data-sidebar-reveal]')
+      await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    }
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    await new Promise(resolveWait => setTimeout(resolveWait, 400))
+    await recorder.capture('sidebar-collapsed')
+    await exerciseFullscreen(window, () => recorder.capture('fullscreen-collapsed'))
+    await clickAt(window, '[data-sidebar-reveal]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+    await new Promise(resolveWait => setTimeout(resolveWait, 400))
+    await recorder.capture('sidebar-revealed')
 
     nativeTheme.themeSource = 'dark'
     await new Promise(resolveWait => setTimeout(resolveWait, 250))
@@ -1422,6 +1815,17 @@ async function recordNativeWindow(
     await poll
     await recorder.capture('tracer-settled')
 
+    // The settled Session exposes its title and Chat/Trajectory header, so
+    // these frames carry the collapsed-header alignment contract that the
+    // earlier blank-composer frames intentionally omit.
+    await clickAt(window, '[data-sidebar-toggle]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') !== null")
+    await new Promise(resolveWait => setTimeout(resolveWait, 400))
+    await recorder.capture('session-sidebar-collapsed')
+    await exerciseFullscreen(window, () => recorder.capture('session-fullscreen-collapsed'))
+    await clickAt(window, '[data-sidebar-reveal]')
+    await waitForRenderer(window, "document.querySelector('[data-sidebar-reveal]') === null")
+
     // Interaction parity through the assembled renderer: the question turn is
     // answered in the real question composer, and the approval turn switches
     // the real access-mode chip, waits for the real approval panel, and clicks
@@ -1446,7 +1850,7 @@ async function recordNativeWindow(
     console.log('SMOKE_OK approval-session')
     // A stale notes.txt from an earlier run must not satisfy the assertion:
     // remove it so the escalated write is the only source of the file.
-    const approvalFile = join(app.getPath('userData'), 'acceptance-workspace', APPROVAL_FILE)
+    const approvalFile = join(app.getPath('userData'), 'dsh-desktop-demo', APPROVAL_FILE)
     rmSync(approvalFile, { force: true })
     await submitRecordedPrompt(window, APPROVAL_PROMPT, true)
     await waitForRenderer(window, "document.querySelector('[data-approval-key]') !== null", 120_000)
@@ -1693,28 +2097,67 @@ async function inspectNativeWindow(): Promise<void> {
     },
   })
   try {
-    await window.loadURL('data:text/html,<button id="control">Control</button><textarea id="editor"></textarea>')
+    await window.loadURL(`data:text/html,${encodeURIComponent(`
+      <style>
+        body {
+          --dsw-alias-bg-base: rgb(249, 250, 251);
+          --dsw-static-neutral-bluish-50: rgb(249, 250, 251);
+          --dsw-static-neutral-bluish-900: rgb(27, 27, 28);
+          --dsw-alias-interactive-bg-hover: rgba(38, 49, 72, 0.06);
+        }
+        body[data-ds-dark-theme] {
+          --dsw-alias-bg-base: rgb(15, 17, 21);
+          --dsw-alias-interactive-bg-hover: rgba(255, 255, 255, 0.08);
+        }
+      </style>
+      <div data-dsh-frame-surface>
+        <aside data-dsh-sidebar-surface>
+          <button id="control">Control</button>
+          <button data-sidebar-new-session>New Session</button>
+          <div role="treeitem" aria-selected="true">Selected Session</div>
+        </aside>
+        <main data-slot="conversation" data-dsh-conversation-surface>
+          <header data-conversation-header>Conversation</header>
+          <textarea id="editor"></textarea>
+        </main>
+        <section data-dsh-details-surface>Details</section>
+      </div>
+    `)}`)
     await window.webContents.insertCSS(DESKTOP_SURFACE_CSS)
-    const state = rendererSurfaceState(nativeTheme.shouldUseDarkColors, nativeTheme.prefersReducedTransparency)
+    const state = rendererSurfaceState(
+      nativeTheme.shouldUseDarkColors,
+      nativeTheme.prefersReducedTransparency,
+      process.platform,
+    )
     const renderer = await window.webContents.executeJavaScript(`
-      const inspectSurface = (appearance, transparency) => {
+      document.body.dataset.dshPlatform = ${JSON.stringify(state.platform)};
+      document.body.dataset.dshFullscreen = 'false';
+      const inspectSurface = (appearance, material) => {
         document.body.toggleAttribute('data-ds-dark-theme', appearance === 'dark');
         document.body.dataset.dshAppearance = appearance;
-        document.body.dataset.dshTransparency = transparency;
-        return getComputedStyle(document.body).backgroundColor;
+        document.body.dataset.dshSidebarMaterial = material;
+        const color = (selector) => getComputedStyle(document.querySelector(selector)).backgroundColor;
+        return {
+          frame: color('[data-dsh-frame-surface]'),
+          sidebar: color('[data-dsh-sidebar-surface]'),
+          conversation: color('[data-dsh-conversation-surface]'),
+          details: color('[data-dsh-details-surface]'),
+          newSession: color('[data-sidebar-new-session]'),
+          selectedSession: color('[role="treeitem"][aria-selected="true"]'),
+        };
       };
       document.querySelector('#control').focus();
       ({
         activeElement: document.activeElement?.id,
         systemState: ${JSON.stringify(state)},
         surfaces: {
-          lightEnabled: inspectSurface('light', 'enabled'),
-          darkEnabled: inspectSurface('dark', 'enabled'),
-          lightReduced: inspectSurface('light', 'reduced'),
-          darkReduced: inspectSurface('dark', 'reduced'),
+          glassLight: inspectSurface('light', 'glass-light'),
+          glassDark: inspectSurface('dark', 'glass-dark'),
+          opaqueLight: inspectSurface('light', 'opaque-light'),
+          opaqueDark: inspectSurface('dark', 'opaque-dark'),
         },
         controlRegion: getComputedStyle(document.querySelector('#control')).webkitAppRegion,
-        dragRegion: getComputedStyle(document.body, '::before').webkitAppRegion,
+        dragRegion: getComputedStyle(document.querySelector('[data-conversation-header]')).webkitAppRegion,
       })
     `) as unknown
     console.log(`NATIVE_WINDOW_STATE ${JSON.stringify({
@@ -1820,13 +2263,17 @@ void app.whenReady().then(() => {
       return
     }
     const acceptance = process.argv.includes('--accept-native-window')
+    const nativeDragAcceptance = process.argv.includes('--accept-native-window-drag')
     const recording = process.argv.includes('--record-native-window')
     const nativeActionsRecording = process.argv.includes('--record-native-actions')
     const recoveryRecording = process.argv.includes('--record-recovery')
+    const sidebarGlassAcceptance = parseSidebarGlassAcceptanceInvocation(process.argv)
     const smoke = parseSmokeInvocation(process.argv)
     const smokeReopen = parseSmokeReopenInvocation(process.argv)
     const headlessBoot = smoke !== undefined || smokeReopen !== undefined
+      || nativeDragAcceptance
       || recording || nativeActionsRecording || recoveryRecording
+      || sidebarGlassAcceptance !== undefined
     const options = app.isPackaged
       ? packagedChildOptions(headlessBoot)
       : developmentChildOptions()
@@ -1839,8 +2286,43 @@ void app.whenReady().then(() => {
       : resolve(packageDir('@deepseek-ai/dsh-web-frontend'), 'dist')
     registerAssetProtocol(webDist)
     const headless = smoke !== undefined || smokeReopen !== undefined || acceptance
+      || nativeDragAcceptance
       || recording || nativeActionsRecording || recoveryRecording
+      || sidebarGlassAcceptance !== undefined
     installQuitOwner(lifecycle, () => currentWindow, headless)
+
+    if (nativeDragAcceptance) {
+      // The external pointer driver may fail independently of Electron. Its
+      // SIGTERM cleanup request must still enter the application's one quit
+      // owner so the supervised Host reaches quiescence before Electron exits.
+      const requestQuit = (): void => { app.quit() }
+      process.once('SIGTERM', requestQuit)
+      const replay = parseReplayInvocation(process.argv)
+      if (replay.replayFile === undefined) {
+        console.error('desktop native drag acceptance requires --smoke-replay <file>')
+        process.off('SIGTERM', requestQuit)
+        app.exit(1)
+        return
+      }
+      const replayProvider = app.isPackaged
+        ? packagedRuntimeLayout(process.resourcesPath, app.getPath('userData')).replayProvider
+        : packageDir('@deepseek-ai/dsh-llm-replay')
+      prepareSmokeProfile(replay.replayFile, replayProvider, replay.childReplays)
+      try {
+        await acceptNativeWindowDrag(lifecycle)
+      } catch (error) {
+        console.error(`desktop native drag acceptance failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          console.error('desktop native drag acceptance failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      } finally {
+        process.off('SIGTERM', requestQuit)
+      }
+      app.exit(0)
+      return
+    }
 
     if (nativeActionsRecording) {
       try {
@@ -1915,6 +2397,37 @@ void app.whenReady().then(() => {
       // patch, and the replay-provider fallback link); the reopen launch boots
       // that exact durable home untouched.
       app.exit(await bootSmokeReopen(lifecycle, smokeReopen.home))
+      return
+    }
+    if (sidebarGlassAcceptance !== undefined) {
+      if (sidebarGlassAcceptance.phase === undefined) {
+        console.error('desktop sidebar glass acceptance requires --sidebar-glass-phase <default-off|reopen-on|reopen-enabled>')
+        app.exit(1)
+        return
+      }
+      try {
+        await acceptSidebarGlass({
+          bootWindow: () => bootWindow(lifecycle),
+          hostPhase: () => lifecycle.phase,
+          completeOnboarding,
+          clickAt,
+          waitForRenderer,
+          nativeThemeState: () => ({
+            source: nativeTheme.themeSource,
+            dark: nativeTheme.shouldUseDarkColors,
+          }),
+          supervisor: () => currentSupervisor(lifecycle),
+          stop: () => stopAfterJourney(lifecycle, true),
+        }, sidebarGlassAcceptance.phase)
+      } catch (error) {
+        console.error(`desktop sidebar glass acceptance failed: ${error instanceof Error ? error.message : String(error)}`)
+        await lifecycle.stop().catch((stopError: unknown) => {
+          console.error('desktop sidebar glass acceptance failed to stop after failure:', stopError)
+        })
+        app.exit(1)
+        return
+      }
+      app.exit(0)
       return
     }
     if (acceptance) {

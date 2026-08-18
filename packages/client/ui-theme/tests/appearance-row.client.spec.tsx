@@ -17,6 +17,9 @@ const COPY: Record<string, string> = {
   'appearance.light': 'Light',
   'appearance.dark': 'Dark',
   'appearance.system': 'System',
+  'sidebarGlass.title': 'Sidebar glass effect',
+  'sidebarGlass.description': 'Use a translucent macOS material behind the sidebar.',
+  'sidebarGlass.override': 'macOS Reduce Transparency is overriding the visible effect; your saved preference is preserved.',
 }
 
 /** Empty global standard-kit hooks (the row reads neither). */
@@ -33,11 +36,18 @@ function emptyWorkspaces() {
   return bindSnapshotSelector(store)
 }
 
-function mount(preference: ThemePreference = 'system') {
+function mount(
+  preference: ThemePreference = 'system',
+  glass?: { enabled: boolean; systemOverride: boolean },
+) {
   // Real store instance — the sanctioned zero-machinery path for tests.
   const store = createAppearanceRowStore().create()
   store.actions.sync(preference, 0)
+  if (glass !== undefined) {
+    store.actions.syncSidebarGlass(true, glass.enabled, glass.systemOverride, 0)
+  }
   const setTheme = vi.fn()
+  const setSidebarGlassEffect = vi.fn()
   const props: AppearanceRowComponentProps = {
     useSessions: emptySessions(),
     useWorkspaces: emptyWorkspaces(),
@@ -45,9 +55,10 @@ function mount(preference: ThemePreference = 'system') {
     actions: store.actions,
     t: (key: string) => COPY[key] ?? key,
     setTheme,
+    setSidebarGlassEffect,
   }
   render(<AppearanceRow {...props} />)
-  return { store, setTheme }
+  return { store, setTheme, setSidebarGlassEffect }
 }
 
 const pressed = (name: RegExp): string | null =>
@@ -57,6 +68,9 @@ describe('AppearanceRow', () => {
   it('renders the title and three cubes with the preference cube selected', () => {
     mount('dark')
     expect(screen.getByText('Appearance')).toBeDefined()
+    expect(document.querySelector('[data-theme-preference="light"]')).not.toBeNull()
+    expect(document.querySelector('[data-theme-preference="dark"]')).not.toBeNull()
+    expect(document.querySelector('[data-theme-preference="system"]')).not.toBeNull()
     expect(pressed(/Dark/)).toBe('true')
     expect(pressed(/Light/)).toBe('false')
     expect(pressed(/System/)).toBe('false')
@@ -71,5 +85,29 @@ describe('AppearanceRow', () => {
     act(() => { b.store.actions.sync('light', 1) })
     expect(pressed(/Light/)).toBe('true')
     expect(pressed(/Dark/)).toBe('false')
+  })
+
+  it('renders the macOS switch below theme selection and follows the saved preference echo', () => {
+    const mounted = mount('system', { enabled: true, systemOverride: false })
+    const control = screen.getByRole('switch', { name: 'Sidebar glass effect' })
+    expect(control.getAttribute('data-sidebar-glass-toggle')).toBe('')
+    expect(control.getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByText('Use a translucent macOS material behind the sidebar.')).toBeDefined()
+    fireEvent.click(control)
+    expect(mounted.setSidebarGlassEffect).toHaveBeenCalledWith(false)
+    expect(control.getAttribute('aria-checked')).toBe('true')
+    act(() => { mounted.store.actions.syncSidebarGlass(true, false, false, 1) })
+    expect(control.getAttribute('aria-checked')).toBe('false')
+  })
+
+  it('explains Reduce Transparency without changing the saved checked state', () => {
+    mount('dark', { enabled: true, systemOverride: true })
+    expect(screen.getByRole('switch', { name: 'Sidebar glass effect' }).getAttribute('aria-checked')).toBe('true')
+    expect(screen.getByRole('status').textContent).toContain('Reduce Transparency')
+  })
+
+  it('does not render a non-functional switch outside the macOS contribution', () => {
+    mount('light')
+    expect(screen.queryByRole('switch', { name: 'Sidebar glass effect' })).toBeNull()
   })
 })

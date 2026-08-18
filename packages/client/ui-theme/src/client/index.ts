@@ -18,16 +18,30 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type { AppearanceRowInjected } from './AppearanceRow.tsx'
 import { AppearanceRow } from './AppearanceRow.tsx'
 import { createAppearanceRowStore } from './settings-store.ts'
+import { BrowserSidebarMaterialEnvironment } from './browser-sidebar-material.ts'
+import { SidebarGlassRuntime, type SidebarGlassSnapshot } from './sidebar-glass-runtime.ts'
 import { en, zh, type ThemeKey } from './locales.ts'
 import {
   DEFAULT_PREFERENCE, isThemePreference, THEME_PREFERENCE_FIELD, THEME_SETTINGS_NAMESPACE,
   type ThemePreference, type ThemeSettings,
 } from '../theme-settings.ts'
+import {
+  SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+  type SidebarGlassSettings,
+} from '../sidebar-glass-settings.ts'
 
 export type { AppearanceRowComponentProps, AppearanceRowInjected } from './AppearanceRow.tsx'
 export type { AppearanceRowState } from './settings-store.ts'
 export type { ThemeKey } from './locales.ts'
 export type { ThemePreference, ThemeSettings } from '../theme-settings.ts'
+
+interface NativeThemeBridge {
+  setPreference(preference: ThemePreference): void
+}
+
+interface DesktopThemeWindow {
+  dshNativeTheme?: NativeThemeBridge
+}
 
 /** Namespace owning this feature's settings-row copy. */
 export const SETTINGS_NS = 'settings.theme'
@@ -386,6 +400,28 @@ export function apply(ctx: ClientContext): void {
   const theme = new ThemeRuntime(ctx, host)
   ctx.provide('theme', theme)
 
+  const nativeThemeBridge = (globalThis as DesktopThemeWindow).dshNativeTheme
+  if (nativeThemeBridge !== undefined) {
+    let lastPreference: ThemePreference | undefined
+    const syncNativeTheme = (snapshot: ThemeSnapshot): void => {
+      if (snapshot.preference === lastPreference) return
+      lastPreference = snapshot.preference
+      nativeThemeBridge.setPreference(snapshot.preference)
+    }
+    ctx.on('theme/change', syncNativeTheme)
+    syncNativeTheme(theme.getTheme())
+  }
+
+  const sidebarHost = ctx.settingsScope.bind<SidebarGlassSettings>({
+    namespace: SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+  })
+  const sidebarEnvironment = new BrowserSidebarMaterialEnvironment(
+    () => theme.getTheme().active.colorScheme,
+  )
+  const sidebarGlass = new SidebarGlassRuntime(sidebarHost, sidebarEnvironment)
+  ctx.effect(() => () => { sidebarGlass.dispose() }, 'ui-theme: sidebar glass runtime')
+  ctx.on('theme/change', () => { sidebarEnvironment.refresh() })
+
   ctx.effect(() => ctx.locale.register(SETTINGS_NS, { zh, en }), 'ui-theme: settings row dictionaries')
 
   const store = createAppearanceRowStore()
@@ -393,14 +429,28 @@ export function apply(ctx: ClientContext): void {
   const sync = (snapshot: ThemeSnapshot): void => {
     bound?.sync(snapshot.preference, snapshot.revision)
   }
+  const syncSidebarGlass = (snapshot: SidebarGlassSnapshot): void => {
+    bound?.syncSidebarGlass(
+      snapshot.available,
+      snapshot.enabled,
+      snapshot.systemOverride,
+      snapshot.revision,
+    )
+  }
   ctx.on('theme/change', sync)
+  ctx.effect(
+    () => sidebarGlass.subscribe(syncSidebarGlass),
+    'ui-theme: sidebar glass row projection',
+  )
   const injected = (actions: BoundActions<typeof store>): AppearanceRowInjected => {
     bound = actions
     // Re-sync from the getter so no event is lost between registration and
     // first render (the store's revision guard drops stale duplicates).
     sync(theme.getTheme())
+    syncSidebarGlass(sidebarGlass.getSnapshot())
     return {
       setTheme: (id) => { theme.setTheme(id) },
+      setSidebarGlassEffect: (enabled) => { sidebarGlass.setEnabled(enabled) },
     }
   }
   ctx.slots.inject('settings.general.item', () => ctx.slots.register({

@@ -1229,8 +1229,12 @@ describe('DirectoryBrowser', () => {
   it('scopes Escape to the topmost dialog: the nested create closes first, the browser only after', async () => {
     const b = mount()
     await waitFor(() => { expect(screen.getByRole('listitem')).toBeTruthy() })
+    const browser = screen.getByRole('dialog', { name: 'browser.title' })
+    expect(within(browser).getByRole('heading', { name: 'browser.title' }).hasAttribute('data-window-drag-surface')).toBe(true)
     fireEvent.click(screen.getByRole('button', { name: 'browser.newFolder' }))
     expect(screen.getByLabelText('browser.folderName')).toBeTruthy()
+    const create = screen.getByRole('dialog', { name: 'browser.newFolder' })
+    expect(within(create).getByRole('heading', { name: 'browser.newFolder' }).hasAttribute('data-window-drag-surface')).toBe(true)
     fireEvent.keyDown(document, { key: 'Escape' })
     // The nested dialog consumed Escape; the browser stays up.
     expect(screen.queryByLabelText('browser.folderName')).toBeNull()

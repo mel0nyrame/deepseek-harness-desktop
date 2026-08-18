@@ -12,11 +12,26 @@ export interface AppearanceRowState {
   preference: ThemePreference
   /** Service revision; -1 until first sync so revision 0 lands as a change. */
   revision: number
+  /** Whether the macOS desktop composition contributes sidebar glass. */
+  sidebarGlassAvailable: boolean
+  /** Saved sidebar glass preference. */
+  sidebarGlassEnabled: boolean
+  /** Whether macOS currently overrides the visible effect. */
+  sidebarGlassSystemOverride: boolean
+  /** Independent material-runtime revision. */
+  sidebarGlassRevision: number
 }
 
 /** Declared action shape giving the exported factory a stable return type. */
 type AppearanceRowActions = {
   sync: (draft: AppearanceRowState, preference: ThemePreference, revision: number) => void
+  syncSidebarGlass: (
+    draft: AppearanceRowState,
+    available: boolean,
+    enabled: boolean,
+    systemOverride: boolean,
+    revision: number,
+  ) => void
 }
 
 /**
@@ -25,12 +40,26 @@ type AppearanceRowActions = {
  */
 export function createAppearanceRowStore(): EngineStoreHandle<AppearanceRowState, AppearanceRowActions> {
   return defineStore({
-    init: (): AppearanceRowState => ({ preference: 'system', revision: -1 }),
+    init: (): AppearanceRowState => ({
+      preference: 'system',
+      revision: -1,
+      sidebarGlassAvailable: false,
+      sidebarGlassEnabled: true,
+      sidebarGlassSystemOverride: false,
+      sidebarGlassRevision: -1,
+    }),
     actions: {
       sync: (d, preference: ThemePreference, revision: number) => {
         if (revision <= d.revision) return
         d.preference = preference
         d.revision = revision
+      },
+      syncSidebarGlass: (d, available, enabled, systemOverride, revision) => {
+        if (revision <= d.sidebarGlassRevision) return
+        d.sidebarGlassAvailable = available
+        d.sidebarGlassEnabled = enabled
+        d.sidebarGlassSystemOverride = available && systemOverride
+        d.sidebarGlassRevision = revision
       },
     },
   })

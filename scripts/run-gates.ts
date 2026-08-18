@@ -15,6 +15,9 @@ import { COVERAGE_EXEMPT_ENV, coverageExemptHeavySuites } from './coverage-exemp
 export type Mode =
   | 'ci-primary'
   | 'ci-linux-primary'
+  | 'ci-pr'
+  | 'ci-pr-static'
+  | 'ci-tag-snapshots'
   | 'ci-static'
   | 'ci-lint-contracts-ready'
   | 'ci-coverage'
@@ -96,10 +99,13 @@ async function main(args: string[]): Promise<number> {
     : 0
 }
 
-function parseMode(raw: string | undefined): Mode {
+export function parseMode(raw: string | undefined): Mode {
   switch (raw) {
     case 'ci-primary':
     case 'ci-linux-primary':
+    case 'ci-pr':
+    case 'ci-pr-static':
+    case 'ci-tag-snapshots':
     case 'ci-static':
     case 'ci-lint-contracts-ready':
     case 'ci-coverage':
@@ -115,7 +121,7 @@ function parseMode(raw: string | undefined): Mode {
       return raw
     default:
       throw new Error(
-        `run-gates: expected mode ci-primary | ci-linux-primary | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
+        `run-gates: expected mode ci-primary | ci-linux-primary | ci-pr | ci-pr-static | ci-tag-snapshots | ci-static | ci-lint-contracts-ready | ci-coverage | ci-snapshot | ci-artifacts | ci-consumers | ci-windows-blocking | ci-windows-complete | ci-windows-observational | node-compat | check-all | doc-sync, got ${JSON.stringify(raw)}.`,
       )
   }
 }
@@ -195,6 +201,16 @@ export function gatesForMode(selected: Mode): Gate[] {
       return ciPrimaryGates()
     case 'ci-linux-primary':
       return [...ciPrimaryGates(), webSnapshotGate(['built-package-invariants'])]
+    case 'ci-pr':
+      return [...ciPullRequestStaticGates(), pnpmScript('test', 'test', { needs: ['lint'] })]
+    case 'ci-pr-static':
+      return ciPullRequestStaticGates()
+    case 'ci-tag-snapshots':
+      return [
+        pnpmScript('build', 'build'),
+        snapshotGate(),
+        webSnapshotGate(['build']),
+      ]
     case 'ci-static':
       return ciStaticGates({ ownsBuild: false })
     case 'ci-lint-contracts-ready':
@@ -280,6 +296,22 @@ function ciPrimaryGates(): Gate[] {
     }),
     builtPackageInvariantsGate(['build']),
     builtBinSmokeGate(),
+  ]
+}
+
+function ciPullRequestStaticGates(): Gate[] {
+  return [
+    ...ciSharedStaticGates(),
+    typertContractsGate(),
+    pnpmScript('typecheck', 'typecheck:contracts-ready', { needs: ['typert-contracts'] }),
+    lintGate({ needs: ['typert-contracts'] }),
+    pnpmScript('duplication', 'duplication'),
+    ...docSyncLeafGates({
+      docTypecheckNeeds: ['typert-contracts'],
+      docTypecheckScript: 'doc-typecheck:contracts-ready',
+    }),
+    pnpmScript('module-graph', 'verify-module-graph', { label: 'module graph' }),
+    pnpmScript('knip', 'knip'),
   ]
 }
 

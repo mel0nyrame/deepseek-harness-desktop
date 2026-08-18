@@ -8,12 +8,21 @@ import { PROTOCOL_VERSION } from '@agentclientprotocol/sdk'
 import { runScenario, snapshotSpillRoot, type AgentUnderTest, type InputStep } from '../src/harness.ts'
 import { launchAcpTestAgent } from '../src/launcher.ts'
 
-const fsControl = vi.hoisted(() => ({ cleanupFailure: undefined as Error | undefined }))
+const fsControl = vi.hoisted(() => ({
+  cleanupFailure: undefined as Error | undefined,
+  harvestDelayMs: undefined as number | undefined,
+}))
 
 vi.mock('node:fs/promises', async (importOriginal) => {
   const actual = await importOriginal<typeof import('node:fs/promises')>()
   return {
     ...actual,
+    async readdir(path: Parameters<typeof actual.readdir>[0], options: { recursive: true }): Promise<string[]> {
+      if (String(path).includes('acp-snap-sessions-') && fsControl.harvestDelayMs !== undefined) {
+        await new Promise(resolve => setTimeout(resolve, fsControl.harvestDelayMs))
+      }
+      return await actual.readdir(path, { ...options, encoding: 'utf8' })
+    },
     async rm(...args: Parameters<typeof actual.rm>): Promise<void> {
       if (String(args[0]).includes('acp-snap-cwd-') && fsControl.cleanupFailure !== undefined) {
         const failure = fsControl.cleanupFailure
@@ -779,16 +788,21 @@ describe('runScenario', () => {
         ],
       }],
     })
-    await expect(runScenario(
-      {
-        steps: [
-          ...boot,
-          { op: 'promptAndCancel', text: 'hang' },
-          { op: 'waitForTurnEnd', timeoutMs: 20 },
-        ],
-      },
-      { agent: AGENT, mode: 'replay', fixtureFile: open.fixtureFile },
-    )).rejects.toThrow(/did not persist turn\/end within 20ms/)
+    fsControl.harvestDelayMs = 50
+    try {
+      await expect(runScenario(
+        {
+          steps: [
+            ...boot,
+            { op: 'promptAndCancel', text: 'hang' },
+            { op: 'waitForTurnEnd', timeoutMs: 20 },
+          ],
+        },
+        { agent: AGENT, mode: 'replay', fixtureFile: open.fixtureFile },
+      )).rejects.toThrow(/did not persist turn\/end within 20ms/)
+    } finally {
+      fsControl.harvestDelayMs = undefined
+    }
   })
 
   it('waitForGoalPhase requires the requested durable goal phase', { timeout: 20_000 }, async () => {

@@ -61,8 +61,6 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const store = createWorkspaceViewStore().create()
   const props: WorkspaceBrowserProps = {
-    wide: true,
-    expandSidebar: vi.fn(),
     useSessions: hook(sessionState([])),
     useWorkspaces: hook(workspaceState([])),
     useStore: bindSnapshotSelector(store),
@@ -677,41 +675,6 @@ describe('WorkspaceBrowser', () => {
     } finally {
       vi.useRealTimers()
     }
-  })
-
-  it('rail state renders icon controls that request expansion', () => {
-    vi.useFakeTimers()
-    try {
-      const expandSidebar = vi.fn()
-      const b = mount({ wide: false, expandSidebar })
-      // No wide chrome in rail state.
-      expect(screen.queryByText('工作区')).toBeNull()
-      expect(screen.queryByPlaceholderText('搜索会话…')).toBeNull()
-      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-      expect(expandSidebar).toHaveBeenCalledTimes(1)
-      // The wide flip mounts the input and focuses it after the slide.
-      rerender(b, { wide: true })
-      const input = screen.getByPlaceholderText('搜索会话…')
-      act(() => { vi.advanceTimersByTime(300) })
-      expect(document.activeElement).toBe(input)
-      // Wide search button is decorative (tabIndex -1, no expand call).
-      fireEvent.click(screen.getByRole('button', { name: '搜索会话' }))
-      expect(expandSidebar).toHaveBeenCalledTimes(1)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-
-  it('rail add-workspace raises the directory flow in place, with no menu and no expansion', () => {
-    const expandSidebar = vi.fn()
-    mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
-    fireEvent.click(screen.getByRole('button', { name: '添加工作区' }))
-    expect(expandSidebar).not.toHaveBeenCalled()
-    // Adding is the header's only action, so the gesture IS that action: no
-    // one-row popover, and existing workspaces stay in the tree below.
-    expect(screen.queryByRole('menu')).toBeNull()
-    expect(screen.queryByRole('menuitem', { name: 'alpha' })).toBeNull()
-    expect(screen.getByTestId('directory-flow')).toBeTruthy()
   })
 
   it('hides the add button when no directory-flow occupant is composed', () => {

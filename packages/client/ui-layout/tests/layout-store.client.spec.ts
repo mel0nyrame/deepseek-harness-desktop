@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 /**
  * createLayoutStore unit account: init shape, the action write set (clamp
- * inside actions), and the absence of browser persistence. Uses the
- * test-sanctioned path: factory self-call + .create() gives the
- * real engine instance (same create path as production).
+ * inside actions), the last-usable-width expand restore, and the absence of
+ * browser persistence. Uses the test-sanctioned path: factory self-call +
+ * .create() gives the real engine instance (same create path as production).
  */
 import { beforeEach, describe, expect, it } from 'vitest'
 import { createLayoutStore } from '@deepseek-ai/dsh-client-ui-layout/src/client/stores.ts'
@@ -19,7 +19,13 @@ beforeEach(() => { localStorage.clear() })
 describe('createLayoutStore', () => {
   it('initializes the sidebar at its default width, details closed, wide viewport assumed', () => {
     const { store } = createLayoutStore().create()
-    expect(store.getSnapshot()).toEqual({ sidebar: SIDEBAR_DEFAULT, details: 0, narrow: false, narrowExpanded: false })
+    expect(store.getSnapshot()).toEqual({
+      sidebar: SIDEBAR_DEFAULT,
+      sidebarLast: SIDEBAR_DEFAULT,
+      details: 0,
+      narrow: false,
+      narrowExpanded: false,
+    })
   })
 
   it('each create() is an independent instance (factory is not a singleton)', () => {
@@ -41,9 +47,26 @@ describe('createLayoutStore', () => {
     expect(store.getSnapshot().details).toBe(DETAILS_MAX)
   })
 
-  it('toggleSidebar flips closed <-> contract default (drag width forgotten)', () => {
+  it('toggleSidebar closes to zero and expands back to the last usable width (never the default)', () => {
     const { store, actions } = createLayoutStore().create()
     actions.setSidebar(400)
+    actions.toggleSidebar()
+    expect(store.getSnapshot()).toMatchObject({ sidebar: 0, sidebarLast: 400 })
+    actions.toggleSidebar()
+    expect(store.getSnapshot()).toMatchObject({ sidebar: 400, sidebarLast: 400 })
+  })
+
+  it('drag writes refresh the restore width; a close right after a drag restores the drag width', () => {
+    const { store, actions } = createLayoutStore().create()
+    actions.setSidebar(300)
+    actions.setSidebar(360)
+    actions.toggleSidebar()
+    actions.toggleSidebar()
+    expect(store.getSnapshot().sidebar).toBe(360)
+  })
+
+  it('an untouched default close/expand cycle restores the contract default', () => {
+    const { store, actions } = createLayoutStore().create()
     actions.toggleSidebar()
     expect(store.getSnapshot().sidebar).toBe(0)
     actions.toggleSidebar()
@@ -55,7 +78,13 @@ describe('createLayoutStore', () => {
     actions.setSidebar(400)
     actions.setNarrow(true)
     actions.toggleSidebar()
-    expect(store.getSnapshot()).toEqual({ sidebar: 400, details: 0, narrow: true, narrowExpanded: true })
+    expect(store.getSnapshot()).toEqual({
+      sidebar: 400,
+      sidebarLast: 400,
+      details: 0,
+      narrow: true,
+      narrowExpanded: true,
+    })
     actions.toggleSidebar()
     expect(store.getSnapshot().narrowExpanded).toBe(false)
     expect(store.getSnapshot().sidebar).toBe(400)
@@ -95,6 +124,7 @@ describe('createLayoutStore', () => {
     const second = createLayoutStore().create()
     expect(second.store.getSnapshot()).toEqual({
       sidebar: SIDEBAR_DEFAULT,
+      sidebarLast: SIDEBAR_DEFAULT,
       details: 0,
       narrow: false,
       narrowExpanded: false,

@@ -40,7 +40,9 @@ const APP_BINARY = join(APP_PATH, 'Contents', 'MacOS', 'DSH Desktop')
 const REPLAY_FIXTURE = join(REPO_ROOT, 'examples', 'acp-agent', 'tests', 'snapshots', 'bash-tool-turn', 'session.jsonl')
 const QUESTION_FIXTURE = join(REPO_ROOT, 'apps', 'web', 'tests', 'snapshots', 'question-composer', 'session.jsonl')
 const APPROVAL_FIXTURE = join(REPO_ROOT, 'apps', 'web', 'tests', 'snapshots', 'approval-composer', 'session.jsonl')
+const NATIVE_DRAG_FIXTURE = join(REPO_ROOT, 'apps', 'desktop', 'tests', 'fixtures', 'native-window-drag.swift')
 const REQUIRED = process.env.DSH_DESKTOP_SMOKE_REQUIRED === '1'
+const NATIVE_DRAG_REQUIRED = process.env.DSH_DESKTOP_NATIVE_DRAG_REQUIRED === '1'
 
 /** Copy the three recorded fixtures into one launch home and return their paths. */
 async function seedReplayFixtures(home: string): Promise<{ replay: string; question: string; approval: string }> {
@@ -128,6 +130,107 @@ describe('packaged desktop application', () => {
     expect(REQUIRED && !existsSync(APP_BINARY)).toBe(false)
   })
 
+  it('has the packaged application and pointer fixture when native drag acceptance requires them', () => {
+    expect(NATIVE_DRAG_REQUIRED && (!existsSync(APP_BINARY) || !existsSync(NATIVE_DRAG_FIXTURE))).toBe(false)
+  })
+
+  it.skipIf(process.platform !== 'darwin' || !NATIVE_DRAG_REQUIRED || !existsSync(APP_BINARY))(
+    'moves the native window from assembled chrome but not from an interactive control',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-native-drag-'))
+      const fixtures = await seedReplayFixtures(home)
+      const accessibility = execFileSync('/usr/bin/osascript', [
+        '-e', 'tell application "System Events" to return UI elements enabled',
+      ], { encoding: 'utf8' }).trim()
+      expect(accessibility, 'native drag acceptance requires macOS Accessibility permission').toBe('true')
+
+      const env = { ...process.env }
+      delete env['ELECTRON_RUN_AS_NODE']
+      delete env['DSH_NODE_EXECUTABLE']
+      Object.assign(env, {
+        DSH_HOME: home,
+        DSH_AGENTS_HOME: join(home, '.agents'),
+        DSH_TELEMETRY_DISABLED: '1',
+        DEEPSEEK_API_KEY: 'keyless-desktop-no-call',
+      })
+      const output: string[] = []
+      child = spawn(APP_BINARY, [
+        '--accept-native-window-drag',
+        '--smoke-replay', fixtures.replay,
+      ], { env, stdio: ['ignore', 'pipe', 'pipe'] })
+      child.stdout?.on('data', (chunk: Buffer) => { output.push(String(chunk)) })
+      child.stderr?.on('data', (chunk: Buffer) => { output.push(String(chunk)) })
+      const closed = new Promise<number | null>((resolveClose) => {
+        child!.once('close', (code) => { resolveClose(code) })
+      })
+      const waitForLine = async (prefix: string, stage: string, timeoutMs = 90_000): Promise<string> => {
+        const deadline = Date.now() + timeoutMs
+        for (;;) {
+          const line = output.join('').split('\n').find(candidate =>
+            candidate.startsWith(prefix) && candidate.includes(`\"stage\":\"${stage}\"`),
+          )
+          if (line !== undefined) return line
+          if (child?.exitCode !== null || child?.signalCode !== null) {
+            throw new Error(`native drag acceptance exited before ${stage}; output:\n${output.join('').slice(0, 8000)}`)
+          }
+          if (Date.now() > deadline) {
+            throw new Error(`native drag acceptance timed out at ${stage}; output:\n${output.join('').slice(0, 8000)}`)
+          }
+          await new Promise(resolveWait => setTimeout(resolveWait, 25))
+        }
+      }
+
+      try {
+        for (const stage of ['onboarding', 'expanded', 'collapsed', 'control']) {
+          const line = await waitForLine('NATIVE_WINDOW_DRAG_READY ', stage)
+          const ready = JSON.parse(line.slice('NATIVE_WINDOW_DRAG_READY '.length)) as {
+            point: { x: number; y: number }
+          }
+          execFileSync('/usr/bin/xcrun', [
+            'swift', NATIVE_DRAG_FIXTURE,
+            String(ready.point.x), String(ready.point.y), '60', '60',
+          ], { encoding: 'utf8', timeout: 30_000 })
+          await waitForLine('NATIVE_WINDOW_DRAG_STAGE ', stage, 20_000)
+        }
+
+        const exitCode = await closed
+        const captured = output.join('')
+        expect(exitCode, `native drag acceptance exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+        const resultLine = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_DRAG_ACCEPTANCE '))
+        expect(resultLine).toBeDefined()
+        const result = JSON.parse(resultLine!.slice('NATIVE_WINDOW_DRAG_ACCEPTANCE '.length)) as {
+          stages: Array<{
+            stage: string
+            before: { x: number; y: number }
+            after: { x: number; y: number }
+          }>
+          activeElement: string
+        }
+        expect(result.stages.map(stage => stage.stage)).toEqual(['onboarding', 'expanded', 'collapsed', 'control'])
+        for (const stage of result.stages.slice(0, 3)) {
+          expect([stage.after.x, stage.after.y]).not.toEqual([stage.before.x, stage.before.y])
+        }
+        expect(result.stages[3]?.after).toMatchObject(result.stages[3]!.before)
+        expect(result.activeElement).toBe('TEXTAREA')
+      } finally {
+        if (child !== undefined && child.exitCode === null && child.signalCode === null) {
+          child.kill('SIGTERM')
+          const stopped = await Promise.race([
+            closed.then(() => true),
+            new Promise<boolean>(resolveWait => setTimeout(() => { resolveWait(false) }, 20_000)),
+          ])
+          if (!stopped) {
+            child.kill('SIGKILL')
+            await closed
+          }
+        }
+        assertNoSurvivors()
+        child = undefined
+      }
+    },
+    300_000,
+  )
+
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
     'reports configured native state from a real installed BrowserWindow',
     async () => {
@@ -137,17 +240,25 @@ describe('packaged desktop application', () => {
       expect(exitCode, `native inspection exited ${String(exitCode)}; output:\n${captured.slice(0, 4000)}`).toBe(0)
       const line = captured.split('\n').find(value => value.startsWith('NATIVE_WINDOW_STATE '))
       expect(line).toBeDefined()
+      type NativeSurfaceState = {
+        frame: string
+        sidebar: string
+        conversation: string
+        details: string
+        newSession: string
+        selectedSession: string
+      }
       const state = JSON.parse(line!.slice('NATIVE_WINDOW_STATE '.length)) as {
         options: Record<string, unknown>
         actual: { backgroundColor: string; focusable: boolean }
         renderer: {
           activeElement: string
-          systemState: { appearance: string; transparency: string }
+          systemState: { appearance: string; transparency: string; platform: string }
           surfaces: {
-            lightEnabled: string
-            darkEnabled: string
-            lightReduced: string
-            darkReduced: string
+            glassLight: NativeSurfaceState
+            glassDark: NativeSurfaceState
+            opaqueLight: NativeSurfaceState
+            opaqueDark: NativeSurfaceState
           }
           controlRegion: string
           dragRegion: string
@@ -164,10 +275,21 @@ describe('packaged desktop application', () => {
       expect(state.renderer.activeElement).toBe('control')
       expect(state.renderer.systemState.appearance).toMatch(/^(light|dark)$/)
       expect(state.renderer.systemState.transparency).toMatch(/^(enabled|reduced)$/)
-      expect(state.renderer.surfaces.lightEnabled).toBe('rgba(0, 0, 0, 0)')
-      expect(state.renderer.surfaces.darkEnabled).toBe('rgba(0, 0, 0, 0)')
-      expect(state.renderer.surfaces.lightReduced).toBe('rgba(249, 250, 251, 0.98)')
-      expect(state.renderer.surfaces.darkReduced).toBe('rgba(15, 17, 21, 0.98)')
+      expect(state.renderer.systemState.platform).toBe('darwin')
+      const transparent = 'rgba(0, 0, 0, 0)'
+      expect(state.renderer.surfaces.glassLight.sidebar).toBe(transparent)
+      expect(state.renderer.surfaces.glassDark.sidebar).toBe(transparent)
+      expect(state.renderer.surfaces.opaqueLight.sidebar).toBe('rgb(249, 250, 251)')
+      expect(state.renderer.surfaces.opaqueDark.sidebar).toBe('rgb(27, 27, 28)')
+      for (const surface of Object.values(state.renderer.surfaces)) {
+        expect(surface.frame).toBe(transparent)
+        expect(surface.conversation).not.toBe(transparent)
+        expect(surface.details).not.toBe(transparent)
+      }
+      expect(state.renderer.surfaces.glassLight.newSession).toBe('rgba(38, 49, 72, 0.06)')
+      expect(state.renderer.surfaces.glassLight.selectedSession).toBe('rgba(38, 49, 72, 0.06)')
+      expect(state.renderer.surfaces.glassDark.newSession).toBe('rgba(255, 255, 255, 0.08)')
+      expect(state.renderer.surfaces.glassDark.selectedSession).toBe('rgba(255, 255, 255, 0.08)')
       expect(state.renderer.controlRegion).toBe('no-drag')
       expect(state.renderer.dragRegion).toBe('drag')
       child = undefined
@@ -197,6 +319,20 @@ describe('packaged desktop application', () => {
           minimized: boolean
           restored: boolean
         }
+        fullscreen: {
+          active: string
+          controlRowPaddingLeft: string | null
+          brandRowPaddingLeft: string | null
+          controlRowTop: number | null
+          brandRowTop: number | null
+          before: {
+            controlRowPaddingLeft: string | null
+            brandRowPaddingLeft: string | null
+            controlRowTop: number | null
+            brandRowTop: number | null
+          }
+          after: string
+        }
         renderer: {
           assembled: boolean
           root: { top: number; bottom: number; height: number }
@@ -207,6 +343,32 @@ describe('packaged desktop application', () => {
           keyboardValue: string
           keyboardBeforeMinimize: { activeElement: string; value: string }
         }
+        collapse: {
+          windowed: {
+            track: string | null
+            reveal: { x: number; y: number; width: number; height: number } | null
+            headerPaddingLeft: string | null
+            headerPaddingTop: string | null
+            header: { top: number; bottom: number; height: number } | null
+            title: { top: number; bottom: number; height: number } | null
+            tabs: { top: number; bottom: number; height: number } | null
+            conversation: { left: number; width: number; viewport: number } | null
+          }
+          fullscreen: {
+            track: string | null
+            reveal: { x: number; y: number; width: number; height: number } | null
+            headerPaddingLeft: string | null
+            headerPaddingTop: string | null
+            header: { top: number; bottom: number; height: number } | null
+            title: { top: number; bottom: number; height: number } | null
+            tabs: { top: number; bottom: number; height: number } | null
+            conversation: { left: number; width: number; viewport: number } | null
+          }
+          fullscreenActive: string
+          fullscreenAfter: string
+          restoredTrack: string
+          resizedAfterCycle: string
+        }
       }
       expect(state.focus.slice(0, 3)).toEqual(['active', 'inactive', 'active'])
       expect(state.focus.length).toBeGreaterThanOrEqual(3)
@@ -214,10 +376,18 @@ describe('packaged desktop application', () => {
       expect(state.window.restored).toBe(true)
       expect(state.window.draggedBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
+      expect(state.fullscreen.before.controlRowPaddingLeft).toBe('72px')
+      expect(state.fullscreen.before.brandRowPaddingLeft).toBe('0px')
+      expect(state.fullscreen.active).toBe('true')
+      expect(state.fullscreen.controlRowPaddingLeft).toBe('0px')
+      expect(state.fullscreen.brandRowPaddingLeft).toBe('0px')
+      expect(state.fullscreen.controlRowTop).toBe(state.fullscreen.before.controlRowTop)
+      expect(state.fullscreen.brandRowTop).toBe(state.fullscreen.before.brandRowTop)
+      expect(state.fullscreen.after).toBe('false')
       expect(state.renderer.assembled).toBe(true)
-      expect(state.renderer.root.top).toBe(44)
+      expect(state.renderer.root.top).toBe(0)
       expect(state.renderer.root.bottom).toBeLessThanOrEqual(state.renderer.viewportHeight)
-      expect(state.renderer.root.height).toBe(state.renderer.viewportHeight - 44)
+      expect(state.renderer.root.height).toBe(state.renderer.viewportHeight)
       expect(state.renderer.dragRegion).toBe('drag')
       expect(state.renderer.controlRegion).toBe('no-drag')
       // Keyboard evidence is captured before minimize: the assembled client's
@@ -225,9 +395,159 @@ describe('packaged desktop application', () => {
       // app behavior, not a drag-region or keyboard claim.
       expect(state.renderer.keyboardBeforeMinimize).toEqual({ activeElement: 'TEXTAREA', value: 'KEYBOARD_OK' })
       expect(state.renderer.keyboardValue).toBe('KEYBOARD_OK')
+      // Zero-width collapse (issue #33): the collapsed sidebar resolves to a
+      // zero-width track, the reveal control clears the native traffic-light
+      // group (84px windowed / 12px full screen), the conversation surface
+      // is reclaimed, and the title aligns vertically with the reveal while
+      // its tabs and divider use the collapsed chrome offset. The reveal restores the
+      // exact dragged width (350px), not the contract default.
+      expect(state.collapse.windowed.track?.startsWith('0px')).toBe(true)
+      const windowedReveal = state.collapse.windowed.reveal
+      expect(windowedReveal).not.toBeNull()
+      // Subpixel-safe: the reveal clears the traffic-light group (84px) at
+      // the compact row's 1.2px vertical adjustment (7.2px), 28x28.
+      expect(Math.abs(windowedReveal!.x - 84)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.y - 7.2)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.width - 28)).toBeLessThanOrEqual(1)
+      expect(Math.abs(windowedReveal!.height - 28)).toBeLessThanOrEqual(1)
+      expect(state.collapse.windowed.headerPaddingLeft).toBe('120px')
+      expect(state.collapse.windowed.headerPaddingTop).toBe('5.2px')
+      const conversation = state.collapse.windowed.conversation
+      expect(conversation).not.toBeNull()
+      expect(Math.abs(conversation!.left)).toBeLessThanOrEqual(1)
+      expect(Math.abs(conversation!.width - conversation!.viewport)).toBeLessThanOrEqual(2)
+      expect(state.collapse.fullscreen.track?.startsWith('0px')).toBe(true)
+      const fullscreenReveal = state.collapse.fullscreen.reveal
+      expect(fullscreenReveal).not.toBeNull()
+      // Full screen: AppKit auto-hides the lights and the reveal aligns to the
+      // left content inset (12px) on the same row.
+      expect(Math.abs(fullscreenReveal!.x - 12)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.y - 7.2)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.width - 28)).toBeLessThanOrEqual(1)
+      expect(Math.abs(fullscreenReveal!.height - 28)).toBeLessThanOrEqual(1)
+      expect(state.collapse.fullscreen.headerPaddingLeft).toBe('48px')
+      expect(state.collapse.fullscreen.headerPaddingTop).toBe('5.2px')
+      expect(state.collapse.fullscreenActive).toBe('true')
+      expect(state.collapse.fullscreenAfter).toBe('false')
+      expect(state.collapse.restoredTrack.startsWith('350px')).toBe(true)
+      // Resizing still works after the collapse/expand cycle.
+      expect(state.collapse.resizedAfterCycle.startsWith('380px')).toBe(true)
       child = undefined
     },
     180_000,
+  )
+
+  it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
+    'persists the macOS sidebar glass preference and honors accessibility and theme facts',
+    async () => {
+      home = await mkdtemp(join(tmpdir(), 'dsh-desktop-sidebar-glass-'))
+
+      type SurfaceState = {
+        enabled: string | null
+        material: string | null
+        transparency: string | null
+        dark: boolean
+        overrideVisible: boolean
+        surfaces: { frame: string | null; sidebar: string | null; conversation: string | null; details: string | null }
+        overlays: { newSession: string | null; selectedSession: string | null }
+        nativeTheme: { source: 'light' | 'dark' | 'system'; dark: boolean }
+      }
+      type JourneyState = {
+        phase: 'default-off' | 'reopen-on' | 'reopen-enabled'
+        systemInitial?: SurfaceState
+        initial: SurfaceState
+        afterToggle?: SurfaceState
+        dark?: SurfaceState
+        reduced?: SurfaceState
+        restored?: SurfaceState
+      }
+      const runPhase = async (phase: JourneyState['phase']): Promise<JourneyState> => {
+        const hangKill = setTimeout(() => {
+          if (child !== undefined && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL')
+        }, 120_000)
+        const { exitCode, captured } = await launchInstalledApp(home!, [
+          '--accept-sidebar-glass', '--sidebar-glass-phase', phase,
+        ])
+        clearTimeout(hangKill)
+        expect(exitCode, `${phase} launch exited ${String(exitCode)}; output:\n${captured.slice(0, 8000)}`).toBe(0)
+        expect(captured).not.toContain('desktop sidebar glass acceptance failed')
+        const line = captured.split('\n').find(value => value.startsWith('SIDEBAR_GLASS_ACCEPTANCE '))
+        expect(line, `${phase} launch must report renderer state`).toBeDefined()
+        return JSON.parse(line!.slice('SIDEBAR_GLASS_ACCEPTANCE '.length)) as JourneyState
+      }
+      const transparent = 'rgba(0, 0, 0, 0)'
+      const expectContentOpaque = (state: SurfaceState): void => {
+        expect(state.surfaces.conversation).not.toBe(transparent)
+        expect(state.surfaces.details).not.toBe(transparent)
+      }
+      const expectGlassSidebar = (state: SurfaceState): void => {
+        expect(state.surfaces.sidebar).toBe(transparent)
+      }
+      const expectSystemFallback = (state: SurfaceState | undefined, expectedEnabled: string): void => {
+        if (state === undefined) return
+        expect(state).toMatchObject({
+          enabled: expectedEnabled,
+          transparency: 'reduced',
+        })
+        expect(state.material).toMatch(/^opaque-(?:light|dark)$/)
+        expect(state.surfaces.sidebar).not.toBe(transparent)
+        expectContentOpaque(state)
+      }
+
+      const first = await runPhase('default-off')
+      expectSystemFallback(first.systemInitial, 'true')
+      expect(first.initial.enabled).toBe('true')
+      expect(first.initial.material).toMatch(/^glass-(?:light|dark)$/)
+      expect(first.initial.nativeTheme).toEqual({ source: 'system', dark: first.initial.dark })
+      expectGlassSidebar(first.initial)
+      expectContentOpaque(first.initial)
+      expect(first.afterToggle?.enabled).toBe('false')
+      expect(first.afterToggle?.material).toMatch(/^opaque-(?:light|dark)$/)
+      expect(first.afterToggle?.surfaces.sidebar).not.toBe(transparent)
+      expectContentOpaque(first.afterToggle!)
+
+      const second = await runPhase('reopen-on')
+      expectSystemFallback(second.systemInitial, 'false')
+      expect(second.initial.enabled).toBe('false')
+      expect(second.initial.material).toMatch(/^opaque-(?:light|dark)$/)
+      expect(second.initial.nativeTheme).toEqual({ source: 'system', dark: second.initial.dark })
+      expect(second.afterToggle?.enabled).toBe('true')
+      expect(second.afterToggle?.material).toMatch(/^glass-(?:light|dark)$/)
+      expectGlassSidebar(second.afterToggle!)
+      expect(second.dark).toMatchObject({ enabled: 'true', material: 'glass-dark', dark: true })
+      expect(second.dark?.nativeTheme).toEqual({ source: 'dark', dark: true })
+      expectGlassSidebar(second.dark!)
+      expect(second.reduced).toMatchObject({
+        enabled: 'true',
+        material: 'opaque-dark',
+        transparency: 'reduced',
+        dark: true,
+        overrideVisible: true,
+      })
+      expect(second.reduced?.surfaces.sidebar).not.toBe(transparent)
+      expectContentOpaque(second.reduced!)
+      expect(second.restored).toMatchObject({
+        enabled: 'true',
+        material: 'glass-light',
+        transparency: 'enabled',
+        dark: false,
+        overrideVisible: false,
+      })
+      expect(second.restored?.nativeTheme).toEqual({ source: 'light', dark: false })
+      expectGlassSidebar(second.restored!)
+
+      const third = await runPhase('reopen-enabled')
+      expectSystemFallback(third.systemInitial, 'true')
+      expect(third.initial.enabled).toBe('true')
+      expect(third.initial.material).toMatch(/^glass-(?:light|dark)$/)
+      expect(third.initial.nativeTheme).toEqual({ source: 'light', dark: false })
+      expectGlassSidebar(third.initial)
+      expectContentOpaque(third.initial)
+
+      assertNoSurvivors()
+      child = undefined
+    },
+    360_000,
   )
 
   it.skipIf(process.platform !== 'darwin' || !existsSync(APP_BINARY))(
@@ -277,9 +597,9 @@ describe('packaged desktop application', () => {
       expect(state.questionSessionId).not.toBe('')
       expect(state.approvalSessionId).not.toBe('')
       expect(state.questionSessionId).not.toBe(state.approvalSessionId)
-      // The escalated write lands in the acceptance workspace under the
+      // The escalated write lands in the recording workspace under the
       // application's own user-data directory, not the harness home.
-      expect(state.approvalFile.endsWith(join('acceptance-workspace', 'notes.txt'))).toBe(true)
+      expect(state.approvalFile.endsWith(join('dsh-desktop-demo', 'notes.txt'))).toBe(true)
       expect(captured).not.toContain('UnhandledPromiseRejectionWarning')
       expect(captured).not.toContain('Object has been destroyed')
       expect(state.framesDir).toBe(framesDir)
@@ -295,8 +615,10 @@ describe('packaged desktop application', () => {
       expect(state.window.dragAttemptBounds).toEqual(state.window.initialBounds)
       expect(state.window.controlBounds).toEqual(state.window.initialBounds)
       for (const label of [
-        'launch', 'inactive', 'active', 'drag-strip-attempt', 'keyboard-typed',
-        'restored', 'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+        'launch', 'native-drag-surface', 'inactive', 'active', 'drag-region-attempt', 'readme-product', 'keyboard-typed',
+        'restored', 'fullscreen', 'sidebar-collapsed', 'fullscreen-collapsed', 'sidebar-revealed',
+        'appearance-dark', 'appearance-light', 'tracer-turn', 'tracer-settled',
+        'session-sidebar-collapsed', 'session-fullscreen-collapsed',
         'question-pending', 'question-settled', 'approval-pending', 'approval-settled',
       ]) {
         expect(state.frames.some(name => name.includes(`-${label}.png`)), `frames must include ${label}`).toBe(true)

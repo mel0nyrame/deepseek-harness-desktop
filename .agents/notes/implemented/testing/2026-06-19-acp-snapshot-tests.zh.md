@@ -42,7 +42,7 @@ Status: implemented
 
 ### 录制采集日志；无密钥回放需要无提供方的配置
 
-记录模式使用真实 `llm-deepseek` 适配器和配置为 `persistenceCompression: 'none'` 的 JSONL 持久化后端运行场景，再把生成的 `.jsonl` 复制到场景目录。显式 raw 模式让已提交回放 fixture 保持逐行可读，而普通部署使用后端的压缩默认值；符合条件的分片连续段仍使用默认的打包存储行。逐事件追加具有持久性，但 harness 会在采集前优雅关闭子进程（关闭 stdin → `await ctx.dispose()`），以确保最终事件已刷出。`llm-replay` 本身不执行记录——它只负责回放。
+记录模式使用真实 `llm-deepseek` 适配器和配置为 `persistenceCompression: 'none'` 的 JSONL 持久化后端运行场景，再把生成的 `.jsonl` 复制到场景目录。显式 raw 模式让已提交回放 fixture 保持逐行可读，而普通部署使用后端的压缩默认值；符合条件的分片连续段仍使用默认的打包存储行。逐事件追加具有持久性，但 harness 会在采集前优雅关闭子进程（关闭 stdin → `await ctx.dispose()`），以确保最终事件已刷出。等待持久化轮次结束的脚本步骤自行管理轮询时限与诊断，因此缓慢的异步日志采集不会让测试运行器的通用超时取代场景专用错误。`llm-replay` 本身不执行记录——它只负责回放。
 
 回放使用 `cordis.snapshot.yml` overlay，以 `llm-replay` 替换真实适配器，同时保留实际组合。记录使用普通配置和由 harness 提供的持久化根目录。回放模式跳过 `.env` 加载，因此意外存在的 API 密钥不会触发真实调用。参见[单一来源配置 Agent Note](../../archived/testing/2026-07-04-single-source-acp-replay-config.md)。
 

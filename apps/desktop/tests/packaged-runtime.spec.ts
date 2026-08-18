@@ -4,6 +4,7 @@ import {
   PACKAGED_CHILD_EXEC_ARGV,
   packagedChildEnv,
   packagedRuntimeLayout,
+  parseSidebarGlassAcceptanceInvocation,
   parseSmokeInvocation,
   parseSmokeReopenInvocation,
   RUNTIME_SUBDIR,
@@ -90,5 +91,30 @@ describe('smoke reopen invocation parsing', () => {
   it('reports the reopen flag without a usable home so the boot path can fail loudly', () => {
     expect(parseSmokeReopenInvocation(['/bin/app', '--smoke-reopen'])).toEqual({ home: undefined })
     expect(parseSmokeReopenInvocation(['/bin/app', '--smoke-reopen', '--smoke-home'])).toEqual({ home: undefined })
+  })
+})
+
+describe('sidebar glass acceptance invocation parsing', () => {
+  it('ignores ordinary application launches', () => {
+    expect(parseSidebarGlassAcceptanceInvocation(['/bin/app'])).toBeUndefined()
+    expect(parseSidebarGlassAcceptanceInvocation(['/bin/app', '--sidebar-glass-phase', 'default-off']))
+      .toBeUndefined()
+  })
+
+  it.each(['default-off', 'reopen-on', 'reopen-enabled'] as const)(
+    'parses the %s phase',
+    (phase) => {
+      expect(parseSidebarGlassAcceptanceInvocation([
+        '/bin/app', '--accept-sidebar-glass', '--sidebar-glass-phase', phase,
+      ])).toEqual({ phase })
+    },
+  )
+
+  it('reports an unusable phase so the boot path can fail loudly', () => {
+    expect(parseSidebarGlassAcceptanceInvocation(['/bin/app', '--accept-sidebar-glass']))
+      .toEqual({ phase: undefined })
+    expect(parseSidebarGlassAcceptanceInvocation([
+      '/bin/app', '--accept-sidebar-glass', '--sidebar-glass-phase', 'unknown',
+    ])).toEqual({ phase: undefined })
   })
 })

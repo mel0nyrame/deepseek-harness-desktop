@@ -7,7 +7,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import type { SidebarRootComponentProps, SidebarSectionOwnerProps } from '../src/client/contract/slots.ts'
+import type { SidebarRootComponentProps } from '../src/client/contract/slots.ts'
 import { SidebarRoot } from '../src/client/SidebarRoot.tsx'
 import { en } from '../src/client/locales.ts'
 
@@ -34,8 +34,8 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
       collapsed={false} width={300}
       useSessions={neverHook} useWorkspaces={neverHook}
       startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
-      renderSlot={((_key: string, owner: SidebarSectionOwnerProps) =>
-        <div data-testid="region" data-wide={owner.wide} />) as SidebarRootComponentProps['renderSlot']}
+      renderSlot={((_key: string) =>
+        <div data-testid="region" />) as SidebarRootComponentProps['renderSlot']}
     />,
   )
   const column = view.container.firstElementChild

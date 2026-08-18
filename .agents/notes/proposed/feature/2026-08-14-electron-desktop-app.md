@@ -22,7 +22,7 @@ The Electron main process owns windows, menus, system dialogs, path opening, sig
 
 The renderer loads the existing production client from packaged files and uses an Electron adapter for the existing client connection interface. A narrow preload bridge carries validated unary requests and long-lived event streams through Electron IPC. Development Web builds retain their HTTP and WebSocket adapters; desktop packaging does not start a browser-facing HTTP server.
 
-The first product target is a signed and notarized macOS application for Apple silicon and Intel Macs. Its window uses the macOS inset title-bar treatment, native traffic lights, Electron's AppKit-backed vibrancy, and transparent client surfaces. A native addon is deferred unless the supported Electron APIs cannot provide the required region-specific visual effect.
+The first product target is a signed and notarized macOS application for Apple silicon and Intel Macs. Its window uses the macOS inset title-bar treatment, native traffic lights, Electron's AppKit-backed vibrancy, and transparent client surfaces. A native addon is deferred unless the supported Electron APIs cannot provide the required region-specific visual effect. The approved presentation details live in the [compact macOS window decision](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md).
 
 ### User Stories
 
@@ -55,7 +55,7 @@ The first product target is a signed and notarized macOS application for Apple s
 - Keep Electron main as a router and supervisor rather than a second implementation of ApiProxy. The DSH child remains the authority for sessions, tools, persistence, settings, credentials, and agent behavior.
 - Implement native directory selection and path opening in Electron main. The DSH Host reaches those operations through an explicit reverse request instead of giving the renderer general Electron access.
 - Preserve the existing model-visible logging rule. Moving messages over Electron IPC changes the carrier, not the Session events or reconstruction behavior.
-- Use `hiddenInset` title-bar behavior, configurable traffic-light placement, active-window vibrancy, and transparent CSS surfaces on macOS. Keep text and controls opaque enough to satisfy contrast and accessibility requirements.
+- Use `hiddenInset` title-bar behavior, configurable traffic-light placement, active-window vibrancy, and transparent CSS surfaces on macOS. Keep text and controls opaque enough to satisfy contrast and accessibility requirements. The compact-window proposal owns the presentation-specific layout, settings, and platform-boundary decisions.
 - Treat a region-specific `NSVisualEffectView` addon as a measured fallback. It is introduced only if a prototype proves that Electron's supported vibrancy controls cannot produce the required layout.
 - Package native modules and helper executables outside archives where runtime loading or execution requires real filesystem paths. Validate Electron ABI compatibility before selecting the production Electron version.
 - Produce signed and notarized macOS artifacts for arm64 and x64. Universal packaging is optional; both architectures must pass the same installed-application smoke test.
@@ -68,7 +68,7 @@ Supporting tests apply the reusable Client Connection carrier contract (`package
 
 Supervisor tests exercise startup success, startup timeout, configuration failure, unexpected child exit, one controlled restart, application quit during startup, and terminate-and-join cleanup. Process-tree assertions use real child processes on macOS for lifecycle claims that mocks cannot prove.
 
-macOS GUI acceptance runs against the real Electron window and records the user-visible workflow required by the repository GUI policy. It checks title-bar controls, drag and interactive regions, light and dark appearance, reduced-transparency fallback, focus, keyboard access, and stable rendering. A screenshot may document vibrancy, but an automated assertion must inspect the configured native window state because pixels alone cannot distinguish native blur from a translucent color.
+macOS GUI acceptance runs against the real Electron window and records the user-visible workflow required by the repository GUI policy. It checks title-bar controls, drag and interactive regions, light and dark appearance, reduced-transparency fallback, focus, keyboard access, and stable rendering. A screenshot may document vibrancy, but an automated assertion must inspect the configured native window state because pixels alone cannot distinguish native blur from a translucent color. The compact-window proposal adds the presentation-specific GUI acceptance requirements.
 
 Release validation installs or mounts each architecture's signed artifact, passes Gatekeeper assessment, launches it outside the source tree, exercises the bundled Host and PTY path, and verifies notarization metadata. A source-mode test does not substitute for this artifact check.
 
@@ -115,7 +115,7 @@ The desktop shell is a product assembly, not a new capability seam. If system in
 - Normal quit, quit during startup, and Host crash recovery leave no owned DSH, PTY, or descendant process alive.
 - Startup and runtime failures produce an actionable desktop state instead of a blank or indefinitely loading window.
 - Native folder selection and path opening work through Electron main without exposing general Electron or Node primitives to the renderer.
-- The macOS window has inset traffic lights, correct draggable regions, supported native vibrancy, light/dark appearance behavior, and an accessible reduced-transparency fallback.
+- The macOS window has inset traffic lights, correct draggable regions, supported native vibrancy, light/dark appearance behavior, and an accessible reduced-transparency fallback. The compact-window proposal adds the approved presentation requirements.
 - The existing Web client continues to use its current HTTP/WebSocket development and deployment path without Electron dependencies entering browser bundles.
 - The packaged-app acceptance test, carrier contract tests, supervisor lifecycle tests, GUI evidence, and signing/notarization checks pass.
 
@@ -157,6 +157,8 @@ Issue #4 shipped the native macOS window slice:
 - Packaged acceptance launches `--inspect-native-window` to inspect a real `BrowserWindow`'s configured options, actual native background/focus state, computed drag regions, and all renderer appearance/transparency combinations. `--accept-native-window` opens the assembled renderer in a visible window and asserts the active → inactive → active focus transitions, minimize/restore, the drag-strip input attempt, the 44-pixel title-strip layout with no content obstruction, computed drag/no-drag regions, and the keyboard path into the real composer. `--record-native-window --smoke-replay <file>` plus `DSH_DESKTOP_FRAMES_DIR` records truthful renderer frames of launch, focus transitions, the drag-strip attempt, keyboard operation, minimize/restore, light/dark appearance, and the replayed tracer turn in the assembled UI, and restores `nativeTheme.themeSource` to its entry value in `finally`; the packaged smoke in the same acceptance suite separately proves the headless tracer-bullet workflow.
 - This host's macOS lacks screen-recording and accessibility-automation permissions, so the recorded frames come from `webContents.capturePage()`: they exclude native traffic-light glyphs, and synthetic input cannot move the native window the way an OS pointer drag does. The evidence pair is the frames plus the inspected configured and observed native window state; a permissioned machine can replace the frames with an OS-level capture without changing the assertions.
 - Supported Electron APIs satisfy the required layout, so no native visual-effect addon is present.
+
+The 44-pixel strip above is the implemented Issue #4 baseline, not the approved target presentation. The [compact macOS window decision](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md) owns its replacement, zero-width sidebar behavior, and persistent sidebar glass preference through Issues #32–#34. Issues #33 and #34 depend on Issue #32 and may proceed independently after that foundation lands.
 
 Issue #5 shipped the carrier-hardening slice:
 

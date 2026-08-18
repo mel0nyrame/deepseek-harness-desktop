@@ -42,10 +42,58 @@
   border-left: 1px solid var(--dsw-alias-border-l2);
 }
 
-/* The details subtree stays mounted at zero width, so its border must not paint
-   a 1px seam. The collapsed sidebar instead retains a bordered compact rail. */
+/* The details subtree stays mounted at zero width, so its border must not
+   paint a 1px seam. The collapsed sidebar also resolves to zero width, so
+   its divider vanishes with it (issue #33: no compact rail remains). */
 .frame[data-details-collapsed] .detailsCol {
   border-left: none;
+}
+
+.frame[data-sidebar-collapsed] .sidebarCol {
+  border-right: none;
+}
+
+/* The collapsed reveal control: a frame child floating over the top-left
+   corner of the reclaimed conversation surface (outside the zero-width
+   sidebar subtree). Default shell: the sidebar's left content inset. The
+   desktop shell repositions it under body[data-dsh-platform='darwin'] —
+   beside the native traffic lights in windowed mode, at the left content
+   inset in native full screen (DESKTOP_SURFACE_CSS). */
+.reveal {
+  position: absolute;
+  top: 6px;
+  left: 12px;
+  z-index: 10;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  color: var(--dsw-alias-label-secondary);
+  animation: reveal-in 200ms var(--ds-ease-in-out);
+}
+
+.reveal:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.revealIcon {
+  flex: none;
+}
+
+@keyframes reveal-in {
+  from { opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .reveal {
+    animation: none;
+  }
 }
 
 /* Drag handles are frame children (columns clip overflow): an 8px hit strip

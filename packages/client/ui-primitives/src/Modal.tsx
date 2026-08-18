@@ -66,7 +66,7 @@ export function Modal({
           : (
             <>
               <div className={clsx(css.content, contentClassName)}>
-                <div className={css.header}>
+                <div className={css.header} data-window-drag-surface="">
                   <h2 className={css.title}>{title}</h2>
                   <button type="button" className={css.close} aria-label={closeLabel} onClick={onClose}>
                     <IconCloseOutline16 size={14} />
