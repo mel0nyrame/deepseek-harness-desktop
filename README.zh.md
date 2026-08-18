@@ -9,10 +9,10 @@
 `deepseek-harness-desktop` 将 [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) 打包为原生 Electron 应用 **DSH Desktop**。桌面外壳是本项目专属的产品层；内置 `dsh` 运行时继续保留插件系统、Session、工具、PTY、持久化、CLI 身份与文档术语。
 
 <p align="center">
-  <img src="./assets/readme/product-window.png" width="100%" alt="安装态 DSH Desktop 窗口，显示紧凑 macOS 窗口框架、玻璃侧栏、已选 Workspace 与装配完成的 agent 输入框">
+  <img src="./assets/readme/product-window.png" width="100%" alt="安装态 DSH Desktop 窗口，显示原生 macOS 窗口框架、玻璃侧栏、带预制会话的隔离 Workspace 与装配完成的 agent 输入框">
 </p>
 
-<p align="center"><sub>来自已安装 macOS 应用包的 renderer 捕获，以中性背景呈现紧凑窗口框架与默认玻璃侧栏布局。</sub></p>
+<p align="center"><sub>使用隔离临时配置与预制会话，从已安装 macOS 应用包捕获的原生窗口，并以中性背景呈现。</sub></p>
 
 ## 桌面外壳，完整 harness
 

@@ -9,10 +9,10 @@ English | [中文](README.zh.md)
 `deepseek-harness-desktop` packages [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) as the native Electron application **DSH Desktop**. The desktop shell is the product-specific layer; the bundled `dsh` runtime keeps its plugin system, sessions, tools, PTYs, persistence, CLI identity, and documentation vocabulary.
 
 <p align="center">
-  <img src="./assets/readme/product-window.png" width="100%" alt="Installed DSH Desktop window with compact macOS chrome, a glass sidebar, a selected workspace, and the assembled agent composer">
+  <img src="./assets/readme/product-window.png" width="100%" alt="Installed DSH Desktop window with native macOS chrome, a glass sidebar, an isolated workspace with preset sessions, and the assembled agent composer">
 </p>
 
-<p align="center"><sub>Renderer capture from the installed macOS bundle, framed against a neutral backing to show the compact chrome and default glass sidebar layout.</sub></p>
+<p align="center"><sub>Native window capture from the installed macOS bundle using an isolated temporary profile and preset sessions, framed against a neutral backing.</sub></p>
 
 ## Desktop shell, full harness
 
