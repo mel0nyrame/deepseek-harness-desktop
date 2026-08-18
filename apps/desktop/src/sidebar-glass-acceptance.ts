@@ -100,6 +100,30 @@ async function waitForPersisted(supervisor: DshSupervisor, expected: boolean): P
   throw new Error(`desktop sidebar glass acceptance: Host never persisted ${String(expected)}; observed ${JSON.stringify(observed)}`)
 }
 
+/** Wait until the Host settings document carries the selected application theme. */
+async function waitForThemePersisted(
+  supervisor: DshSupervisor,
+  expected: 'light' | 'dark' | 'system',
+): Promise<void> {
+  const deadline = Date.now() + 30_000
+  let observed: unknown
+  for (let attempt = 0; Date.now() < deadline; attempt += 1) {
+    const described = await desktopRpc(supervisor, `theme-settings-${String(attempt)}`, 'settings.describe', {})
+    const namespaces = described['namespaces']
+    if (Array.isArray(namespaces)) {
+      const view = namespaces.find((candidate: unknown): candidate is Record<string, unknown> => {
+        if (typeof candidate !== 'object' || candidate === null) return false
+        return (candidate as Record<string, unknown>)['ns'] === 'ui-theme'
+      })
+      observed = view?.['value']
+      if (typeof observed === 'object' && observed !== null
+        && (observed as Record<string, unknown>)['preference'] === expected) return
+    }
+    await new Promise(resolveWait => setTimeout(resolveWait, 50))
+  }
+  throw new Error(`desktop sidebar glass acceptance: Host never persisted theme ${expected}; observed ${JSON.stringify(observed)}`)
+}
+
 function assertState(
   state: SidebarGlassRendererState,
   expectedEnabled: boolean,
@@ -124,6 +148,26 @@ function assertState(
     && (!isTranslucentColor(state.overlays.newSession) || selectedOverlayInvalid)) {
     throw new Error(`desktop sidebar glass acceptance: sidebar overlays are not translucent: ${JSON.stringify(state.overlays)}`)
   }
+}
+
+/** Verify the system accessibility fallback, then restore glass coverage in this acceptance window. */
+async function normalizeTransparency(
+  harness: SidebarGlassAcceptanceHarness,
+  window: BrowserWindow,
+  state: SidebarGlassRendererState,
+  expectedEnabled: boolean,
+): Promise<SidebarGlassRendererState> {
+  if (state.transparency !== 'reduced') return state
+  assertState(state, expectedEnabled, 'opaque')
+  if (expectedEnabled && !state.overrideVisible) {
+    throw new Error('desktop sidebar glass acceptance: Reduce Transparency override copy is absent')
+  }
+  await window.webContents.executeJavaScript("document.body.dataset.dshTransparency = 'enabled'")
+  await harness.waitForRenderer(
+    window,
+    `document.body.dataset.dshSidebarMaterial?.startsWith('${expectedEnabled ? 'glass' : 'opaque'}-')`,
+  )
+  return rendererState(harness, window)
 }
 
 /** Wait until Electron main has applied the selected native theme source. */
@@ -172,7 +216,14 @@ export async function acceptSidebarGlass(
     await openSettings(harness, window)
 
     await waitForNativeTheme(harness, phase === 'reopen-enabled' ? 'light' : 'system')
-    const initial = await rendererState(harness, window)
+    const systemInitial = await rendererState(harness, window)
+    const initial = await normalizeTransparency(
+      harness,
+      window,
+      systemInitial,
+      phase !== 'reopen-on',
+    )
+    const systemState = systemInitial === initial ? {} : { systemInitial }
     if (phase === 'default-off') {
       assertState(initial, true, 'glass')
       await harness.clickAt(window, '[data-sidebar-glass-toggle]')
@@ -180,13 +231,13 @@ export async function acceptSidebarGlass(
       await waitForPersisted(harness.supervisor(), false)
       const afterToggle = await rendererState(harness, window)
       assertState(afterToggle, false, 'opaque')
-      console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, initial, afterToggle })}`)
+      console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, ...systemState, initial, afterToggle })}`)
       return
     }
 
     if (phase === 'reopen-enabled') {
       assertState(initial, true, 'glass')
-      console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, initial })}`)
+      console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, ...systemState, initial })}`)
       return
     }
 
@@ -216,9 +267,10 @@ export async function acceptSidebarGlass(
     await harness.clickAt(window, "[data-theme-preference='light']")
     await harness.waitForRenderer(window, "!document.body.hasAttribute('data-ds-dark-theme') && document.body.dataset.dshSidebarMaterial === 'glass-light'")
     await waitForNativeTheme(harness, 'light')
+    await waitForThemePersisted(harness.supervisor(), 'light')
     const restored = await rendererState(harness, window)
     assertState(restored, true, 'glass')
-    console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, initial, afterToggle, dark, reduced, restored })}`)
+    console.log(`SIDEBAR_GLASS_ACCEPTANCE ${JSON.stringify({ phase, ...systemState, initial, afterToggle, dark, reduced, restored })}`)
   } finally {
     window.destroy()
     await harness.stop()

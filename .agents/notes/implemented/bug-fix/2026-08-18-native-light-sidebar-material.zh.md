@@ -30,4 +30,4 @@ macOS 玻璃侧栏让 renderer 表面保持透明，以显示 Electron 基于 Ap
 
 - 显式 Light 与 Dark 偏好现在会同时影响 macOS 绘制的窗口 chrome、Electron UI 和 renderer 配色；System 会移除该覆盖并跟随 macOS。
 - 侧栏在两种配色中共用一条透明原生材质路径，因此 renderer 填充不会再压暗或压平浅色玻璃。
-- 聚焦测试覆盖 preload 转发、IPC 校验、偏好去重与透明玻璃 CSS。安装包的三次启动旅程还会从 Electron main 读取 `nativeTheme.themeSource`，固定验证 Dark、Light、System、持久化与“减少透明度”行为。
+- 聚焦测试覆盖 preload 转发、IPC 校验、偏好去重与透明玻璃 CSS。安装包的三次启动旅程还会从 Electron main 读取 `nativeTheme.themeSource`，固定验证 Dark、Light、System、持久化与“减少透明度”行为。当 macOS 在启用“减少透明度”的状态下启动该旅程时，验收会先验证不透明 fallback 与可见的覆盖提示，然后只在验收窗口中恢复透明度，使同一次运行仍会覆盖原生玻璃材质。在关闭窗口前，验收会等待最终的 Light 选择写入 Host 设置文档，避免重开流程与异步设置写入发生竞态。

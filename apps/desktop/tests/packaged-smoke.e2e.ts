@@ -454,6 +454,7 @@ describe('packaged desktop application', () => {
       }
       type JourneyState = {
         phase: 'default-off' | 'reopen-on' | 'reopen-enabled'
+        systemInitial?: SurfaceState
         initial: SurfaceState
         afterToggle?: SurfaceState
         dark?: SurfaceState
@@ -482,8 +483,19 @@ describe('packaged desktop application', () => {
       const expectGlassSidebar = (state: SurfaceState): void => {
         expect(state.surfaces.sidebar).toBe(transparent)
       }
+      const expectSystemFallback = (state: SurfaceState | undefined, expectedEnabled: string): void => {
+        if (state === undefined) return
+        expect(state).toMatchObject({
+          enabled: expectedEnabled,
+          transparency: 'reduced',
+        })
+        expect(state.material).toMatch(/^opaque-(?:light|dark)$/)
+        expect(state.surfaces.sidebar).not.toBe(transparent)
+        expectContentOpaque(state)
+      }
 
       const first = await runPhase('default-off')
+      expectSystemFallback(first.systemInitial, 'true')
       expect(first.initial.enabled).toBe('true')
       expect(first.initial.material).toMatch(/^glass-(?:light|dark)$/)
       expect(first.initial.nativeTheme).toEqual({ source: 'system', dark: first.initial.dark })
@@ -495,6 +507,7 @@ describe('packaged desktop application', () => {
       expectContentOpaque(first.afterToggle!)
 
       const second = await runPhase('reopen-on')
+      expectSystemFallback(second.systemInitial, 'false')
       expect(second.initial.enabled).toBe('false')
       expect(second.initial.material).toMatch(/^opaque-(?:light|dark)$/)
       expect(second.initial.nativeTheme).toEqual({ source: 'system', dark: second.initial.dark })
@@ -524,6 +537,7 @@ describe('packaged desktop application', () => {
       expectGlassSidebar(second.restored!)
 
       const third = await runPhase('reopen-enabled')
+      expectSystemFallback(third.systemInitial, 'true')
       expect(third.initial.enabled).toBe('true')
       expect(third.initial.material).toMatch(/^glass-(?:light|dark)$/)
       expect(third.initial.nativeTheme).toEqual({ source: 'light', dark: false })
