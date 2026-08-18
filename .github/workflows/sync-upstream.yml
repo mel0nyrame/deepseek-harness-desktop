@@ -20,9 +20,13 @@ on:
 permissions:
   contents: write
   pull-requests: write
-  # 合并的上游提交会改动 .github/workflows/*（虽然这些改动最终被本仓库版本
-  # 覆盖，推送同步分支仍需要 workflows 权限）
-  workflows: write
+  # 注意：permissions 没有 workflows 作用域（官方文档可用键只有 actions/
+  # artifact-metadata/attestations/checks/code-quality/contents/deployments/
+  # discussions/id-token/issues/packages/pages/pull-requests/security-events/
+  # statuses/vulnerability-alerts；workflows 是 GitHub App 权限名，自动生成的
+  # GITHUB_TOKEN 不会被授予）。推送合法性的保证来自下方 Merge 步骤：合并后
+  # 恢复本仓库的 .github/workflows/*，同步分支从不改动工作流文件，
+  # contents: write 足够。
 
 concurrency:
   group: sync-upstream
