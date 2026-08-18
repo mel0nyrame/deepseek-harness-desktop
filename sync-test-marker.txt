@@ -1,0 +1,15 @@
+Sync workflow test marker
+==========================
+
+This file exists only on the test/sync-workflow branch to give the daily
+upstream sync workflow something to merge into during testing.
+
+Created: 2026-08-18
+Purpose: end-to-end test of .github/workflows/sync-upstream.yml with
+         base=test/sync-workflow (workflow_dispatch input).
+Expected result:
+  - merge step keeps fork .github/workflows/* intact (docs-pages.yml must
+    stay deleted, ci.yml must stay fork-customized)
+  - push step passes GitHub's workflow-file protection
+  - a sync PR is opened against test/sync-workflow with conflict markers
+    for manual resolution (the normal daily behavior)
