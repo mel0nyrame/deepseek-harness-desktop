@@ -178,7 +178,8 @@ jobs:
           # relative dependency paths came from another install topology. Delete
           # only this addon's generated build tree, then invoke the exact
           # node-gyp resolved from the lockfile so the Makefile is regenerated
-          # with paths valid for this checkout.
+          # with paths valid for this checkout. node-gyp loads binding.gyp from
+          # its working directory, so the rebuild runs inside the addon dir.
           addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"
           [ -d "$addon_dir" ] || {
             echo "::error::node-pty addon directory not found at $addon_dir"
@@ -190,7 +191,7 @@ jobs:
             echo "::error::Could not resolve node-gyp from the lockfile"
             exit 1
           }
-          node "$node_gyp" rebuild
+          (cd "$addon_dir" && node "$node_gyp" rebuild)
           addon="$addon_dir/build/Release/pty.node"
           [ -f "$addon_dir/build/Makefile" ] || {
             echo "::error::node-pty install did not generate $addon_dir/build/Makefile"

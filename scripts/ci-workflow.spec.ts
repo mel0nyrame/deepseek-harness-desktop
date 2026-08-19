@@ -342,7 +342,7 @@ describe('Python runtime build workflows', () => {
     const addonDirectory = manylinuxAddon.run.indexOf('addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"')
     const cleanBuild = manylinuxAddon.run.indexOf('rm -rf "$addon_dir/build"')
     const nodeGypResolve = manylinuxAddon.run.indexOf("rebuild.resolve('node-gyp/bin/node-gyp.js')")
-    const rebuild = manylinuxAddon.run.indexOf('node "$node_gyp" rebuild')
+    const rebuild = manylinuxAddon.run.indexOf('(cd "$addon_dir" && node "$node_gyp" rebuild)')
     expect(addonDirectory).toBeGreaterThanOrEqual(0)
     expect(cleanBuild).toBeGreaterThan(addonDirectory)
     expect(nodeGypResolve).toBeGreaterThan(cleanBuild)
