@@ -108,9 +108,12 @@ body[data-dsh-platform='darwin'][data-dsh-fullscreen='true'] [data-slot='sidebar
 
 /* Windowed conversation chrome keeps the title row, view tabs, and divider
    independently aligned. The title-row hook includes its adjacent actions
-   and right-edge utilities, so the complete row moves as one unit. */
+   and right-edge utilities, so the complete row moves as one unit. Its
+   positioned layer keeps header-owned menus above the transcript. */
 body[data-dsh-platform='darwin']:not([data-dsh-fullscreen='true'])
 [data-slot='conversation'] [data-conversation-title-row] {
+  position: relative !important;
+  z-index: 1 !important;
   transform: translateY(-8px) !important;
 }
 
