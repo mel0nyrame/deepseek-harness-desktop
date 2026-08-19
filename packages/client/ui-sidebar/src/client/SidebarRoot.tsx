@@ -2,13 +2,13 @@
  * Sidebar shell: column geometry only. Collapse is a slide plus crossfade:
  * content freezes at its expanded width (inline style) and fades out in place
  * while the sliding column (AppFrame grid tracks) clips it — nothing reflows
- * mid-slide. At settle the wide-only content unmounts and the four upper
- * controls enter the 56px rail from the same horizontal offset (one icon each,
- * same top-down order) on one fade that ends with the slide. The bottom-pinned
- * settings control only fades. The workspace/session browsing region between
- * the New Session button and the foot is the `sidebar.workspaces` registrant's,
- * and the foot holds `sidebar.settings` plus `sidebar.footer.action`; the shell
- * hands them the wide flag (plus an expand request callback for the browser).
+ * mid-slide. The column resolves to a zero-width track (issue #33): at the
+ * 150ms settle the shell unmounts, and the frame's own reveal control
+ * (outside this subtree) takes over. The workspace/session browsing region
+ * between the New Session button and the foot is the `sidebar.workspaces`
+ * registrant's, and the foot holds `sidebar.settings` plus
+ * `sidebar.footer.action`; these seats render only while the shell is mounted,
+ * so they need no collapse-state owner props.
  *
  * The column also owns whether the scroll regions nested in it draw a
  * scrollbar at all: the shell tracks the pointer and rebinds ui-theme's
@@ -18,7 +18,7 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
-  BrandWordmark, FishLogo,
+  BrandWordmark,
   IconNewChatOutline16, IconPanelLeftOutline16,
   Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -39,7 +39,7 @@ const SCROLLBAR_LINGER_MS = 2000
 /**
  * Render the sidebar column shell.
  * @param props - composed slot props (runtime share + injected callbacks, contract/slots.ts).
- * @returns the sidebar element tree.
+ * @returns the sidebar element tree, or nothing once a collapse settles.
  */
 export function SidebarRoot({
   collapsed,
@@ -50,7 +50,9 @@ export function SidebarRoot({
   renderSlot,
 }: SidebarRootComponentProps) {
   // Wide content stays mounted while the collapse animates (fading via
-  // .collapsed .wide), unmounts at settle, and remounts right away on expand.
+  // .fading) and unmounts at settle; the zero-width track then
+  // carries nothing until expand remounts it. A cold collapsed render
+  // (narrow auto-collapse at boot) skips the fade entirely.
   const [settled, setSettled] = useState(collapsed)
   useEffect(() => {
     if (!collapsed) { setSettled(false); return }
@@ -60,15 +62,9 @@ export function SidebarRoot({
   const wide = !collapsed || !settled
 
   // Freeze the content at its expanded width while it fades out (collapsed
-  // && wide): the sliding column then clips it instead of reflowing it. The
-  // rail layout (.collapsed styles) only applies once the fade settles.
+  // && wide): the sliding column then clips it instead of reflowing it.
   const lastWideWidth = useRef(width)
   if (!collapsed) lastWideWidth.current = width
-
-  // Rail-in only crossfades a live collapse: a refresh straight into the
-  // collapsed state renders the rail statically (no delay-hidden icons).
-  const everWide = useRef(!collapsed)
-  if (!collapsed) everWide.current = true
 
   // Scrollbars in the column follow the pointer (.quietBars rebinds them
   // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
@@ -113,78 +109,90 @@ export function SidebarRoot({
     }
   }, [pointerInside])
 
+  if (!wide) return null
+
   return (
     <div
       ref={column}
       className={clsx(
-        css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
-        collapsed && wide && css.fading, !pointerInside && css.quietBars,
+        css.root, collapsed && css.fading, !pointerInside && css.quietBars,
       )}
-      style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+      style={{ width: collapsed ? lastWideWidth.current : width }}
       onPointerEnter={() => {
         cancelLinger()
         setPointerInside(true)
       }}
       onPointerLeave={() => { armLinger() }}
     >
-      <div className={css.logoRow}>
-        {/* Expanded, the wordmark doubles as a New Session shortcut; the
-            collapsed rail's logo is the expand toggle below instead. */}
-        {wide && (
-          <button
-            type="button"
-            className={clsx(css.brand, css.wide)}
-            aria-label={t('session.new.label')}
-            onClick={() => { startSession() }}
-          >
-            <BrandWordmark />
-          </button>
-        )}
-        {/* Rail resting state is the whale mark; hovering swaps in the panel
-            icon (the expand affordance, figma sidebar-hover flow). */}
-        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+      <div className={css.logoRow} data-sidebar-control-row="">
+        {/* Default shell (Web and non-macOS desktop): the wordmark shares
+            this first row and the toggle sits at its right edge. The macOS
+            desktop CSS hides the inline wordmark (data-sidebar-brand-inline)
+            and reveals the brand row below, so the toggle can sit beside the
+            native traffic lights. */}
+        <button
+          type="button"
+          className={clsx(css.brand, css.wide)}
+          data-sidebar-brand-inline=""
+          aria-label={t('session.new.label')}
+          onClick={() => { startSession() }}
+        >
+          <BrandWordmark />
+        </button>
+        {/* Expanded, the toggle carries its own label — the collapsed
+            affordance belongs to the frame's reveal control (AppFrame),
+            which sits outside this zero-width subtree. */}
+        <Tooltip label={t('toggle.collapse')} delayMs={500}>
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
-            aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
+            data-sidebar-toggle=""
+            aria-label={t('toggle.collapse')}
             onClick={() => { toggleSidebar() }}
           >
-            {!wide && <FishLogo className={css.railFish} size={24} />}
-            {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
-            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+            <IconPanelLeftOutline16 className={css.panelIcon} size={16} />
           </button>
         </Tooltip>
       </div>
 
-      {/* Expanded, the button carries its own label — tooltip only on the rail. */}
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
+      <div className={css.brandRow} data-sidebar-brand-row="">
+        {/* Compact macOS header: hidden by default; the desktop shell
+            reveals it under body[data-dsh-platform='darwin']. */}
         <button
           type="button"
-          className={css.newSession}
+          className={clsx(css.brand, css.wide)}
           aria-label={t('session.new.label')}
           onClick={() => { startSession() }}
         >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
+          <BrandWordmark />
         </button>
-      </Tooltip>
-
-      {/* The browsing region fills the column between the controls and the
-          foot in both states; its rail icon column rides the same slot. */}
-      <div className={css.regionArea}>
-        {renderSlot('sidebar.workspaces', {
-          wide,
-          expandSidebar: () => { if (collapsed) toggleSidebar() },
-        })}
       </div>
 
-      {/* Footer actions stack above Settings in both sidebar widths. */}
+      <button
+        type="button"
+        className={css.newSession}
+        data-sidebar-new-session=""
+        aria-label={t('session.new.label')}
+        onClick={() => { startSession() }}
+      >
+        <IconNewChatOutline16 size={14} />
+        <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>
+      </button>
+
+      {/* The browsing region fills the column between the controls and the
+          foot; it rides the same slot in the wide state only (the collapsed
+          shell unmounts entirely). */}
+      <div className={css.regionArea}>
+        {renderSlot('sidebar.workspaces', {})}
+      </div>
+
+      {/* Footer actions stack above Settings in the mounted expanded shell. */}
       <div className={css.footArea}>
         <div className={css.footerActions}>
-          {renderSlot('sidebar.footer.action', { wide })}
+          {renderSlot('sidebar.footer.action', {})}
         </div>
         <div className={css.settingsArea}>
-          {renderSlot('sidebar.settings', { wide })}
+          {renderSlot('sidebar.settings', {})}
         </div>
       </div>
     </div>

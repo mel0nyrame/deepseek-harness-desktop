@@ -1,7 +1,7 @@
 import type { RendererStreamEvent } from './renderer-ipc.ts'
 
 /** Maximum renderer notifications retained by the Electron main relay. */
-export const RENDERER_STREAM_QUEUE_LIMIT = 256
+const RENDERER_STREAM_QUEUE_LIMIT = 256
 
 interface RendererStreamState {
   readonly queue: RendererStreamEvent[]

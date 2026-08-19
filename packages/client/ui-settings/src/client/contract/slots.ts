@@ -14,9 +14,8 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
      * The sidebar-foot trigger row content: icon + label, supplied as slot
-     * content (the accessible name comes from the content — rail state
-     * renders the label visually hidden). The shell renders the button
-     * chrome and owns open state. Absent contribution degrades to an
+     * content (the accessible name comes from the content). The shell renders
+     * the button chrome and owns open state. Absent contribution degrades to an
      * icon-only button without an accessible name (broken-composition state;
      * the shipped composition always registers the seat).
      */
@@ -100,10 +99,10 @@ export interface SettingsPluginsTabOwnerProps {
   children?: never
 }
 
-/** Owner share of the trigger content seat: the sidebar column state. */
+/** Owner share of the trigger content seat (the shell supplies nothing). */
 export interface SettingsTriggerOwnerProps {
-  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */
-  wide: boolean
+  /** Marker field: trigger owner props are intentionally empty. */
+  children?: never
 }
 
 /** Owner share of the header title seat (the shell supplies nothing). */

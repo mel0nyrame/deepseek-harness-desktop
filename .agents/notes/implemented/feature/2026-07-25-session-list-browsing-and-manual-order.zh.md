@@ -34,7 +34,7 @@ UI 为组内 session 行的 HTML5 拖拽（仅 workspace 分组、非搜索态�
 
 ### 壳/区域切分
 
-ui-sidebar 缩为列几何壳：品牌行、折叠状态机、New Session、Settings，以及一个 `sidebar.workspaces` 洞；壳与区域的约定只有两个事实 `{ wide, expandSidebar }`。ui-workspace 全权拥有浏览区域（section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽）及其 groupBy store；rail 态的搜索、添加工作区图标也归区域，经 `expandSidebar()` 请求壳展开。picker 拆为核心件 `WorkspacePickFlow`（区域内直接组件组合；在[单一路径 Note](../simplification/2026-07-31-one-route-to-add-a-workspace.md)之前名为 `WorkspaceCreateFlow`）与薄包装层 `WorkspacePicker`（继续填 ui-conversation 的 hero slot）；原 `sidebar.workspace` picker slot 与声明感知延迟注册随之删除。
+ui-sidebar 是列几何壳：品牌行、收起生命周期、New Session、Settings，以及 `sidebar.workspaces` 渲染位。它给浏览区域的 owner share 为空；ui-workspace 全权拥有 section header、搜索、分组树与平铺、全部 workspace 对话框、拖拽及 groupBy store。区域仅在展开态外壳挂载期间存在；[侧边栏零宽度收起](2026-08-17-zero-width-sidebar-collapse.md)持有框架级展开控件及收起轨道无内容的约定。picker 由核心件 `WorkspacePickFlow`（区域内直接组件组合）与薄包装层 `WorkspacePicker`（填充 ui-conversation 的 hero slot）组成；不存在 `sidebar.workspace` picker 声明或延迟注册路径。
 
 ## 考虑过的替代方案
 
@@ -51,7 +51,7 @@ ui-sidebar 缩为列几何壳：品牌行、折叠状态机、New Session、Sett
 ## 后果
 
 - 手动序是 Host workspace 账本的唯一顺序权威：活动绝不改动 `WorkspaceView.sessionIds`。后续加入的浏览器本地最近更新视图可以把活跃行提到最前，但不会改变该账本；其独立语义见 [Workspace 侧边栏顺序与折叠](2026-08-11-workspace-sidebar-order-and-folding.md)。
-- 壳/区域两事实约定把 workspace 域的后续功能（Delete 确认、跨组移动、Ungrouped 收编）全部收进 ui-workspace 单包；ui-sidebar 不再随 session 列表功能演进。
+- 壳/区域的归属边界把 workspace 域的后续功能（Delete 确认、跨组移动、Ungrouped 收编）全部收进 ui-workspace 单包；ui-sidebar 只提供渲染位，不提供浏览状态或操作。
 - 平铺模式不支持重排，也没有在指定 workspace 中创建 session 的入口（需切回分组视图），是拍板接受的范围收窄。
 - session Delete 的功能接线与扩展 wire 状态枚举，留待后续迭代。
 

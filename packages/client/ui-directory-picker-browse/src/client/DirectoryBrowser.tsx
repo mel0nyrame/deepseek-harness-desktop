@@ -806,7 +806,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         }}
       >
         <div className={css.header}>
-          <h2 className={css.title}>{t('browser.title')}</h2>
+          <h2 className={css.title} data-window-drag-surface="">{t('browser.title')}</h2>
           <div className={css.crumbBar}>
             {pathDraft === null
               ? (
@@ -1002,7 +1002,7 @@ export function DirectoryBrowser({ open, listDirectory, createDirectory, onOpen,
         headless
       >
         <div className={css.createBody}>
-          <h3 className={css.createTitle}>{t('browser.newFolder')}</h3>
+          <h3 className={css.createTitle} data-window-drag-surface="">{t('browser.newFolder')}</h3>
           <p className={css.createIn}>{t('browser.createIn', { name: targetName })}</p>
           <input
             className={css.createInput}

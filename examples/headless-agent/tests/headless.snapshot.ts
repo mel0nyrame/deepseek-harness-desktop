@@ -85,11 +85,15 @@ async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
     request.on('end', () => {
       requests.push(JSON.parse(body) as JsonObject)
       response.writeHead(200, { 'content-type': 'text/event-stream' })
-      let keepAlives = 3
+      // The comments-only prefix must outlast the adapter's idle watchdog
+      // (fixture sets 1000ms) so this snapshot proves comments rearm it;
+      // 12 × 100ms leaves slack for the 2-core fork runner's delayed timers
+      // that once let the old 3 × 60ms / 150ms pairing time out and retry.
+      let keepAlives = 12
       const write = (): void => {
         if (keepAlives-- > 0) {
           response.write(': keep-alive\n\n')
-          setTimeout(write, 60)
+          setTimeout(write, 100)
           return
         }
         response.end([
@@ -99,7 +103,7 @@ async function deepseekDefaultsServer(): Promise<DeepSeekDefaultsServer> {
           '',
         ].join('\n\n'))
       }
-      setTimeout(write, 60)
+      setTimeout(write, 100)
     })
   })
   await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve))

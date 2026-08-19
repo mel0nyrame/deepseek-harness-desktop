@@ -2,6 +2,11 @@
 
 import type { DesktopChildMessage, DesktopChildRequest } from '@deepseek-ai/dsh-desktop-app'
 
+/** Theme values accepted from the renderer at the desktop IPC boundary. */
+export type RendererThemePreference = 'light' | 'dark' | 'system'
+
+const RENDERER_THEME_PREFERENCES: readonly RendererThemePreference[] = ['light', 'dark', 'system']
+
 type StreamMessage = Exclude<DesktopChildMessage,
   Extract<DesktopChildMessage, {
     type: 'ready' | 'response' | 'request-error' | 'native-request' | 'cancel-native-request'
@@ -79,6 +84,11 @@ export function parseRendererSubscription(
 /** Validate one status-page recovery action. */
 export function parseRendererRecoveryAction(value: unknown): 'restart' | 'quit' | undefined {
   return value === 'restart' || value === 'quit' ? value : undefined
+}
+
+/** Validate one renderer-selected application theme before changing native UI. */
+export function parseRendererThemePreference(value: unknown): RendererThemePreference | undefined {
+  return RENDERER_THEME_PREFERENCES.find(preference => preference === value)
 }
 
 /** Validate one main-to-preload stream lifecycle message before renderer delivery. */

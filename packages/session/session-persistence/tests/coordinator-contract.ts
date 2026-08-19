@@ -944,6 +944,8 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
       }
     })
 
+    // This contract crosses two backend mounts plus an out-of-band torn-tail
+    // write; keep its real file-backed Windows path independent of the generic deadline.
     it('HMR adoption does NOT crash-repair an active open turn as interrupted (truncate without closers)', async () => {
       const fix = await makeFixture()
       const ctx = new Context()
@@ -973,7 +975,7 @@ export function runCoordinatorContract(name: string, makeFixture: () => Promise<
         await ctx.fiber.dispose()
         await fix.cleanup()
       }
-    })
+    }, 15_000)
 
     // --- collision / id reuse ---
 

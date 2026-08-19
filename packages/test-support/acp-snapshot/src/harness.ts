@@ -554,12 +554,16 @@ async function waitForPersistedTurnEnd(
   sessionId: string,
   timeoutMs = DEFAULT_WAIT_TIMEOUT_MS,
 ): Promise<void> {
-  await vi.waitFor(async () => {
+  const deadline = Date.now() + timeoutMs
+  for (;;) {
     const log = (await harvestSessionLogs(root)).find(candidate => candidate.id === sessionId)
-    if (log === undefined || !latestTurnIsClosed(log.content)) {
+    if (log !== undefined && latestTurnIsClosed(log.content)) return
+    const remainingMs = deadline - Date.now()
+    if (remainingMs <= 0) {
       throw new Error(`snapshot-harness: session "${sessionId}" did not persist turn/end within ${timeoutMs}ms`)
     }
-  }, { interval: WAIT_POLL_INTERVAL_MS, timeout: timeoutMs })
+    await new Promise(resolve => setTimeout(resolve, Math.min(WAIT_POLL_INTERVAL_MS, remainingMs)))
+  }
 }
 
 /**

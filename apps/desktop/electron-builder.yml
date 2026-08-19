@@ -29,6 +29,12 @@ extraResources:
   - from: node_modules
     to: runtime/node_modules
 mac:
+  # The official DeepSeek Harness fish logo on a light rounded tile
+  # (build/icon.svg, rasterized by scripts/icon.ts). electron-builder
+  # converts the 1024px PNG into the bundle's icon.icns and points
+  # CFBundleIconFile at it; without this key the bundle ships the default
+  # Electron icon.
+  icon: build/icon.png
   # Ad-hoc signing ('-') needs no Apple credentials: the produced bundle and
   # dmg carry valid code signatures and 'codesign --verify --deep --strict'
   # passes. Gatekeeper assesses only quarantine-flagged launches, so a

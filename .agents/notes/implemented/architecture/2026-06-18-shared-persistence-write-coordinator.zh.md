@@ -35,7 +35,7 @@ Status: implemented
 
 ## 测试
 
-共享的 `runPersistenceContract`（公开 API 约定）为每个后端运行，并证明 `inspect` 会配平被中断的逻辑视图但不改变存储或修订版本，随后由 `prepare` 或 `load` 提交恢复。`runCoordinatorContract`（`tests/coordinator-contract.ts`）通过内存参考实现、JSONL 与 SQLite 覆盖接管、HMR、碰撞、会话与后端 dispose 排空和崩溃尾部修复。`persistence.spec.ts`、`preparations.spec.ts` 与 `write-behind.spec.ts` 覆盖准备复用与预留、有界准备状态淘汰、固定窗口后续批次、存活控制器清理、同 id 链尾竞态、失败批次重试与关闭顺序。各后端自身的测试规格只保留存储机制。每个真实后端都有一个经由协调器的崩溃尾部修复测试，以覆盖不透明 marker 分支，因为约定中的崩溃用例会产生合成收尾事件，却不会产生 torn marker。
+共享的 `runPersistenceContract`（公开 API 约定）为每个后端运行，并证明 `inspect` 会配平被中断的逻辑视图但不改变存储或修订版本，随后由 `prepare` 或 `load` 提交恢复。`runCoordinatorContract`（`tests/coordinator-contract.ts`）通过内存参考实现、JSONL 与 SQLite 覆盖接管、HMR、碰撞、会话与后端 dispose 排空和崩溃尾部修复。HMR 崩溃尾部接管用例使用独立的 15 秒时限，因为真实后端路径会挂载两次，并通过带外写入制造损坏；这样，Windows 文件后端在覆盖率负载下不会受 Vitest 通用 5 秒时限影响，同时也不会放宽断言。`persistence.spec.ts`、`preparations.spec.ts` 与 `write-behind.spec.ts` 覆盖准备复用与预留、有界准备状态淘汰、固定窗口后续批次、存活控制器清理、同 id 链尾竞态、失败批次重试与关闭顺序。各后端自身的测试规格只保留存储机制。每个真实后端都有一个经由协调器的崩溃尾部修复测试，以覆盖不透明 marker 分支，因为约定中的崩溃用例会产生合成收尾事件，却不会产生 torn marker。
 
 ## 曾考虑的替代方案
 

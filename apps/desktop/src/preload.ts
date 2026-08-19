@@ -1,7 +1,11 @@
 /** Narrow context-isolated renderer bridge. */
 
 import { contextBridge, ipcRenderer } from 'electron'
-import { parseRendererStreamEvent, type RendererStreamEvent } from './renderer-ipc.ts'
+import {
+  parseRendererStreamEvent,
+  type RendererStreamEvent,
+  type RendererThemePreference,
+} from './renderer-ipc.ts'
 
 interface RendererRequest {
   readonly id: string
@@ -39,6 +43,11 @@ ipcRenderer.on('dsh:stream', (_event: unknown, value: unknown) => {
 })
 
 contextBridge.exposeInMainWorld('__DSH_BOOT__', boot)
+contextBridge.exposeInMainWorld('dshNativeTheme', {
+  setPreference: (preference: RendererThemePreference): void => {
+    ipcRenderer.send('dsh:set-theme-preference', preference)
+  },
+})
 contextBridge.exposeInMainWorld('dshDesktop', {
   request: (request: RendererRequest): Promise<RendererResponse> => ipcRenderer.invoke('dsh:request', request),
   cancelRequest: (id: string): void => { ipcRenderer.send('dsh:cancel-request', id) },

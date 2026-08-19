@@ -162,3 +162,40 @@ export function parseSmokeReopenInvocation(argv: readonly string[]): SmokeReopen
   }
   return reopen ? { ...(home === undefined ? {} : { home }) } : undefined
 }
+
+/** One stage of the installed renderer's sidebar-glass persistence journey. */
+export type SidebarGlassAcceptancePhase = 'default-off' | 'reopen-on' | 'reopen-enabled'
+
+/** Parsed installed-renderer sidebar-glass acceptance invocation. */
+export interface SidebarGlassAcceptanceInvocation {
+  /** Expected durable starting state and action for this launch. */
+  readonly phase: SidebarGlassAcceptancePhase | undefined
+}
+
+/**
+ * Parse `--accept-sidebar-glass --sidebar-glass-phase <phase>`. A present
+ * acceptance flag with an absent or unknown phase still yields an invocation
+ * so the main process reports a hard failure instead of opening interactively.
+ * @param argv - the raw `process.argv`.
+ * @returns the invocation when the acceptance flag is present.
+ */
+export function parseSidebarGlassAcceptanceInvocation(
+  argv: readonly string[],
+): SidebarGlassAcceptanceInvocation | undefined {
+  let acceptance = false
+  let phase: SidebarGlassAcceptancePhase | undefined
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    if (arg === '--accept-sidebar-glass') {
+      acceptance = true
+      continue
+    }
+    if (arg !== '--sidebar-glass-phase') continue
+    const value = argv[index + 1]
+    if (value === 'default-off' || value === 'reopen-on' || value === 'reopen-enabled') {
+      phase = value
+      index += 1
+    }
+  }
+  return acceptance ? { phase } : undefined
+}

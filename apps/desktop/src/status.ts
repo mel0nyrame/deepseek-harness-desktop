@@ -10,7 +10,6 @@
 import type { HostFailure, HostPhase } from './lifecycle.ts'
 
 export const STATUS_PAGE_PATH = '/status.html'
-export const STATUS_PAGE_URL = `dsh://app${STATUS_PAGE_PATH}`
 
 /** State rendered by the status page's `window.renderStatus`. */
 export interface DesktopStatusState {

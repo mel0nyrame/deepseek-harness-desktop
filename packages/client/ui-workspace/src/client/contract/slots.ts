@@ -3,8 +3,8 @@
  *
  * - WorkspaceBrowser fills the sidebar shell's `sidebar.workspaces` hole —
  *   the whole browsing region (section header, search, grouped/flat session
- *   list, workspace dialogs). It registers this package's viewing store and
- *   consumes the shell's two-fact owner share (wide / expandSidebar).
+ *   list, workspace dialogs). It registers this package's viewing store; the
+ *   shell supplies only the render site.
  * - WorkspacePicker fills the conversation empty-state hole (menu + error
  *   dialog shared with the browser).
  *
@@ -137,7 +137,7 @@ export type WorkspaceBrowserInjected = DirectoryPickingInjected & {
   createWorkspace: (input: { path: string }) => Promise<WorkspaceView>
 }
 
-/** Full browser props: shell owner share + viewing store + injected actions + the locale seat. */
+/** Full browser props: viewing store + injected actions + the locale seat. */
 export type WorkspaceBrowserProps =
   PropsRuntime<'sidebar.workspaces'>
   & PropsRenderSlots<'sidebar.workspaces.directoryFlow'>

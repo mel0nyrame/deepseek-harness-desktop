@@ -16,5 +16,9 @@
 - insert:
     - id: pwsh-local
       name: '@deepseek-ai/dsh-pwsh-local'
-    - id: tool-pwsh
-      name: '@deepseek-ai/dsh-tool-pwsh'
+# The shipped layers carry tool-pwsh disabled (base disables it off Windows,
+# web-app always); this lane re-enables the existing row — inserting a second
+# row with the shipped id collides and the loader rejects the composition.
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: false

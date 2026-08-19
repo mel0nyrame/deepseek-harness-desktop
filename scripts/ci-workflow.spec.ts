@@ -27,149 +27,90 @@ describe('CI workflow', () => {
     }
   })
 
-  it('keeps a required Wine Windows job, a non-blocking native Windows job with failover, and a master-only standby', () => {
+  it('keeps pull requests fast and reserves exhaustive platform checks for release tags', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs)
-      || !isRecord(workflow.jobs.windows)
-      || !isRecord(workflow.jobs['windows-native'])
-      || !isRecord(workflow.jobs['wine-apt-cache'])
-      || !isRecord(workflow.jobs['serial-windows'])
-      || !isRecord(workflow.jobs['node-24'])
-      || !isRecord(workflow.jobs['node-24-coverage'])
-      || !isRecord(workflow.jobs['node-24-consumers'])
-      || !isRecord(workflow.jobs['all-checks-passed'])) {
-      throw new TypeError('CI workflow must define windows, windows-native, wine-apt-cache, serial-windows, node-24, node-24-coverage, node-24-consumers, and all-checks-passed jobs')
+      || !isRecord(workflow.jobs['pr-node'])
+      || !isRecord(workflow.jobs['pr-python-sdk'])
+      || !isRecord(workflow.jobs['pr-checks-passed'])
+      || !isRecord(workflow.jobs['tag-static'])
+      || !isRecord(workflow.jobs['tag-coverage'])
+      || !isRecord(workflow.jobs['tag-snapshots'])
+      || !isRecord(workflow.jobs['tag-artifacts'])
+      || !isRecord(workflow.jobs['tag-node-compat'])
+      || !isRecord(workflow.jobs['tag-python-sdk'])
+      || !isRecord(workflow.jobs['tag-python-runtime'])
+      || !isRecord(workflow.jobs['tag-windows-native'])
+      || !isRecord(workflow.jobs['tag-checks-passed'])) {
+      throw new TypeError('CI workflow must define the PR essentials and exhaustive tag jobs')
     }
 
-    const windows = workflow.jobs.windows
-    const windowsNative = workflow.jobs['windows-native']
-    const wineAptCache = workflow.jobs['wine-apt-cache']
-    const serialWindows = workflow.jobs['serial-windows']
-    const node24 = workflow.jobs['node-24']
-    const node24Coverage = workflow.jobs['node-24-coverage']
-    const node24Consumers = workflow.jobs['node-24-consumers']
-    const aggregate = workflow.jobs['all-checks-passed']
-    if (!Array.isArray(windows.steps) || !Array.isArray(aggregate.needs)) {
-      throw new TypeError('Windows job must define steps and the aggregate must define needs')
+    const prNode = workflow.jobs['pr-node']
+    const prPython = workflow.jobs['pr-python-sdk']
+    const prAggregate = workflow.jobs['pr-checks-passed']
+    const tagStatic = workflow.jobs['tag-static']
+    const tagCoverage = workflow.jobs['tag-coverage']
+    const tagSnapshots = workflow.jobs['tag-snapshots']
+    const tagArtifacts = workflow.jobs['tag-artifacts']
+    const tagCompat = workflow.jobs['tag-node-compat']
+    const tagPython = workflow.jobs['tag-python-sdk']
+    const tagRuntime = workflow.jobs['tag-python-runtime']
+    const tagWindows = workflow.jobs['tag-windows-native']
+    const tagAggregate = workflow.jobs['tag-checks-passed']
+    if (!Array.isArray(prNode.steps)
+      || !Array.isArray(prPython.steps)
+      || !Array.isArray(prAggregate.needs)
+      || !Array.isArray(tagSnapshots.steps)
+      || !Array.isArray(tagAggregate.needs)) {
+      throw new TypeError('CI jobs must define their steps and aggregate dependencies')
     }
-    const commandSteps = windows.steps.filter((step): step is Record<string, unknown> & { run: string } => (
+
+    const prCommands = prNode.steps.filter((step): step is Record<string, unknown> & { run: string } => (
       isRecord(step) && typeof step.run === 'string'
     ))
+    expect(prCommands.map(step => step.run)).toContain('pnpm run check:ci:pr')
+    expect(prCommands.map(step => step.run)).not.toContain('pnpm run check:ci:coverage')
+    expect(prNode.if).toBe("github.event_name == 'pull_request'")
+    expect(prPython.if).toBe("github.event_name == 'pull_request'")
+    expect(prAggregate.needs).toEqual(['pr-node', 'pr-python-sdk'])
 
-    // Required PR job: Wine on ubuntu-latest, runs wine-windows-gates.sh.
-    expect(windows['runs-on']).toBe('ubuntu-latest')
-    expect(windows.name).toBe('windows node 24 / wine blocking')
-    expect(windows.if).toBe("github.event_name == 'pull_request'")
-    expect(commandSteps.some(step => step.run.includes('wine-windows-gates.sh'))).toBe(true)
-
-    // windows-native: non-blocking native job with failover, runs windows-complete.
-    // Its pool is resolved by the Windows-specific switch.
-    expect(typeof windowsNative['runs-on']).toBe('string')
-    expect(windowsNative['runs-on']).toContain('DSH_CI_FAILOVER_WINDOWS')
-    expect(windowsNative['runs-on']).not.toContain('DSH_CI_FAILOVER_LINUX')
-    expect(windowsNative['runs-on']).toContain('self-hosted')
-    expect(windowsNative['runs-on']).toContain('dsh-win-ci')
-    expect(windowsNative['runs-on']).toContain('dsh-windows-2025-16core')
-    expect(windowsNative.name).toBe('windows node 24 / native complete')
-    expect(windowsNative.if).toBe("github.event_name == 'pull_request'")
-    const nativeCommandSteps = (windowsNative.steps as unknown[]).filter((step): step is Record<string, unknown> & { run: string } => (
-      isRecord(step) && typeof step.run === 'string'
-    ))
-    expect(nativeCommandSteps.map(step => step.run)).toContain('pnpm run check:ci:windows-complete')
-
-    // wine-apt-cache: master-only, seeds the Wine apt cache.
-    expect(wineAptCache.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
-    expect(wineAptCache['runs-on']).toBe('ubuntu-latest')
-
-    // serial-windows: master-only standby, self-hosted, non-blocking.
-    expect(serialWindows.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
-    expect(serialWindows['runs-on']).toEqual(['self-hosted', 'dsh-win-ci', 'windows'])
-    expect(serialWindows.name).toBe('serial / windows (self-hosted standby)')
-
-    // Aggregate: Wine `windows` required, native `windows-native` excluded.
-    expect(aggregate.needs).toContain('windows')
-    expect(aggregate.needs).not.toContain('windows-native')
-    expect(aggregate.needs).not.toContain('serial-windows')
-
-    // Linux failover is a separate switch: the three required Linux workers
-    // and the verdict job resolve their pool through DSH_CI_FAILOVER_LINUX,
-    // never the Windows switch.
-    for (const [jobName, job] of [['node-24', node24], ['node-24-coverage', node24Coverage], ['node-24-consumers', node24Consumers]] as const) {
-      expect(typeof job['runs-on']).toBe('string')
-      expect(job['runs-on'], `${jobName} runs-on must use the Linux failover switch`).toContain('DSH_CI_FAILOVER_LINUX')
-      expect(job['runs-on'], `${jobName} runs-on must not use the Windows failover switch`).not.toContain('DSH_CI_FAILOVER_WINDOWS')
-      expect(job['runs-on']).toContain('vm-backup')
+    const tagOnly = "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')"
+    for (const job of [tagStatic, tagCoverage, tagSnapshots, tagArtifacts, tagCompat, tagPython, tagRuntime, tagWindows]) {
+      expect(job.if).toBe(tagOnly)
     }
-    expect(aggregate['runs-on']).toContain('DSH_CI_FAILOVER_LINUX')
-    expect(aggregate['runs-on']).not.toContain('DSH_CI_FAILOVER_WINDOWS')
-    expect(aggregate['runs-on']).toContain('vm-backup')
+    expect(tagRuntime).toMatchObject({
+      uses: './.github/workflows/build-exe-for-python-sdk.yml',
+      with: {
+        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
+        release: true,
+      },
+    })
+    expect(tagSnapshots['timeout-minutes']).toBe(30)
+    const tagSteps = tagSnapshots.steps as unknown[]
+    const playwright = tagSteps.find((step): step is Record<string, unknown> => isRecord(step) && step.name === 'Install Playwright Chromium')
+    expect(playwright).toMatchObject({ 'timeout-minutes': 10 })
+    expect(tagAggregate.needs).toEqual([
+      'tag-static',
+      'tag-coverage',
+      'tag-snapshots',
+      'tag-artifacts',
+      'tag-node-compat',
+      'tag-python-sdk',
+      'tag-python-runtime',
+      'tag-windows-native',
+    ])
+
+    expect(workflow.jobs).not.toHaveProperty('windows')
+    expect(workflow.jobs).not.toHaveProperty('wine-apt-cache')
   })
 
-  it('exempts push from cancellation, so one master merge does not cancel the running drill', () => {
+  it('cancels superseded runs on the same ref', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
     if (!isRecord(workflow.jobs) || !isRecord(workflow.concurrency)) {
       throw new TypeError('CI workflow must define jobs and a workflow-level concurrency block')
     }
 
-    // Cancellation applies to the whole superseded RUN, so this has to be
-    // decided at workflow level and gated on the event: a job-level group
-    // cannot exempt its job from its run being cancelled. Only push is exempt —
-    // a drill takes longer than the interval between master merges. The negated
-    // form is load-bearing: `== 'pull_request'` would also stop cancelling
-    // workflow_dispatch, and a re-dispatched runner benchmark holds up to 12
-    // larger runners for 15 minutes in this same group on master. The
-    // expression is evaluated against the NEWLY TRIGGERED run, so a dispatch on
-    // master still cancels a mid-flight drill; the runbook records that bound.
-    expect(workflow.concurrency['cancel-in-progress']).toBe("${{ github.event_name != 'push' }}")
-
-    // Neither drill may carry a job-level group: it would not exempt the job
-    // from run-scoped cancellation.
-    for (const name of ['serial-linux-selfhosted', 'serial-windows']) {
-      const job = workflow.jobs[name]
-      if (!isRecord(job)) throw new TypeError(`${name} must be defined`)
-      expect(job.concurrency).toBeUndefined()
-      // Both stay master-push-only; that is what makes the push carve-out safe.
-      expect(job.if).toBe("github.event_name == 'push' && github.ref == 'refs/heads/master'")
-    }
-
-    // What bounds the cost of exempting push: a master push may only carry the
-    // cache seeder and the two drills. Any job reachable on push would start
-    // accumulating uncancelled runs, so the set is pinned here.
-    //
-    // Classification is an exact allowlist of the conditions in use, not a
-    // substring match: `github.event_name != 'pull_request'` mentions
-    // `pull_request` yet IS push-reachable, so matching on the event name alone
-    // would silently misclassify it as gated.
-    const NOT_PUSH_REACHABLE = new Set([
-      "github.event_name == 'pull_request'",
-      "always() && github.event_name == 'pull_request'",
-      "github.event_name == 'workflow_dispatch' && inputs.suite == 'larger-runner-benchmark'",
-      "github.event_name == 'workflow_dispatch' && inputs.suite == 'consolidated-runner-benchmark'",
-    ])
-    const pushReachable = Object.entries(workflow.jobs)
-      .filter(([, job]) => {
-        if (!isRecord(job)) return false
-        if (job.if === undefined) return true // unconditional: runs on every event
-        if (job.if === false) return false // `if: false` parses as a boolean
-        if (typeof job.if !== 'string') return true // unrecognized shape: surface it
-        return !NOT_PUSH_REACHABLE.has(job.if.trim())
-      })
-      .map(([name]) => name)
-      .sort()
-    expect(pushReachable).toEqual(['serial-linux-selfhosted', 'serial-windows', 'wine-apt-cache'])
-
-    // Why workflow_dispatch must keep cancelling: each benchmark fans out to a
-    // dozen larger runners at once, in this same group on master. If it stopped
-    // cancelling, a re-dispatch would queue ahead of a drill instead of
-    // replacing the stale measurement.
-    for (const name of ['larger-runner-benchmark', 'consolidated-runner-benchmark']) {
-      const job = workflow.jobs[name]
-      if (!isRecord(job) || !isRecord(job.strategy)) {
-        throw new TypeError(`${name} must define a matrix strategy`)
-      }
-      expect(job.strategy['max-parallel']).toBe(12)
-      expect(job['timeout-minutes']).toBe(15)
-    }
+    expect(workflow.concurrency['cancel-in-progress']).toBe(true)
   })
 
   it('keeps supported LSP source under native Windows coverage', () => {
@@ -180,24 +121,24 @@ describe('CI workflow', () => {
     expect(config).not.toContain('packages/lsp/lsp-stdio/src/instance.ts')
   })
 
-  it('requires one release-shaped Python runtime target on every pull request', () => {
+  it('requires the complete release-shaped Python runtime matrix on release tags', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
-    const pythonRuntime = workflowJob(workflow, 'python-runtime')
-    const aggregate = workflowJob(workflow, 'all-checks-passed')
+    const pythonRuntime = workflowJob(workflow, 'tag-python-runtime')
+    const aggregate = workflowJob(workflow, 'tag-checks-passed')
     if (!Array.isArray(aggregate.needs)) {
       throw new TypeError('CI aggregate must define required job dependencies')
     }
 
     expect(pythonRuntime).toMatchObject({
-      if: "github.event_name == 'pull_request'",
-      name: 'python runtime / release-shaped Linux x64',
+      if: "github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')",
+      name: 'tag / release-shaped Python runtimes',
       uses: './.github/workflows/build-exe-for-python-sdk.yml',
       with: {
-        targets: 'node24-linux-x64',
-        ci: true,
+        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
+        release: true,
       },
     })
-    expect(aggregate.needs).toContain('python-runtime')
+    expect(aggregate.needs).toContain('tag-python-runtime')
   })
 
   it('keeps every Vitest project process-isolated on native Windows', () => {
@@ -209,9 +150,9 @@ describe('CI workflow', () => {
 })
 
 describe('Desktop release workflow', () => {
-  it('builds both architectures on dispatch and v* tags, without pull-request cost', () => {
+  it('builds both architectures on v* tags only, without pull-request cost', () => {
     const workflow = loadWorkflow('.github/workflows/desktop-release.yml')
-    expect(workflow.on).toEqual({ workflow_dispatch: null, push: { tags: ['v*'] } })
+    expect(workflow.on).toEqual({ push: { tags: ['v*'] } })
     const job = workflowJob(workflow, 'desktop-artifacts')
     if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.strategy.matrix.include)) {
       throw new TypeError('Desktop release workflow must define an include matrix')
@@ -260,33 +201,6 @@ describe('Desktop release workflow', () => {
     expect(JSON.stringify(workflow.on)).not.toContain('pull_request')
   })
 })
-describe('E2B e2e workflow', () => {
-  it('is manual-only and fails loud before running the focused live suite', () => {
-    const workflow = loadWorkflow('.github/workflows/e2b-e2e.yml')
-    expect(workflow.on).toEqual({ workflow_dispatch: null })
-    if (!isRecord(workflow.jobs) || !isRecord(workflow.jobs.e2b) || !Array.isArray(workflow.jobs.e2b.steps)) {
-      throw new TypeError('E2B e2e workflow must define the e2b job steps')
-    }
-
-    const steps = workflow.jobs.e2b.steps.filter(isRecord)
-    const preflight = steps.find(step => step.name === 'Preflight (require E2B API key)')
-    const e2b = steps.find(step => step.name === 'E2B tests (live sandbox)')
-
-    expect(preflight).toMatchObject({
-      env: { E2B_API_KEY: '${{ secrets.E2B_API_KEY_EXTERNAL }}' },
-    })
-    expect(preflight?.run).toContain('E2B_API_KEY_EXTERNAL repository secret')
-    expect(e2b).toMatchObject({
-      env: {
-        E2B_API_KEY: '${{ secrets.E2B_API_KEY_EXTERNAL }}',
-        DSH_E2E_MAX_WORKERS: '1',
-        DSH_EXAMPLE_MODE: 'lib',
-      },
-    })
-    expect(e2b?.run).toContain('packages/e2b/e2b/tests/composition.e2e.ts')
-  })
-})
-
 describe('Python runtime build workflows', () => {
   it('exposes the native wheel builder to the release caller with normalized versions', () => {
     const workflow = loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml')
@@ -297,25 +211,36 @@ describe('Python runtime build workflows', () => {
       throw new TypeError('Python wheel builder must define workflow_call inputs and plan steps')
     }
 
-    const buildSteps: unknown[] = build.steps
+    const buildSteps = build.steps.filter(isRecord)
     const manylinuxAddon = buildSteps.find(step => isRecord(step) && step.name === 'Rebuild Linux node-pty against manylinux 2.28')
     const macosCheck = buildSteps.find(step => isRecord(step) && step.name === 'Check macOS deployment target')
     const manylinuxSmoke = buildSteps.find(step => isRecord(step) && step.name === 'Run wheel in a manylinux 2.28 container')
     expect(call.inputs).toHaveProperty('targets')
     expect(call.inputs).toMatchObject({
-      ci: { type: 'boolean', default: false },
       release: { type: 'boolean', default: false },
     })
+    expect(call.inputs).not.toHaveProperty('ci')
     expect(workflow.concurrency).toMatchObject({
       group: 'build-single-exe-${{ github.workflow }}-${{ github.ref }}',
     })
-    expect(plan.if).toContain('inputs.ci')
-    expect(plan.if).toContain('inputs.release')
+    expect(plan.if).toBeUndefined()
     expect(JSON.stringify(plan.steps)).toContain('pep440_version')
     expect(JSON.stringify(workflow)).toContain('macosx_14_0_arm64')
     expect(manylinuxAddon).toMatchObject({ if: "runner.os == 'Linux'" })
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_x86_64')
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_aarch64')
+    if (!manylinuxAddon || typeof manylinuxAddon.run !== 'string') {
+      throw new TypeError('manylinux node-pty rebuild must define a shell command')
+    }
+    const addonDirectory = manylinuxAddon.run.indexOf('addon_dir="$(realpath packages/subprocess/subprocess-local/node_modules/node-pty)"')
+    const cleanBuild = manylinuxAddon.run.indexOf('rm -rf "$addon_dir/build"')
+    const nodeGypResolve = manylinuxAddon.run.indexOf("rebuild.resolve('node-gyp/bin/node-gyp.js')")
+    const rebuild = manylinuxAddon.run.indexOf('node "$node_gyp" rebuild')
+    expect(addonDirectory).toBeGreaterThanOrEqual(0)
+    expect(cleanBuild).toBeGreaterThan(addonDirectory)
+    expect(nodeGypResolve).toBeGreaterThan(cleanBuild)
+    expect(rebuild).toBeGreaterThan(nodeGypResolve)
+    expect(manylinuxAddon.run).not.toContain('pnpm rebuild node-pty')
     expect(JSON.stringify(manylinuxAddon)).toContain('$HOME/setup-pnpm:$HOME/setup-pnpm:ro')
     expect(JSON.stringify(manylinuxAddon)).toContain('node-pty-glibc-versions.txt')
     expect(JSON.stringify(manylinuxAddon)).toContain('le 2.28')

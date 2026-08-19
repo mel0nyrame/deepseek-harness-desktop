@@ -22,7 +22,7 @@ Electron main 进程负责窗口、菜单、系统对话框、路径打开、与
 
 renderer 从打包文件加载现有生产客户端，并通过现有客户端连接接口的 Electron adapter 通信。一个窄 preload bridge 通过 Electron IPC 传递经过校验的一元请求和长生命周期事件流。开发环境的 Web 构建继续使用 HTTP 和 WebSocket adapter；桌面打包产物不启动面向浏览器的 HTTP 服务器。
 
-第一个产品目标是适用于 Apple silicon 和 Intel Mac、经过签名和公证的 macOS 应用。窗口使用 macOS inset title bar、原生 traffic lights、Electron 基于 AppKit 的 vibrancy，以及透明客户端表面。除非 Electron 支持的接口无法提供所需的分区视觉效果，否则推迟原生 addon。
+第一个产品目标是适用于 Apple silicon 和 Intel Mac、经过签名和公证的 macOS 应用。窗口使用 macOS inset title bar、原生 traffic lights、Electron 基于 AppKit 的 vibrancy，以及透明客户端表面。除非 Electron 支持的接口无法提供所需的分区视觉效果，否则推迟原生 addon。已批准的呈现细节由[紧凑 macOS 窗口决策](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md)负责。
 
 ### 用户故事
 
@@ -55,7 +55,7 @@ renderer 从打包文件加载现有生产客户端，并通过现有客户端�
 - Electron main 只作为 router 和 supervisor，不得成为 ApiProxy 的第二套实现。DSH 子进程继续作为会话、工具、持久化、设置、凭据和 agent 行为的权威。
 - 原生目录选择与路径打开在 Electron main 中实现。DSH Host 通过显式反向请求访问这些操作，不向 renderer 暴露通用 Electron 能力。
 - 保留现有「模型可见内容必须写入日志」规则。经 Electron IPC 移动消息只改变 carrier，不改变 Session event 或重建行为。
-- macOS 使用 `hiddenInset` title bar、可配置 traffic-light 位置、活动窗口 vibrancy 和透明 CSS 表面。文字和控件必须保持足够不透明度，以满足对比度和无障碍要求。
+- macOS 使用 `hiddenInset` title bar、可配置 traffic-light 位置、活动窗口 vibrancy 和透明 CSS 表面。文字和控件必须保持足够不透明度，以满足对比度和无障碍要求。紧凑窗口提案负责呈现专用的布局、设置和平台边界决策。
 - 分区 `NSVisualEffectView` addon 是经过测量后才启用的 fallback。只有原型证明 Electron 支持的 vibrancy 控制无法实现所需布局时才引入它。
 - 当运行时加载或执行需要真实文件系统路径时，将原生模块和 helper 可执行文件放在归档外。确定生产 Electron 版本前，先验证 Electron ABI 兼容性。
 - 产出 arm64 和 x64 的已签名、已公证 macOS artifact。可选择 universal 打包，但两个架构都必须通过相同的已安装应用冒烟测试。
@@ -68,7 +68,7 @@ renderer 从打包文件加载现有生产客户端，并通过现有客户端�
 
 supervisor 测试覆盖成功启动、启动超时、配置失败、子进程意外退出、一次受控重启、启动期间退出应用，以及先终止再等待退出的清理。对于 mock 无法证明的生命周期声明，进程树断言在 macOS 上使用真实子进程。
 
-macOS GUI 验收针对真实 Electron 窗口运行，并按仓库 GUI 策略记录用户可见工作流。它检查 title bar 控件、拖动和交互区域、明暗外观、减少透明度时的 fallback、焦点、键盘访问和稳定渲染。截图可以记录 vibrancy，但自动断言必须检查配置的原生窗口状态，因为像素本身无法区分原生模糊和半透明颜色。
+macOS GUI 验收针对真实 Electron 窗口运行，并按仓库 GUI 策略记录用户可见工作流。它检查 title bar 控件、拖动和交互区域、明暗外观、减少透明度时的 fallback、焦点、键盘访问和稳定渲染。截图可以记录 vibrancy，但自动断言必须检查配置的原生窗口状态，因为像素本身无法区分原生模糊和半透明颜色。紧凑窗口提案补充呈现专用的 GUI 验收要求。
 
 发布验证安装或挂载每个架构的已签名 artifact，通过 Gatekeeper 评估，在源码树外启动，运行内置 Host 与 PTY 路径，并验证公证元数据。源码模式测试不能替代该 artifact 检查。
 
@@ -115,7 +115,7 @@ macOS GUI 验收针对真实 Electron 窗口运行，并按仓库 GUI 策略记�
 - 正常退出、启动期间退出和 Host 崩溃恢复后，不得留下任何归应用所有的 DSH、PTY 或后代进程。
 - 启动和运行时故障必须产生可操作的桌面状态，而不是空白或无限加载窗口。
 - 原生文件夹选择和路径打开通过 Electron main 工作，不向 renderer 暴露通用 Electron 或 Node primitive。
-- macOS 窗口具有 inset traffic lights、正确拖动区域、受支持的原生 vibrancy、明暗外观行为，以及无障碍的减少透明度 fallback。
+- macOS 窗口具有 inset traffic lights、正确拖动区域、受支持的原生 vibrancy、明暗外观行为，以及无障碍的减少透明度 fallback。紧凑窗口提案补充已批准的呈现要求。
 - 现有 Web 客户端继续使用当前 HTTP/WebSocket 开发和部署路径，Electron 依赖不得进入浏览器 bundle。
 - 打包应用验收测试、carrier 约定测试、supervisor 生命周期测试、GUI 证据和签名／公证检查全部通过。
 
@@ -157,6 +157,8 @@ Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因�
 - 打包验收通过 `--inspect-native-window` 启动真实 `BrowserWindow`，检查配置选项、实际原生背景与焦点状态、计算后的拖动区域，以及全部 renderer 外观／透明度组合。`--accept-native-window` 在可见窗口中打开装配好的渲染器，断言 active → inactive → active 焦点切换、最小化／恢复、标题区域拖动输入尝试、44 像素标题区域布局且内容不被遮挡、计算得到的 drag/no-drag 区域，以及真实输入框的键盘路径。`--record-native-window --smoke-replay <file>` 配合 `DSH_DESKTOP_FRAMES_DIR` 录制真实渲染器帧：启动、焦点切换、标题区域拖动尝试、键盘操作、最小化／恢复、明暗外观与装配 UI 中回放的 tracer 回合，并在 `finally` 中把 `nativeTheme.themeSource` 恢复为进入录制模式时的值；同一验收套件中的打包冒烟测试另行证明无窗口 tracer-bullet 工作流。
 - 本机 macOS 缺少屏幕录制与辅助功能自动化权限，因此录制帧来自 `webContents.capturePage()`：帧不含原生 traffic lights 图形，合成输入也无法像操作系统指针拖拽那样移动原生窗口。证据由帧与受检的已配置／已观测原生窗口状态共同构成；具备权限的机器可以用系统级捕获替换帧，而断言无需改动。
 - Electron 支持的接口已满足所需布局，因此未加入原生视觉效果 addon。
+
+上述 44 像素标题条是问题 #4 已实现的基线，而不是已经批准的目标呈现。[紧凑 macOS 窗口决策](../../implemented/feature/2026-08-16-macos-compact-window-presentation.md)负责通过问题 #32–#34 替换该基线、实现零宽侧栏行为和持久化侧栏玻璃偏好。问题 #33 与 #34 依赖问题 #32，并可在该基础工作完成后分别推进。
 
 问题 #5 已交付载体加固切片：
 

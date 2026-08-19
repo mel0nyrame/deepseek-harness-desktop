@@ -80,7 +80,7 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
           </div>
         </nav>
         <div className={css.content}>
-          <div className={css.header}>
+          <div className={css.header} data-window-drag-surface="">
             <div className={css.actions}>{renderSlot('settings.action', {})}</div>
             <button ref={closeButton} type="button" className={css.close} onClick={onClose}>
               <IconCloseOutline16 size={14} />
@@ -102,7 +102,7 @@ function SettingsPanel({ rows, renderSlot, activeId, onSelect, onClose }: PanelP
  * @returns the settings shell element tree.
  */
 export function SettingsRoot(props: SettingsRootComponentProps) {
-  const { wide, useSections, useOnboardingSteps, useSessions, renderSlot } = props
+  const { useSections, useOnboardingSteps, useSessions, renderSlot } = props
   const [open, setOpen] = useState(false)
   const [activeId, setActiveId] = useState<string | undefined>(undefined)
   const [completedOnboarding, setCompletedOnboarding] = useState<ReadonlySet<string>>(() => new Set())
@@ -143,12 +143,12 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
     <>
       <button
         type="button"
-        className={clsx(css.trigger, !wide && css.rail)}
+        className={css.trigger}
         aria-haspopup="dialog"
         aria-expanded={open}
         onClick={() => { setOpen(true) }}
       >
-        {renderSlot('settings.trigger', { wide })}
+        {renderSlot('settings.trigger', {})}
       </button>
       {open && (
         <SettingsPanel

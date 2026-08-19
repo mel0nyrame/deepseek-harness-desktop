@@ -8,6 +8,10 @@ interface ExposedDesktopBridge {
   onStream(listener: (event: RendererStreamEvent) => void): () => void
 }
 
+interface ExposedNativeThemeBridge {
+  setPreference(preference: 'light' | 'dark' | 'system'): void
+}
+
 const electron = vi.hoisted(() => {
   const exposed: Record<string, unknown> = {}
   const handlers = new Map<string, Set<(...args: unknown[]) => void>>()
@@ -44,10 +48,12 @@ vi.mock('electron', () => ({
 
 describe('desktop preload stream bridge', () => {
   let bridge: ExposedDesktopBridge
+  let nativeThemeBridge: ExposedNativeThemeBridge
 
   beforeAll(async () => {
     await import('../src/preload.ts')
     bridge = electron.exposed['dshDesktop'] as ExposedDesktopBridge
+    nativeThemeBridge = electron.exposed['dshNativeTheme'] as ExposedNativeThemeBridge
   })
 
   it('fans out one validated notification and defers acknowledgement to the consuming client', () => {
@@ -66,5 +72,13 @@ describe('desktop preload stream bridge', () => {
     ])
     stopThrowing()
     stopRecording()
+  })
+
+  it('forwards the application theme preference to Electron main', () => {
+    nativeThemeBridge.setPreference('light')
+
+    expect(electron.sent.filter(message => message.channel === 'dsh:set-theme-preference')).toEqual([
+      { channel: 'dsh:set-theme-preference', values: ['light'] },
+    ])
   })
 })

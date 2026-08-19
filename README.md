@@ -9,10 +9,10 @@ English | [中文](README.zh.md)
 `deepseek-harness-desktop` packages [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) as the native Electron application **DSH Desktop**. The desktop shell is the product-specific layer; the bundled `dsh` runtime keeps its plugin system, sessions, tools, PTYs, persistence, CLI identity, and documentation vocabulary.
 
 <p align="center">
-  <img src="./assets/readme/product-window.png" width="100%" alt="Real installed DSH Desktop window with a native-selected workspace and the assembled agent composer">
+  <img src="./assets/readme/product-window.png" width="100%" alt="Installed DSH Desktop window with native macOS chrome, a glass sidebar, an isolated workspace with preset sessions, and the assembled agent composer">
 </p>
 
-<p align="center"><sub>Real renderer capture from the installed macOS bundle's packaged native-action acceptance journey.</sub></p>
+<p align="center"><sub>Native window capture from the installed macOS bundle using an isolated temporary profile and preset sessions, framed against a neutral backing.</sub></p>
 
 ## Desktop shell, full harness
 
@@ -23,7 +23,7 @@ English | [中文](README.zh.md)
       <td align="center" width="50%"><img src="./assets/readme/icons/private-carrier.png" width="112" alt="Private carrier illustration"><br><strong>Private desktop carrier</strong><br>The sandboxed renderer crosses a context-isolated preload bridge and validated IPC. The desktop profile opens no browser-facing HTTP listener.</td>
     </tr>
     <tr>
-      <td align="center" width="50%"><img src="./assets/readme/icons/native-workspace.png" width="112" alt="Native workspace illustration"><br><strong>Native workspace actions</strong><br>Electron main owns directory selection, path opening, macOS window integration, recovery, and process-tree cleanup.</td>
+      <td align="center" width="50%"><img src="./assets/readme/icons/native-workspace.png" width="112" alt="Native workspace illustration"><br><strong>Native macOS shell</strong><br>Electron main owns directory selection, path opening, compact window chrome and native dragging, recovery, and process-tree cleanup; the sidebar uses the saved glass preference.</td>
       <td align="center" width="50%"><img src="./assets/readme/icons/shared-state.png" width="112" alt="Shared state illustration"><br><strong>Shared DSH state</strong><br>DSH Desktop and the CLI use the same <code>~/.dsh</code> home, so sessions, profiles, and configuration remain available to both.</td>
     </tr>
   </tbody>

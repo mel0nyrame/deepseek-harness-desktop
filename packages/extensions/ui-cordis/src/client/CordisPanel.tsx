@@ -104,7 +104,6 @@ function DoubleCheckIcon() {
 
 /** Render the inventory panel and its unified footer action. */
 export function CordisPanel({
-  wide,
   useSessions, useInventory, useActiveRuns, useRunErrors, useLoaded, useRenderFailures,
   onApprove, onDecline, onRun, onStop, onRemove, onRefresh, t,
 }: CordisPanelProps) {
@@ -420,7 +419,7 @@ export function CordisPanel({
   }
 
   return (
-    <div className={wide ? css.layer : `${css.layer} ${css.rail}`}>
+    <div className={css.layer}>
       {open && (
         <section className={css.panel} data-cordis-panel aria-label={t('panel.title')}>
           <header className={css.header}>
@@ -459,12 +458,8 @@ export function CordisPanel({
           onClick={() => { setOpen(value => !value) }}
         >
           <IconCordisPluginOutline14 />
-          {wide && (
-            <>
-              <span className={css.badgeLabel}>{t('panel.trigger')}</span>
-              <span className={css.badgeCount}>{t('panel.runningCount', { count: running })}</span>
-            </>
-          )}
+          <span className={css.badgeLabel}>{t('panel.trigger')}</span>
+          <span className={css.badgeCount}>{t('panel.runningCount', { count: running })}</span>
         </button>
       </div>
     </div>

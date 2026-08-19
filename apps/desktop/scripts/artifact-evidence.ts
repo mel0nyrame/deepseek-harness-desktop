@@ -6,7 +6,7 @@
  * pipeline.
  */
 
-import { existsSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /** The electron-builder identity that opts into credential-free ad-hoc signing. */
@@ -52,6 +52,20 @@ export function signEvidenceSteps(artifact: string, enforceGatekeeper: boolean):
     { label: 'signature identity', command: 'codesign', args: ['-d', '--verbose=2', artifact], required: false },
     { label: 'gatekeeper assessment', command: 'spctl', args: ['--assess', '--type', 'execute', '--verbose=4', artifact], required: enforceGatekeeper },
   ]
+}
+
+/**
+ * Whether the bundle carries the configured application icon instead of the
+ * default Electron one. electron-builder converts build/icon.png into
+ * Contents/Resources/icon.icns and points CFBundleIconFile at it, so both
+ * the resource file and the exact plist reference must be present; matching
+ * the full <string> tag keeps "electron.icns" from passing as a substring.
+ */
+export function hasCustomBundleIcon(appDir: string): boolean {
+  if (!existsSync(join(appDir, 'Contents', 'Resources', 'icon.icns'))) return false
+  const plistPath = join(appDir, 'Contents', 'Info.plist')
+  if (!existsSync(plistPath)) return false
+  return readFileSync(plistPath, 'utf8').includes('<string>icon.icns</string>')
 }
 
 /**

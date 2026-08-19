@@ -12,6 +12,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { apply as themeApply, inject as themeInject, ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'
+import { en, zh } from '@deepseek-ai/dsh-client-ui-layout/src/client/locales.ts'
 import { apply, inject, LayoutController } from '@deepseek-ai/dsh-client-ui-layout/client'
 import { apply as nodeApply } from '@deepseek-ai/dsh-client-ui-layout'
 import * as invariant from '@deepseek-ai/dsh-client-ui-layout/invariant'
@@ -37,7 +38,7 @@ async function bench() {
 
 describe('ui-layout client apply', () => {
   it('declares its service dependencies', () => {
-    expect(inject).toEqual(['slots', 'theme'])
+    expect(inject).toEqual(['slots', 'theme', 'locale'])
   })
 
   it('provides ctx.layout and registers AppFrame into root with the three child declarations', async () => {
@@ -92,7 +93,7 @@ describe('ui-layout client apply', () => {
     expect(document.body.hasAttribute('data-ds-dark-theme')).toBe(false)
   })
 
-  it('teardown unwinds the service, the root registration, and the child declarations', async () => {
+  it('teardown unwinds the service, the root registration, the child declarations, and the dictionary', async () => {
     const { ctx, slots } = await bench()
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
@@ -102,6 +103,10 @@ describe('ui-layout client apply', () => {
     expect(slots.spec('sidebar')).toBeUndefined()
     // The built-in root declaration survives entry teardown (runtime-owned).
     expect(slots.spec('root')).toEqual({ kind: 'single', scope: 'root' })
+    // The layout dictionary is unregistered: re-registering the namespace
+    // must not hit the single-occupant duplicate guard.
+    const locale = ctx.get('locale') as LocaleRuntime
+    expect(() => locale.register('layout', { zh, en })).not.toThrow()
   })
 })
 

@@ -302,7 +302,7 @@ interface SmokeState {
 }
 
 /** DSH_HOME-relative file carrying the durable records the reopen launch asserts. */
-export const SMOKE_REOPEN_STATE_FILE = 'smoke-reopen-state.json'
+const SMOKE_REOPEN_STATE_FILE = 'smoke-reopen-state.json'
 
 function writeReopenState(home: string, state: SmokeState): void {
   writeFileSync(join(home, SMOKE_REOPEN_STATE_FILE), JSON.stringify(state))
