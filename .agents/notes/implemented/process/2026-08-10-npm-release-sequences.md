@@ -1,4 +1,4 @@
-# Agent Note: Private npm publication as three independent sequences
+# Agent Note: Release-family versioning and payload verification as three independent sequences
 
 Status: implemented
 
@@ -22,17 +22,17 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 
 | Sequence | Members | Version baseline | Tag | Publication command |
 |---|---|---|---|---|
-| dsh | `packages/*/*` + `apps/*` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root, `0.0.x` | `dsh-v<version>` | `pnpm run release:publish` |
-| vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | `pnpm run release:publish` |
-| native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | `pnpm --dir native/landlock-run release:publish` |
+| dsh | `packages/*/*` + `apps/*` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root, `0.0.x` | `v<version>` | local bump, pack, and verify only |
+| vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | local bump, pack, and verify only |
+| native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | local bump, pack, and verify only |
 
-All three publish to the `@deepseek-ai` scope on npmjs.com, and access is per sequence rather than per scope: the vendored framework and the native packages are `public`, the dsh family is `restricted` ([rationale](2026-08-13-public-vendor-and-native-sequences.md)). No publish path passes `--access`, because one flag cannot serve sequences that disagree and would override the manifest that owns the level.
+This desktop fork publishes none of the three sequences to npm. The scripts retain pack, installed-artifact, payload, version, and tag validation as explicit local gates; ordinary CI validates source and built artifacts but no workflow invokes a registry publisher, and the product release workflow receives no npm credentials. The manifests retain per-sequence `publishConfig.access` as packed-payload policy if registry distribution is reconsidered; the values remain documented in [the access decision](2026-08-13-public-vendor-and-native-sequences.md).
 
 ### Versions land in the repository from a local command; CI only checks and uploads
 
-Each sequence has one bump-and-commit command: it derives the target version, writes it into the relevant manifests, runs `pnpm install --lockfile-only`, and commits the manifests with the lockfile. The published version is therefore readable from the repository. A human creates the tag after the commit merges to master; CI never writes to the repository and needs no write permission.
+Each sequence has one bump-and-commit command: it derives the target version, writes it into the relevant manifests, runs `pnpm install --lockfile-only`, and commits the manifests with the lockfile. The product version is therefore readable from the repository. A human creates the tag after the commit merges to master; CI never writes to the repository.
 
-`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the family **and the workspace root** — the workspace constraint requires every member's version to equal the root's, so the root carries the family version, and the root check accepts a prerelease segment. A prerelease such as `0.0.1-rc.1` drives pack, the installed-artifact probe, and one real private publication before numbered versions follow. The publisher sends a version with a prerelease segment to `next`; anything else takes `latest`.
+`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the family **and the workspace root** — the workspace constraint requires every member's version to equal the root's, so the root carries the family version, and the root check accepts a prerelease segment. A prerelease such as `1.0.0-rc.1` drives the complete GitHub Release rehearsal before the numbered version follows. The dsh tag is plain `v<version>` because that product tag wakes the exhaustive CI and desktop release workflows; vendor and native tags retain their distinct prefixes and cannot pass dsh-family validation.
 
 ### vendor: publish what changed, and let tags be the ledger
 
@@ -58,9 +58,9 @@ A tag is a commit pointer, not proof of publication. Bump asks the registry whet
 
 `vendor/cordis` publishes `src` as well. Its export map declares `"./src/*"`, so a tarball without those files points consumers at absent paths, and `files` selecting only build output left the change judgement with no tracked path to match.
 
-### Publication runs only on GitHub, and the registry decides what goes out
+### Registry publication machinery is dormant in this fork
 
-Publication runs only from GitHub Actions; there is no local publication path. Publish reads no tag and no manifest of "what this release includes". For each packed tarball it compares the version against the registry, in three states:
+The publisher remains importable and tested because its tarball-integrity comparison documents how a future registry publication would be made retry-safe. For each packed tarball it can compare the version against the registry in three states:
 
 | State | Action |
 |---|---|
@@ -72,7 +72,7 @@ The third state catches code that changed without a version bump. The first two 
 
 All three sequences decide this way, including the native one: it publishes through its own script rather than a shell loop, because a loop of bare `npm publish` calls cannot be retried — the registry answers a repeat of an existing version permanently, so one failure partway through left no way forward.
 
-Two registry behaviours shape how a publish is attempted. Writes are spaced by at least two seconds and retried with a backoff, because publishing several packages back to back outruns the registry's own processing and earns `E409 Failed to save packument`. And every retry re-reads the registry first: a reported failure can answer a write that landed anyway, so a version that now exists with this tarball's integrity counts as published rather than as a version to place again.
+Two registry behaviours shape how an explicit future publish would be attempted. Writes are spaced by at least two seconds and retried with a backoff, because publishing several packages back to back outruns the registry's own processing and earns `E409 Failed to save packument`. And every retry re-reads the registry first: a reported failure can answer a write that landed anyway, so a version that now exists with this tarball's integrity counts as published rather than as a version to place again. No current workflow calls this machinery; enabling it is a new release-policy decision.
 
 ### Workspace-internal references use the `workspace:` protocol
 
@@ -105,11 +105,9 @@ The entity in this domain is a **release family**: a set of packages sharing one
 
 The dsh family applies the repository's publication payload policy, which rejects sources and declaration maps. The vendored family keeps upstream's payload, because those manifests export `./src/*` and dropping `src` would publish an export map pointing at absent files.
 
-### Workflow shape: pack everything at once, then publish as one set
+### Workflow shape: validate packed artifacts without registry credentials
 
-The `pack` job walks the whole release set once, packing each member into one directory, writes the upload order, and uploads that directory as one artifact; the `publish` job downloads that artifact and publishes each entry in order. The release set is one unit — half the packages can never reach the registry while the other half is still building.
-
-`pack` carries no credentials and runs on every pull request and master push, so a pull request proves the release set still packs. `publish` is a manual dispatch, sits behind the `npm-publish` environment for human approval, and neither builds nor rebuilds — it uploads the bytes pack produced. Pack runs are grouped per ref so concurrent pull requests do not displace each other; the publish job carries the global group, because dist-tags are shared registry state.
+The explicit local `release:pack` and `release:verify-packed-install` commands walk a release set, pack its members, record the dependency-safe order, and exercise the installed entry from a throwaway consumer. Automated pull-request and `v*` tag checks validate source and built artifacts without registry credentials; no downstream job publishes tarballs.
 
 A dsh verification installs the vendored family's pack output too. The harness packages declare the vendored framework as a peer, those packages live in another sequence, and credential-free verification cannot fetch them from a private registry, so the dsh pack command includes the vendored family for verification while publishing only its own set.
 
@@ -160,7 +158,7 @@ This Agent Note replaces the version scheme and the release-set boundary in [art
 
 The release scripts are importable modules behind a guarded entry point, and their judgements carry unit tests: tag naming, publish order and cycle reporting, version-baseline arithmetic, the payload change judgement, and each family's payload policy. Two defects the first draft carried — a publish command that ran the pack command on import, and a change judgement blind to `vendor/cordis` source edits — are exactly what a test at that seam catches.
 
-A pull request runs the full pack for both sequences without credentials and installs the packed dsh tarballs into a throwaway consumer, where plain Node drives `dsh --version`. That probe is deliberately one command: it proves `files` selected a complete payload and that the published ranges resolve, and says nothing about interactive behavior.
+The explicit packed-install probe installs the packed dsh tarballs into a throwaway consumer, where plain Node drives `dsh --version`. That probe is deliberately one command: it proves `files` selected a complete payload and that the packed ranges resolve, and says nothing about interactive behavior. It is local release preparation, not part of the automatic pull-request lane.
 
 What this costs:
 

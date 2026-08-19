@@ -12,6 +12,8 @@ Status: implemented
 
 ## Decision
 
+这个桌面 fork 不把任何发布序列发布到 npm。下列 access 取值继续作为 manifest 与打包 payload 策略，由 workspace 约束强制执行；但没有 GitHub Actions 工作流调用 `release:publish` 或携带 npm 凭据。产品只通过 GitHub Releases 与 Homebrew 分发；接入任何 registry 发布器都属于新的决策。
+
 access 是每条发布序列的属性,不是整个 scope 的属性:
 
 | 序列 | 成员 | `publishConfig.access` |
@@ -22,7 +24,7 @@ access 是每条发布序列的属性,不是整个 scope 的属性:
 
 `check-workspace-constraints.ts` 按各自序列的级别校验每个 manifest,这是阻止 scope 漂移的那道闸:新增的 `vendor/*` 包留在 `restricted`、或某个 dsh 成员被改成 `public`,都会让 workspace 约束失败。
 
-**没有任何发布路径传 `--access`。** 一个选项无法服务级别互不相同的序列,而且选项会覆盖真正拥有这个事实的 manifest,所以仓库内的两个发布器都不传,由各 packed manifest 决定。
+**当前没有发布路径到达 npm。** 如果未来策略显式调用休眠的发布器，它也不得传 `--access`：一个选项无法服务级别互不相同的序列，而且会覆盖真正拥有这个事实的 manifest。级别由各 packed manifest 决定。
 
 harness 消费方引用 Landlock 入口改用 `workspace:^` 而非 `workspace:*`,于是发布出去的 harness 包接受该入口的 patch 与 minor 版本,而不是钉死一个精确版本。入口对它那两个平台包仍保持 `workspace:*` —— 那里二进制必须与入口版本完全一致。
 

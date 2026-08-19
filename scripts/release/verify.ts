@@ -55,7 +55,7 @@ function verifyPublishable(members: readonly ReleaseMember[]): void {
  * @param members - the family's members.
  * @param ref - the `GITHUB_REF` value.
  */
-function verifyTag(family: ReleaseFamily, members: readonly ReleaseMember[], ref: string): void {
+export function verifyTag(family: ReleaseFamily, members: readonly ReleaseMember[], ref: string): void {
   const prefix = 'refs/tags/'
   if (!ref.startsWith(prefix)) {
     throw new Error(`publishing release family ${family.id} requires running from a ${family.tagPrefix}* tag, got ${ref || '(no ref)'}`)
@@ -63,6 +63,16 @@ function verifyTag(family: ReleaseFamily, members: readonly ReleaseMember[], ref
   const tag = ref.slice(prefix.length)
   if (!tag.startsWith(family.tagPrefix)) {
     throw new Error(`tag ${tag} does not belong to release family ${family.id} (expected ${family.tagPrefix}*)`)
+  }
+  const coreNumber = '(?:0|[1-9]\\d*)'
+  const prereleaseIdentifier = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)'
+  const semver = `${coreNumber}\\.${coreNumber}\\.${coreNumber}(?:-${prereleaseIdentifier}(?:\\.${prereleaseIdentifier})*)?`
+  const validForMember = members.some((member) => {
+    const memberPrefix = family.tagPrefixFor(member)
+    return tag.startsWith(memberPrefix) && new RegExp(`^${semver}$`).test(tag.slice(memberPrefix.length))
+  })
+  if (!validForMember) {
+    throw new Error(`tag ${tag} must use a ${family.id} member prefix followed by a full semver with an optional prerelease`)
   }
   const expected = members.map(member => family.tagFor(member))
   if (!expected.includes(tag)) {

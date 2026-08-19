@@ -1,4 +1,4 @@
-# Agent Note: 三条独立序列的私有 NPM 发布
+# Agent Note: 三条独立序列的发布族版本与产物校验
 
 Status: implemented
 
@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-这个仓库有三组互不相干的可发布包，却没有任何发布通道把它们送上 registry。
+这个仓库有三组互不相干的可发布包，却没有任何发布通道把它们送上注册表。
 
 `packages/*/*` 与 `apps/*` 组成 `@deepseek-ai/dsh` 的运行面；`vendor/*` 是九个 rescope 过的 Cordis 框架包，各自带着上游的版本号；`native/landlock-run/packages/*` 是 Linux 平台包，有自己的 workflow。三组的版本基线、变更节奏和构建要求都不同：dsh 随产品迭代，vendor 只在同步上游或改动本地修改时才动，native 需要 musl 工具链和逐架构构建。把它们塞进一条发布流水线，等于每次产品发版都要重发框架和原生二进制。
 
@@ -22,17 +22,17 @@ Status: implemented
 
 | 序列 | 成员 | 版本基线 | tag | 发布命令 |
 |---|---|---|---|---|
-| dsh | `packages/*/*` + `apps/*`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `dsh-v<版本>` | `pnpm run release:publish` |
-| vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | `pnpm run release:publish` |
-| native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | `pnpm --dir native/landlock-run release:publish` |
+| dsh | `packages/*/*` + `apps/*`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `v<版本>` | 仅在本地 bump、pack 与 verify |
+| vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | 仅在本地 bump、pack 与 verify |
+| native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | 仅在本地 bump、pack 与 verify |
 
-三组一律发到 npmjs.com 的 `@deepseek-ai` scope，且 access 按序列而非按 scope 区分：vendored 框架与 native 包是 `public`，dsh 族是 `restricted`（[理由](2026-08-13-public-vendor-and-native-sequences.md)）。没有任何发布路径传 `--access`——一个选项无法服务级别互不相同的序列，且会覆盖真正拥有该级别的 manifest。
+这个桌面 fork 不把三条序列中的任何一条发布到 npm。脚本保留 pack、安装态产物、payload、版本与 tag 校验，作为显式本地门禁；常规 CI 校验源码与构建产物，但没有工作流调用注册表发布器，产品发行工作流也不接收 npm 凭据。各 manifest 保留按序列区分的 `publishConfig.access`，作为未来重新考虑注册表分发时的打包 payload 策略；取值继续由 [access 决策](2026-08-13-public-vendor-and-native-sequences.md)记录。
 
 ### 版本由本地命令写进仓库，CI 只核对与上传
 
-每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。发布版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库，也不需要写权限。
+每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。产品版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库。
 
-`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `0.0.1-rc.1` 这样的预发布号先把 pack、已安装产物探针和一次真实私有发布跑通，数字版本随后。发布器把带预发布段的版本发到 `next`，其他版本进入 `latest`。
+`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `1.0.0-rc.1` 这样的预发布号会先演练完整 GitHub Release 路径，随后再发布数字版本。dsh tag 使用朴素的 `v<版本>`，因为同一个产品 tag 会唤醒穷尽式 CI 和桌面发行工作流；vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。
 
 ### vendor：谁改了谁发版，tag 就是账本
 
@@ -54,25 +54,25 @@ vendor 九包加了 scope 之后与上游脱钩，但保留各自的版本线。
 
 只发改动过的包，而变更判据不引入新的状态文件：**每包一个 tag，tag 就是「上次发布到哪个 commit」的记录**。bump 对每个包取最新的 `vendor-<包名>-v*` tag，拿包目录与它做 diff。一条路径算命中的条件是：manifest 的 `files` 选中它，或 npm 无论如何都会发布它（`package.json`、`README*`、`LICENSE*`），或者——当该包的 `files` 选中 `lib/` 时——它是构建输入（`src/**`、`tsconfig*.json`、构建配置）。最后那条规则的存在理由是构建产物不在 git 里：没有它，真实的源码改动会读成「没变化」，而下一次发布会在一个字节已变的版本上失败。
 
-tag 只是 commit 指针，不是发布成功的证明。bump 会向 registry 核对「最新 tag 指向的版本是否真的存在」，不存在就明确失败交人处理——否则一个为失败发布而推的 tag 会被读成「已发布」，从此永远跳过该包。查询私有包需要凭据，因此未鉴权的机器只报告这道核对被跳过，不失败。
+tag 只是 commit 指针，不是发布成功的证明。bump 会向注册表核对「最新 tag 指向的版本是否真的存在」，不存在就明确失败交人处理——否则一个为失败发布而推的 tag 会被读成「已发布」，从此永远跳过该包。查询私有包需要凭据，因此未鉴权的机器只报告这道核对被跳过，不失败。
 
 `vendor/cordis` 现在也发布 `src`。它的 exports 声明了 `"./src/*"`，tarball 里没有这些文件就等于把消费方指向不存在的路径；而 `files` 只选构建产物，也让变更判据没有任何受 git 跟踪的路径可匹配。
 
-### 发布只在 GitHub 执行，由 registry 状态决定发什么
+### 本 fork 不启用注册表发布机制
 
-发布只从 GitHub Actions 执行，没有本机发布路径。publish 不读 tag、不读任何「本次发布包含什么」的清单，而是对每个打包好的 tarball 拿版本与 registry 比对，分三态：
+发布器继续保持可导入且有测试，因为它的 tarball integrity 比较记录了未来若恢复注册表发布时应如何安全重试。它可以对每个打包好的 tarball 拿版本与注册表比对，分三态：
 
 | 状态 | 处置 |
 |---|---|
-| registry 上没有该版本 | 发布 |
+| 注册表上没有该版本 | 发布 |
 | 已有该版本，且 tarball 的 sha512 等于记录的 `dist.integrity` | 跳过：这是同一批产物的重跑 |
 | 已有该版本，但 integrity 不同 | 失败退出，报「内容已变但版本未 bump」 |
 
 第三态拦住「改了代码却没 bump 版本」。前两态给出幂等——同一个 artifact 重跑 publish 不会重复发布，也不需要人工挑拣包。同一条规则还解决了「一次 vendor 发布携带多个 tag，而 workflow 只能从一个 ref 触发」的矛盾：workflow 从不从触发它的 tag 去推断该发哪些包。
 
-三条序列都按这套判定，native 也在内：它通过自己的脚本发布，而不是 shell 循环——一串裸 `npm publish` 无法重试，registry 对「重发已存在的版本」的回答是永久失败，因此中途失败一次就没有前路了。
+三条序列都按这套判定，native 也在内：它通过自己的脚本发布，而不是 shell 循环——一串裸 `npm publish` 无法重试，注册表对「重发已存在的版本」的回答是永久失败，因此中途失败一次就没有前路了。
 
-registry 的两个行为决定了「怎么尝试一次发布」。写入之间至少间隔两秒并带退避重试，因为连续背靠背发多个包会超出 registry 自身的处理速度，换来 `E409 Failed to save packument`。而每次重试都先重查 registry：报出来的失败可能对应一次其实已经落地的写入，所以「该版本现在存在且 integrity 与本 tarball 相同」算作已发布，而不是又一个待放置的版本。
+注册表的两个行为决定了未来一次显式发布应如何尝试。写入之间至少间隔两秒并带退避重试，因为连续背靠背发多个包会超出注册表自身的处理速度，换来 `E409 Failed to save packument`。而每次重试都先重查注册表：报出来的失败可能对应一次其实已经落地的写入，所以「该版本现在存在且 integrity 与本 tarball 相同」算作已发布，而不是又一个待放置的版本。当前没有工作流调用这套机制；启用它属于新的发行策略决策。
 
 ### workspace 内部引用走 `workspace:` 协议
 
@@ -105,13 +105,11 @@ registry 的两个行为决定了「怎么尝试一次发布」。写入之间�
 
 dsh 族套用仓库的发布 payload 策略（拒绝源码与声明映射）。vendored 族保留上游 payload，因为那些 manifest 导出 `./src/*`，去掉 `src` 会发出一个导出映射指向不存在文件的包。
 
-### workflow 形状：一次性 pack 全部，再统一 publish
+### workflow 形状：无注册表凭据地校验打包产物
 
-`pack` job 一趟遍历整个发布集，把每个成员打进同一个目录，写出上传顺序，整个目录作为一份 artifact 上传；`publish` job 下载那一份 artifact，按顺序逐个发布。发布集是一个整体——绝不会出现一半的包已经上了 registry、另一半还在构建。
+显式本地命令 `release:pack` 与 `release:verify-packed-install` 会遍历发布集、打包成员、记录满足依赖关系的顺序，并在一次性 consumer 中驱动安装后的入口。自动 PR 与 `v*` tag 检查不携带注册表凭据，只校验源码和构建产物；没有任何下游 job 发布 tarball。
 
-`pack` 无凭据，在每个 pull request 和每次 master push 上跑，所以一个 pull request 就能证明发布集仍能完整打出来。`publish` 是手动 dispatch，挂在 `npm-publish` environment 后面等人工审批，且既不构建也不重建——它上传的就是 pack 产出的字节。pack 的 run 按 ref 分组，并发的 pull request 不会互相顶掉；全局分组落在 publish job 上，因为 dist-tag 是共享的 registry 状态。
-
-dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 vendored 框架声明成 peer，而那些包属于另一条序列，无凭据验证无法从私有 registry 取到，因此 dsh 的 pack 命令为验证而包含 vendored 族，发布的仍只有自己那一份。
+dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 vendored 框架声明成 peer，而那些包属于另一条序列，无凭据验证无法从私有注册表取到，因此 dsh 的 pack 命令为验证而包含 vendored 族，发布的仍只有自己那一份。
 
 验证还会打一份 Landlock entry 的 tarball——`dsh-sandbox-local` 把它声明为普通 `dependencies`——同时略去可选依赖。那些可选项背后的平台包需要 musl 工具链且每个架构各构建一次，单台 runner 产不出来；而装不到它们的消费方也必须能起，这正是「可选」在这里的含义。因此验证按目录内容读取 tarball，而不是读发布顺序：一个目录可能只装着为满足跨序列依赖而打出来的包，任何发布顺序都不描述它。
 
@@ -134,17 +132,17 @@ dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 ven
 
 **`<base>-<时间戳>-<短 SHA>` 版本号。** 曾计划用于持续 dev 发布。它与「把发布版本留在仓库里」冲突：版本内嵌 commit SHA，而把版本写回会产生新的 commit，于是 SHA 只能指向被发布的父 commit，这条链要靠约定解释。改用数字版本后，`0.0.1-rc.1` 这类预发布号已经覆盖「先验证再正式发」。
 
-**用 `vendor/published.json` 账本记录每包的已发版本与 commit。** 这是 tag 方案之前的设计。它新增一份必须与 registry 不漂移的状态文件；per-package tag 提供同样的 commit 指针，而 tag 本来就要打，不引入第二处状态。
+**用 `vendor/published.json` 账本记录每包的已发版本与 commit。** 这是 tag 方案之前的设计。它新增一份必须与注册表不漂移的状态文件；per-package tag 提供同样的 commit 指针，而 tag 本来就要打，不引入第二处状态。
 
-**事件级 tag（`vendor-r1`、`vendor-r2`）。** 为「一次发布事件携带多个包版本」准备。既然由 registry 决定发什么，workflow 就不再从 tag 推断集合，per-package tag 够用，而且每个 tag 携带的是它自己那个包的真实版本。
+**事件级 tag（`vendor-r1`、`vendor-r2`）。** 为「一次发布事件携带多个包版本」准备。既然由注册表决定发什么，workflow 就不再从 tag 推断集合，per-package tag 够用，而且每个 tag 携带的是它自己那个包的真实版本。
 
 **把九个 vendored 包统一到一条 `4.0.x` 版本线。** 省掉变更检测，但 cosmokit 会从 `1.8.1` 跳到 `4.0.1`、丢失上游血缘；九包内部的上游范围（`^1.8.1` 之类）会立刻失配，必须改写 vendored manifest。
 
 **每次 vendor 发布把九包全部 patch+1，不做变更检测。** 机制最少，代价是内容与上一版逐字节相同的包也拿到新版本号。tag 把变更检测的成本压到「读一个 tag、跑一次 diff」，不值得为省这点让版本号虚涨。
 
-**只按版本号判断「是否已发布」，不比对内容。** 参照流程根本不查 registry：publish 逐个上传，重复版本由 npm 拒绝。只按版本号跳过会漏掉「改了代码没 bump」，而这是唯一会安静地把旧字节留在 registry 上的错误。代价是引入一次 registry 查询和对构建可复现性的依赖。
+**只按版本号判断「是否已发布」，不比对内容。** 参照流程根本不查注册表：publish 逐个上传，重复版本由 npm 拒绝。只按版本号跳过会漏掉「改了代码没 bump」，而这是唯一会安静地把旧字节留在注册表上的错误。代价是引入一次注册表查询和对构建可复现性的依赖。
 
-**只做打包后安装验证，不起本地 registry。** 参照流程是把 tarball 解包成一棵树、用普通 Node 驱动，这绕过了版本范围解析。曾提议在 CI 里起本地 registry 补这一层，被否：产物正确性已由既有测试覆盖，发布路径由 master 的排练覆盖，而 pull request 只需证明发布集能打出来。用 `file:` 说明符安装依然会对每个内部依赖走一遍范围解析。
+**只做打包后安装验证，不起本地注册表。** 参照流程是把 tarball 解包成一棵树、用普通 Node 驱动，这绕过了版本范围解析。曾提议在 CI 里起本地注册表补这一层，被否：产物正确性已由既有测试覆盖，发布路径由 master 的排练覆盖，而 PR 只需证明发布集能打出来。用 `file:` 说明符安装依然会对每个内部依赖走一遍范围解析。
 
 **按入口闭包挑一部分包发。** 从 `@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend` 沿 `dependencies` 爬得到 156 个包，比全量少 61 个。但本仓的插件是 `cordis.yml` 按名字挂载的、不是被 import 的：`vendor/cordis-plugin-group` 与 `vendor/cordis-plugin-logger-console` 落在依赖闭包之外，却是运行时必需。照代码依赖挑的失败形态是「消费方装完起不来」，而且要额外持续证明「没漏任何挂载项」。私有 scope 下多出来的包对组织外不可见。`python/`、根 `examples/`、`docs/` 与 `website/` 不是成员。
 
@@ -160,11 +158,11 @@ dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 ven
 
 发布脚本是带入口守卫的可 import 模块，其判断都有单测覆盖：tag 命名、发布顺序与环报告、版本基线运算、payload 变更判据，以及各族的 payload 策略。第一版带过的两个缺陷——publish 命令在 import 时执行了 pack 命令、变更判据对 `vendor/cordis` 的源码改动失明——正是这类测试在对应接缝上能抓住的。
 
-一个 pull request 会为两条序列跑完整的 pack（无凭据），并把打包好的 dsh tarball 装进一次性 consumer，用普通 Node 驱动 `dsh --version`。这个探针刻意只有一条命令：它证明 `files` 选出了完整 payload、发布出去的范围可解析，不涉及任何交互行为。
+显式 packed-install 探针会把打包好的 dsh tarball 装进一次性 consumer，用普通 Node 驱动 `dsh --version`。这个探针刻意只有一条命令：它证明 `files` 选出了完整 payload、打包后的范围可解析，不涉及任何交互行为。它属于本地发行准备，不属于自动 pull request lane。
 
 代价：
 
-- **tag 可能与 registry 漂移。** 为失败发布而推的 tag 由 bump 的 registry 核对拦下，但只在有凭据的地方；未鉴权的机器只报告这道核对被跳过。
+- **tag 可能与注册表漂移。** 为失败发布而推的 tag 由 bump 的注册表核对拦下，但只在有凭据的地方；未鉴权的机器只报告这道核对被跳过。
 - **变更判据依赖 tag 可见。** shallow clone 或未拉 tag 会把 vendored 族的判据退化成「全部首发」。`fetch-depth: 0` 是前提，不是优化。
 - **协议改写触及 1504 处依赖声明。** 它不改变本机解析（pnpm 本来就从 workspace 解析），但改变了发布出去的范围写法。
 - **私有包需要凭据才能安装。** 任何消费方——CI、沙箱 e2e、外部使用者——都要持有 scope 凭据，Landlock 三包也在其中；它们从未发布过，所以没有切断既有的匿名安装路径。

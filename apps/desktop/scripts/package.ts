@@ -17,7 +17,7 @@
  * becomes a hard gate only once a Developer ID identity signs the artifacts.
  * Developer ID notarization needs paid Apple Developer Program credentials
  * (the yml carries the wiring); cross-arch artifacts come from the CI matrix
- * in .github/workflows/desktop-release.yml. This script builds the host
+ * in .github/workflows/release.yml. This script builds the host
  * architecture only.
  */
 

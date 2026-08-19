@@ -73,7 +73,7 @@ Status: implemented
 
 ## 后果
 
-- 五个仍然有效的重组家族持有所列成员；`ui/`、`telemetry/`、`timeout/`、`cordis/`、`session-persistence/`、`session-projection/`、`session-title/` 这些组不复存在。重组本身没有更改 npm 名。后续移除 SDK 工具链的决策有意改变包集合，并恢复 `sdk/` 作为运行时 SDK 三包的精确归属。两条 FIXME 标记钉住剩余的推迟改名；日后若某条 FIXME 被证明不对，必须连同理由显式移除，绝不允许无声消失。
+- 五个仍然有效的重组家族持有所列成员；`ui/`、`telemetry/`、`timeout/`、`cordis/`、`session-persistence/`、`session-projection/`、`session-title/` 这些组不复存在。重组本身没有更改 npm 名。后续移除 SDK 工具链的决策有意改变包集合，并恢复 `sdk/` 作为运行时 SDK 三包的精确归属。两条阻塞发行的包名标记已由后续命名决策解决。
 - 结果由以下检查钉住：`pnpm run typecheck`、每个被移动组的单元测试套件、`verify-package-paths`、`verify-md-links` 与全语料翻译配对在移动后的树上全部通过；`vitest.snapshot.config.ts` 中按组划定的测试 glob 随移动一并改写，套件收集到与移动前相同的测试文件（glob 匹配为空会无声地丢失覆盖）。
 - 每个触碰被移动文件的开放 PR 都跨过这次移动做一次变基；重命名检测可机械化解决大多数改动块。
 - 单包组依然存在（`boot/`、`extensions/`，以及 `acp/` 等既有单包组）。这是有意接受的：每个都是角色完备的整体而非某个家族的碎片，一个名实相符的小组胜过一次徒有其名的合并。

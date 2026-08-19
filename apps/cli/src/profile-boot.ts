@@ -1,7 +1,7 @@
 /**
  * Shared profile boot for every `dsh` surface: resolve the profile, stack its
  * patch layers (bundle layers in `dsh.profile.bundles` order, the profile's
- * own `cordis.patch.yml`, `--patch` overlays, the telemetry switch), mount the
+ * own `cordis.patch.yml`, `--patch` overlays, launcher-owned switches and identity), mount the
  * tree over the profile's empty root config, keep the profile patch layer
  * live, and wire fail-loud plus bounded shutdown.
  *
@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh/profile-boot
  */
 
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
@@ -55,6 +55,34 @@ export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.me
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'
+
+/** The Web/Desktop gateway row whose product identity belongs to this launcher. */
+const API_GATEWAY_ROW_ID = 'api-gateway'
+
+/** Read the version this installation's CLI manifest carries. */
+function productVersion(): string {
+  const manifest = JSON.parse(readFileSync(INSTALL_ANCHOR, 'utf8')) as { version?: unknown }
+  if (typeof manifest.version !== 'string' || manifest.version === '') {
+    throw new Error(`${NAME}: ${INSTALL_ANCHOR} must declare a string version`)
+  }
+  return manifest.version
+}
+
+/**
+ * Build the launcher-owned API gateway identity patch.
+ * @param row - the gateway row from this composition generation, if present.
+ * @returns a final gateway overlay, or undefined for profiles without the gateway.
+ */
+export function resolveProductVersionPatch(row: EntryOptions | undefined): PatchOptions | undefined {
+  if (row === undefined) return undefined
+  return {
+    id: API_GATEWAY_ROW_ID,
+    config: {
+      ...(row.config ?? {}) as Record<string, unknown>,
+      productVersion: productVersion(),
+    },
+  }
+}
 
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
@@ -109,7 +137,7 @@ interface ComposedProfile {
   bundlePatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
-  /** Layers above the user layers on a live reload: `--patch` overlays and the telemetry switch. */
+  /** Layers above live user configuration: `--patch` overlays plus launcher-owned switches and identity. */
   overlays: PatchOptions[]
   /**
    * id → row of the composed tree (bundles + user layers + overlays), for the
@@ -120,12 +148,23 @@ interface ComposedProfile {
 
 /** The full patch stack of one composed profile, in application order. */
 function allPatches(composed: ComposedProfile): PatchOptions[] {
-  return [
+  return withProductVersion([
     ...composed.bundlePatches,
     ...composed.profile.patches,
     ...composed.homePatches,
     ...composed.overlays,
-  ]
+  ])
+}
+
+/**
+ * Append product identity to one complete composition generation.
+ * @param patches - every lower patch for the current generation, in application order.
+ * @returns the same generation with a gateway identity patch when it carries a gateway.
+ */
+export function withProductVersion(patches: readonly PatchOptions[]): PatchOptions[] {
+  const gateway = composeEntries([[...patches]]).find(row => row.id === API_GATEWAY_ROW_ID)
+  const identity = resolveProductVersionPatch(gateway)
+  return identity === undefined ? [...patches] : [...patches, identity]
 }
 
 /**
@@ -134,7 +173,7 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
  * platform on its own rows), the profile's user layer, the home-level user
  * layer (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply
  * to every profile, so it outranks the per-profile layer), `--patch` overlays,
- * then the telemetry switch.
+ * then launcher-owned switches and product identity.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
  * @returns the profile, its patch layers, and the composed row index.
@@ -237,12 +276,12 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // objects in place. Reusing one parsed patch object across applications
   // would bake a user override into the bundle's in-memory insert row, so
   // removing the override could never revert the row to the bundle default.
-  const composeLive = (): PatchOptions[] => structuredClone([
+  const composeLive = (): PatchOptions[] => structuredClone(withProductVersion([
     ...composed.bundlePatches,
     ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlays,
-  ])
+  ]))
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {

@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
@@ -29,6 +29,7 @@ describe('CI workflow', () => {
 
   it('keeps pull requests fast and reserves exhaustive platform checks for release tags', () => {
     const workflow = loadWorkflow('.github/workflows/ci.yml')
+    expect(workflow.on).toEqual({ pull_request: null, push: { tags: ['v*'] } })
     if (!isRecord(workflow.jobs)
       || !isRecord(workflow.jobs['pr-node'])
       || !isRecord(workflow.jobs['pr-python-sdk'])
@@ -150,55 +151,161 @@ describe('CI workflow', () => {
 })
 
 describe('Desktop release workflow', () => {
-  it('builds both architectures on v* tags only, without pull-request cost', () => {
-    const workflow = loadWorkflow('.github/workflows/desktop-release.yml')
-    expect(workflow.on).toEqual({ push: { tags: ['v*'] } })
-    const job = workflowJob(workflow, 'desktop-artifacts')
-    if (!isRecord(job.strategy) || !isRecord(job.strategy.matrix) || !Array.isArray(job.strategy.matrix.include)) {
-      throw new TypeError('Desktop release workflow must define an include matrix')
+  it('starts only after successful exhaustive CI for a pushed v* tag', () => {
+    const workflow = loadWorkflow('.github/workflows/release.yml')
+    expect(workflow.on).toEqual({ workflow_run: { workflows: ['CI'], types: ['completed'] } })
+    expect(workflow.permissions).toEqual({ actions: 'write', contents: 'write' })
+    expect(workflow.concurrency).toEqual({
+      group: 'desktop-release-${{ github.event.workflow_run.head_branch }}',
+      'cancel-in-progress': false,
+    })
+
+    const resolveJob = workflowJob(workflow, 'resolve')
+    expect(resolveJob.if).toBe("github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push' && startsWith(github.event.workflow_run.head_branch, 'v')")
+    expect(resolveJob.outputs).toEqual({
+      tag: '${{ steps.release.outputs.tag }}',
+      version: '${{ steps.release.outputs.version }}',
+      prerelease: '${{ steps.release.outputs.prerelease }}',
+      sha: '${{ steps.release.outputs.sha }}',
+    })
+    if (!Array.isArray(resolveJob.steps)) throw new TypeError('release resolve job must define steps')
+    const resolveSteps = resolveJob.steps.filter(isRecord)
+    expect(resolveSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
+      with: { ref: '${{ github.event.workflow_run.head_branch }}', 'persist-credentials': false },
+    })
+    const releaseStep = resolveSteps.find(step => step.id === 'release')
+    expect(releaseStep).toMatchObject({
+      env: {
+        TAG: '${{ github.event.workflow_run.head_branch }}',
+        HEAD_SHA: '${{ github.event.workflow_run.head_sha }}',
+      },
+    })
+    expect(JSON.stringify(releaseStep)).toContain('GITHUB_OUTPUT')
+    expect(JSON.stringify(releaseStep)).toContain('prerelease')
+    expect(JSON.stringify(releaseStep)).toContain('semver')
+    expect(JSON.stringify(releaseStep)).toContain('sha=$HEAD_SHA')
+  })
+
+  it('reads exact-version highlights and builds verified release assets for both architectures', () => {
+    const workflow = loadWorkflow('.github/workflows/release.yml')
+    const notes = workflowJob(workflow, 'notes')
+    const dmg = workflowJob(workflow, 'dmg')
+    expect(notes.needs).toBe('resolve')
+    expect(dmg.needs).toEqual(['resolve', 'notes'])
+    if (!Array.isArray(notes.steps) || !Array.isArray(dmg.steps)
+      || !isRecord(dmg.strategy) || !isRecord(dmg.strategy.matrix) || !Array.isArray(dmg.strategy.matrix.include)) {
+      throw new TypeError('release notes and dmg jobs must define steps and a dmg matrix')
     }
-    expect(job.strategy.matrix.include).toEqual([
+
+    const notesSteps = notes.steps.filter(isRecord)
+    expect(notesSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
+      with: { ref: '${{ needs.resolve.outputs.tag }}', 'fetch-depth': 0, 'persist-credentials': false },
+    })
+    expect(notesSteps.find(step => step.name === 'Verify the CI-tested release commit')).toMatchObject({
+      env: { EXPECTED_SHA: '${{ needs.resolve.outputs.sha }}' },
+    })
+    expect(JSON.stringify(notesSteps)).toContain('.github/release-notes/${version}.md')
+    expect(JSON.stringify(notesSteps)).toContain('::error::')
+
+    expect(dmg.strategy.matrix.include).toEqual([
       { runner: 'macos-26-intel', arch: 'x64' },
       { runner: 'macos-26', arch: 'arm64' },
     ])
-    expect(job['timeout-minutes']).toBe(60)
-    if (!Array.isArray(job.steps)) throw new TypeError('Desktop release workflow must define steps')
-    const steps = job.steps.filter(isRecord)
-    const pnpmSetup = steps.find(step => typeof step.uses === 'string' && step.uses.startsWith('pnpm/action-setup@'))
-    expect(pnpmSetup).toMatchObject({ with: { dest: runnerPrivatePnpmDestination } })
-    const runs = steps.filter((step): step is Record<string, unknown> & { run: string } => typeof step.run === 'string')
+    expect(dmg['timeout-minutes']).toBe(60)
+    const dmgSteps = dmg.steps.filter(isRecord)
+    expect(dmgSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
+      with: { ref: '${{ needs.resolve.outputs.tag }}', 'fetch-depth': 0, 'persist-credentials': false },
+    })
+    expect(dmgSteps.find(step => step.name === 'Verify the CI-tested release commit')).toMatchObject({
+      env: { EXPECTED_SHA: '${{ needs.resolve.outputs.sha }}' },
+    })
+    const runs = dmgSteps.filter((step): step is Record<string, unknown> & { run: string } => typeof step.run === 'string')
     expect(runs.map(step => step.run)).toContain('pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build')
     expect(runs.map(step => step.run)).toContain('pnpm exec vitest run --config vitest.e2e.config.ts apps/desktop/tests/packaged-smoke.e2e.ts')
-    // The mount-launch evidence the release criteria require: the artifact
-    // mounted from the produced dmg must verify and pass the keyless
-    // scenario. Only that scenario runs from the image — first-paint timing
-    // assertions flake off a read-only HFS mount — and the mount is always
-    // detached.
-    const mountSmoke = steps.find(step => step.name === 'Mount the dmg and run the keyless packaged-app smoke')
+    const mountSmoke = dmgSteps.find(step => step.name === 'Mount the dmg and run the keyless packaged-app smoke')
     if (!mountSmoke || typeof mountSmoke.run !== 'string') {
-      throw new TypeError('Desktop release workflow must mount the dmg before the smoke')
+      throw new TypeError('release dmg job must mount the dmg before the smoke')
     }
     expect(mountSmoke.run).toContain('hdiutil attach -nobrowse -readonly "$dmg"')
     expect(mountSmoke.run).toContain('codesign --verify --deep --strict "$mount/DSH Desktop.app"')
     expect(mountSmoke.run).toContain('DSH_DESKTOP_APP_DIR="$mount/DSH Desktop.app"')
-    expect(mountSmoke.run).toContain("-t 'runs the keyless interaction-parity scenario'")
-    const detach = steps.find(step => step.name === 'Detach the dmg')
-    expect(detach).toMatchObject({ if: 'always()' })
-    const upload = steps.find(step => step.uses === 'actions/upload-artifact@v4')
-    expect(upload).toMatchObject({
+    expect(dmgSteps.find(step => step.name === 'Detach the dmg')).toMatchObject({ if: 'always()' })
+    const prepare = dmgSteps.find(step => step.name === 'Prepare release assets')
+    if (!prepare || typeof prepare.run !== 'string') {
+      throw new TypeError('release dmg job must prepare checksummed assets')
+    }
+    expect(prepare.run).toContain('DSH.Desktop-${version}-${{ matrix.arch }}.dmg')
+    expect(prepare.run).toContain('shasum -a 256')
+    expect(dmgSteps.find(step => step.uses === 'actions/upload-artifact@v4')).toMatchObject({
       with: {
-        name: 'dsh-desktop-${{ matrix.arch }}-dmg',
-        path: 'apps/desktop/dist/*.dmg',
+        name: 'dsh-desktop-${{ matrix.arch }}-release',
+        path: 'release-assets/*',
         'if-no-files-found': 'error',
       },
     })
-    // upload-artifact must hold the actions scope: the restrictive
-    // permissions block resets every unspecified scope to none.
-    expect(workflow.permissions).toMatchObject({ contents: 'read', actions: 'write' })
-    // The PR lane already smokes one arm64 runner; this matrix doubles
-    // macOS runner minutes on a private repository, so it must stay off
-    // pull requests and branch pushes entirely.
-    expect(JSON.stringify(workflow.on)).not.toContain('pull_request')
+  })
+
+  it('updates one release with exactly four assets, then bumps Homebrew only for stable versions', () => {
+    const workflow = loadWorkflow('.github/workflows/release.yml')
+    const release = workflowJob(workflow, 'release')
+    const homebrew = workflowJob(workflow, 'homebrew')
+    expect(release.needs).toEqual(['resolve', 'notes', 'dmg'])
+    if (!Array.isArray(release.steps) || !Array.isArray(homebrew.steps)) {
+      throw new TypeError('release and Homebrew jobs must define steps')
+    }
+    const releaseSteps = release.steps.filter(isRecord)
+    expect(releaseSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
+      with: { ref: '${{ needs.resolve.outputs.tag }}', 'fetch-depth': 0, 'persist-credentials': false },
+    })
+    expect(releaseSteps.find(step => step.name === 'Verify the CI-tested release commit')).toMatchObject({
+      env: { EXPECTED_SHA: '${{ needs.resolve.outputs.sha }}' },
+    })
+    const publish = releaseSteps.find(step => step.name === 'Create or update the GitHub Release')
+    expect(publish).toMatchObject({ env: { GH_REPO: '${{ github.repository }}' } })
+    expect(JSON.stringify(publish)).toContain('DSH Desktop v${version}')
+    expect(JSON.stringify(publish)).toContain('generate-notes')
+    expect(JSON.stringify(publish)).toContain('prerelease')
+    expect(JSON.stringify(publish)).toContain('gh release edit')
+    expect(JSON.stringify(publish)).toContain('gh release create')
+    expect(JSON.stringify(publish)).toContain('gh release upload')
+    expect(JSON.stringify(publish)).toContain("--jq '.assets[].id'")
+    expect(JSON.stringify(publish)).toContain('releases/assets/$asset_id')
+    expect(JSON.stringify(publish)).toContain('git/ref/tags/$tag')
+    expect(JSON.stringify(publish)).toContain('git/tags/$object_sha')
+    expect(JSON.stringify(publish)).toContain('HEAD_SHA')
+    for (const asset of [
+      'DSH.Desktop-${version}-arm64.dmg',
+      'DSH.Desktop-${version}-arm64.dmg.sha256',
+      'DSH.Desktop-${version}-x64.dmg',
+      'DSH.Desktop-${version}-x64.dmg.sha256',
+    ]) expect(JSON.stringify(publish)).toContain(asset)
+
+    expect(homebrew.needs).toEqual(['resolve', 'release'])
+    expect(homebrew.if).toBe("needs.resolve.outputs.prerelease == 'false'")
+    const brewSteps = homebrew.steps.filter(isRecord)
+    expect(JSON.stringify(brewSteps)).toContain('Homebrew tap mel0nyrame/homebrew-dsh is unavailable')
+    expect(brewSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
+      with: {
+        repository: 'mel0nyrame/homebrew-dsh',
+        ref: 'main',
+        path: 'homebrew-dsh',
+        'ssh-key': '${{ secrets.DSH_TAP_DEPLOY_KEY }}',
+      },
+    })
+    const updateCask = brewSteps.find(step => step.name === 'Update and push the stable cask')
+    if (!updateCask || typeof updateCask.run !== 'string') {
+      throw new TypeError('Homebrew job must update and push the stable cask')
+    }
+    expect(updateCask).toMatchObject({
+      env: {
+        TAG: '${{ needs.resolve.outputs.tag }}',
+        HEAD_SHA: '${{ needs.resolve.outputs.sha }}',
+      },
+    })
+    expect(updateCask.run).toContain('ruby scripts/update-cask.rb "$version"')
+    expect(updateCask.run).toContain('git/ref/tags/$TAG')
+    expect(updateCask.run).toContain('git push origin HEAD:main')
+    expect(existsSync(resolve(root, '.github/workflows/desktop-release.yml'))).toBe(false)
   })
 })
 describe('Python runtime build workflows', () => {

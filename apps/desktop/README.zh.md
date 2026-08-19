@@ -35,7 +35,7 @@ renderer 继续使用现有任务级 Workspace 与路径打开 API，不获得�
 
 安装后的应用不依赖系统 Node.js 或 DSH CLI 即可启动：Electron 主进程把应用二进制自身作为 DSH 子进程分叉（`ELECTRON_RUN_AS_NODE`），从 `Contents/Resources/runtime` 解析 CLI、Web dist 与 PTY helper，并把用户数据目录交给子进程作为工作目录（该布局由 [`src/packaged-runtime.ts`](src/packaged-runtime.ts) 定义）。因此原生模块与 PTY helper 永远不会位于归档内。harness 主目录仍为共享的 `~/.dsh`，打包应用与 CLI 看到相同的会话、profile 与配置。
 
-ad-hoc 签名背后没有身份。Gatekeeper 只评估带 quarantine 属性的启动，因此本地构建的制品打开时不被评估，而 `spctl --assess` 本身会拒绝一切 ad-hoc 签名——打包管线把该结论记录为证据，接入 Developer ID 身份签名后它会变成硬门禁。下载的副本带有 `com.apple.quarantine`，会显示无法验证开发者的大门，需要一次性右键 → 打开（Homebrew cask 分发会剥离 quarantine）。要让下载副本也零警告，需要 Developer ID 签名与公证——即付费 Apple Developer Program 凭据；`electron-builder.yml` 记录了凭据到位后要填写的字段。打包脚本只构建主机架构，因为 node-pty 按主机 ABI 重建；x64 制品由 [`desktop-release.yml`](../../.github/workflows/desktop-release.yml) 的 CI 矩阵（`macos-26-intel`）产出。
+ad-hoc 签名背后没有身份。Gatekeeper 只评估带 quarantine 属性的启动，因此本地构建的制品打开时不被评估，而 `spctl --assess` 本身会拒绝一切 ad-hoc 签名——打包管线把该结论记录为证据，接入 Developer ID 身份签名后它会变成硬门禁。下载的副本带有 `com.apple.quarantine`，会显示无法验证开发者的大门，需要一次性右键 → 打开（Homebrew cask 分发会剥离 quarantine）。要让下载副本也零警告，需要 Developer ID 签名与公证——即付费 Apple Developer Program 凭据；`electron-builder.yml` 记录了凭据到位后要填写的字段。打包脚本只构建主机架构，因为 node-pty 按主机 ABI 重建；x64 制品由 [`release.yml`](../../.github/workflows/release.yml) 的 CI 矩阵（`macos-26-intel`）产出。
 
 ## macOS 原生窗口
 

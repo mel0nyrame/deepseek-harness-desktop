@@ -1,8 +1,10 @@
 /** Release family discovery, publish order, tag naming, and the bump judgements. */
 
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { releaseFamily, type ReleaseMember } from './families.ts'
 import { compareVersions, nextVendorVersion, reachesPayload } from './bump.ts'
+import { verifyTag } from './verify.ts'
 
 /**
  * A release member standing in for a manifest on disk.
@@ -16,18 +18,55 @@ function member(directory: string, name: string, manifest: Record<string, unknow
 }
 
 describe('release families', () => {
-  it('names one tag for the whole dsh family and one per vendored package', () => {
+  it('keeps every checked-in dsh member on one releasable version', () => {
+    const dsh = releaseFamily('dsh')
+    const root = fileURLToPath(new URL('../../', import.meta.url))
+
+    expect(() => { dsh.verifyVersions(dsh.members(root)) }).not.toThrow()
+  })
+
+  it('names the desktop release tag for the whole dsh family and one per vendored package', () => {
     const dsh = releaseFamily('dsh')
     const vendor = releaseFamily('vendor')
     const cli = member('apps/cli', '@deepseek-ai/dsh')
     const cordis = { ...member('vendor/cordis', '@deepseek-ai/cordis'), version: '4.0.1' }
 
-    expect(dsh.tagFor(cli)).toBe('dsh-v0.0.1')
+    expect(dsh.tagFor(cli)).toBe('v0.0.1')
     expect(vendor.tagFor(cordis)).toBe('vendor-cordis-v4.0.1')
     // The prefix is constructed, not recovered from a tag: a version with a
     // hyphen would defeat any suffix-stripping.
     expect(vendor.tagPrefixFor({ ...cordis, version: '4.0.0-rc.7' })).toBe('vendor-cordis-v')
     expect(vendor.tagFor({ ...cordis, version: '4.0.0-rc.7' })).toBe('vendor-cordis-v4.0.0-rc.7')
+  })
+
+  it('accepts only a complete semver tag belonging to the selected family', () => {
+    const dsh = releaseFamily('dsh')
+    const prerelease = { ...member('apps/cli', '@deepseek-ai/dsh'), version: '1.2.3-123alpha.1' }
+
+    expect(() => { verifyTag(dsh, [prerelease], 'refs/tags/v1.2.3-123alpha.1') }).not.toThrow()
+
+    const invalid = [
+      'refs/heads/v1.2.3',
+      'refs/tags/dsh-v1.2.3',
+      'refs/tags/vendor-cordis-v1.2.3',
+      'refs/tags/landlock-run-v1.2.3',
+      'refs/tags/v1.2',
+      'refs/tags/v01.2.3',
+      'refs/tags/v1.2.3-rc..1',
+    ]
+    for (const ref of invalid) {
+      expect(() => { verifyTag(dsh, [{ ...prerelease, version: ref.slice('refs/tags/v'.length) }], ref) })
+        .toThrow()
+    }
+  })
+
+  it('validates the complete semver after a vendored member prefix', () => {
+    const vendor = releaseFamily('vendor')
+    const cordis = { ...member('vendor/cordis', '@deepseek-ai/cordis'), version: '4.0.1-123alpha.2' }
+
+    expect(() => { verifyTag(vendor, [cordis], 'refs/tags/vendor-cordis-v4.0.1-123alpha.2') }).not.toThrow()
+    expect(() => { verifyTag(vendor, [cordis], 'refs/tags/vendor-cordis-v4.0') }).toThrow()
+    expect(() => { verifyTag(vendor, [cordis], 'refs/tags/v4.0.1-123alpha.2') }).toThrow()
   })
 
   it('rejects a family whose members disagree on the shared version', () => {
