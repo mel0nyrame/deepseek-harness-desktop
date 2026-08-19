@@ -22,7 +22,7 @@ DMG 矩阵在原生 macOS runner 上构建 arm64 与 x64。arm64 运行完整安
 
 本 fork 不发布任何 npm 序列。artifact 门禁可以打包并安装 workspace tarball，但 CI 与发行工作流都不调用注册表发布器。
 
-发行就绪信息由启动器拥有：dsh 族的每份 manifest 都共享同一版本；CLI 从自身包 manifest 读取版本，并在用户配置之后只把该版本字段叠加到 API gateway，因此 `host.describe.version` 报告正在运行的产品，且不会冻结可热重载的 gateway 设置。timeout 包保留精确名称 `@deepseek-ai/dsh-tool-call-timeout-policy`；备选名 `dsh-timeout-guard` 的范围比工具调用策略更宽，因此删除阻塞发行的改名标记，不改变已经确立的包名。
+发行就绪信息由启动器拥有：dsh 族的每份 manifest 都共享同一版本，CLI 从自身包 manifest 读取版本。每次启动或热重载 generation 都重新组合 API gateway 的有效配置、保留其当前设置，再以该 manifest 值替换 `productVersion`。因此 `host.describe.version` 会报告正在运行的产品，且不会冻结或丢弃可热重载的 gateway 设置。timeout 包保留精确名称 `@deepseek-ai/dsh-tool-call-timeout-policy`；备选名 `dsh-timeout-guard` 的范围比工具调用策略更宽，因此删除阻塞发行的改名标记，不改变已经确立的包名。
 
 ## 曾考虑的替代方案
 

@@ -55,7 +55,7 @@ function createProductVersionProbe(home: string): string {
     '  void ctx.loader.await().then(async () => {',
     "    const response = await ctx.apiProxy.host.describe({ rpcId: 'product-version-probe', payload: {} })",
     '    if (!response.result.ok) throw new Error(response.result.error.message)',
-    '    process.stdout.write(`${response.result.value.version}\\n`)',
+    '    process.stdout.write(`${response.result.value.version}:${String(response.result.value.canOpenPath)}\\n`)',
     "    if (process.platform === 'win32') process.emit('SIGTERM')",
     "    else process.kill(process.pid, 'SIGTERM')",
     '  })',
@@ -67,6 +67,7 @@ function createProductVersionProbe(home: string): string {
     '- id: api-gateway',
     '  config:',
     "    productVersion: 'user-controlled'",
+    '    nativeOpen: false',
     '- id: webserver',
     '  disabled: true',
     '- id: web-runtime',
@@ -530,7 +531,7 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
         DSH_TELEMETRY_DISABLED: '1',
       })
       expect(result.code, result.stderr).toBe(0)
-      expect(result.stdout).toBe(cliVersion)
+      expect(result.stdout).toBe(`${cliVersion}:false`)
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

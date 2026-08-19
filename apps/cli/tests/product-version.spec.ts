@@ -1,18 +1,31 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { INSTALL_ANCHOR, resolveProductVersionPatch } from '../src/profile-boot.ts'
+import { INSTALL_ANCHOR, resolveProductVersionPatch, withProductVersion } from '../src/profile-boot.ts'
 
 describe('product version launcher overlay', () => {
-  it('reads the CLI manifest version without freezing any user-owned gateway config', () => {
+  it('reads the CLI manifest version while preserving the current gateway config', () => {
     const manifest = JSON.parse(readFileSync(INSTALL_ANCHOR, 'utf8')) as { version: string }
 
-    expect(resolveProductVersionPatch(true)).toEqual({
+    expect(resolveProductVersionPatch({
       id: 'api-gateway',
-      config: { productVersion: manifest.version },
+      name: 'gateway',
+      config: { productVersion: 'user-controlled', nativeOpen: false },
+    })).toEqual({
+      id: 'api-gateway',
+      config: { productVersion: manifest.version, nativeOpen: false },
     })
   })
 
   it('does not add a gateway to profiles that do not carry one', () => {
-    expect(resolveProductVersionPatch(false)).toBeUndefined()
+    expect(resolveProductVersionPatch(undefined)).toBeUndefined()
+  })
+
+  it('recomposes reloadable gateway settings before each identity patch', () => {
+    const generation = (nativeOpen: boolean) => withProductVersion([{
+      insert: [{ id: 'api-gateway', name: 'gateway', config: { nativeOpen } }],
+    }])
+
+    expect(generation(false).at(-1)).toMatchObject({ config: { nativeOpen: false } })
+    expect(generation(true).at(-1)).toMatchObject({ config: { nativeOpen: true } })
   })
 })

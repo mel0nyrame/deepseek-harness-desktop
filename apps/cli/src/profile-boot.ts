@@ -70,14 +70,17 @@ function productVersion(): string {
 
 /**
  * Build the launcher-owned API gateway identity patch.
- * @param hasRow - whether the composed profile carries the API gateway.
+ * @param row - the gateway row from this composition generation, if present.
  * @returns a final gateway overlay, or undefined for profiles without the gateway.
  */
-export function resolveProductVersionPatch(hasRow: boolean): PatchOptions | undefined {
-  if (!hasRow) return undefined
+export function resolveProductVersionPatch(row: EntryOptions | undefined): PatchOptions | undefined {
+  if (row === undefined) return undefined
   return {
     id: API_GATEWAY_ROW_ID,
-    config: { productVersion: productVersion() },
+    config: {
+      ...(row.config ?? {}) as Record<string, unknown>,
+      productVersion: productVersion(),
+    },
   }
 }
 
@@ -145,12 +148,23 @@ interface ComposedProfile {
 
 /** The full patch stack of one composed profile, in application order. */
 function allPatches(composed: ComposedProfile): PatchOptions[] {
-  return [
+  return withProductVersion([
     ...composed.bundlePatches,
     ...composed.profile.patches,
     ...composed.homePatches,
     ...composed.overlays,
-  ]
+  ])
+}
+
+/**
+ * Append product identity to one complete composition generation.
+ * @param patches - every lower patch for the current generation, in application order.
+ * @returns the same generation with a gateway identity patch when it carries a gateway.
+ */
+export function withProductVersion(patches: readonly PatchOptions[]): PatchOptions[] {
+  const gateway = composeEntries([[...patches]]).find(row => row.id === API_GATEWAY_ROW_ID)
+  const identity = resolveProductVersionPatch(gateway)
+  return identity === undefined ? [...patches] : [...patches, identity]
 }
 
 /**
@@ -192,8 +206,6 @@ function composeProfile(
   }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
-  const productVersionPatch = resolveProductVersionPatch(rows.has(API_GATEWAY_ROW_ID))
-  if (productVersionPatch !== undefined) composedOverlays.push(productVersionPatch)
   return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
 }
 
@@ -264,12 +276,12 @@ export async function runProfile(options: RunProfileOptions): Promise<{ ctx: Con
   // objects in place. Reusing one parsed patch object across applications
   // would bake a user override into the bundle's in-memory insert row, so
   // removing the override could never revert the row to the bundle default.
-  const composeLive = (): PatchOptions[] => structuredClone([
+  const composeLive = (): PatchOptions[] => structuredClone(withProductVersion([
     ...composed.bundlePatches,
     ...loadOptionalPatches(NAME, composed.profile.patchPath) ?? [],
     ...loadOptionalPatches(NAME, homePatchPath()) ?? [],
     ...composed.overlays,
-  ])
+  ]))
   // Cloned for the same insert-aliasing reason as composeLive: the boot
   // application must not mutate the objects later reloads recompose from.
   const ctx = await boot(NAME, rootConfig, structuredClone(allPatches(composed)), (hostCtx) => {

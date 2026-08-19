@@ -22,7 +22,7 @@ Stable releases update `mel0nyrame/homebrew-dsh` with `ruby scripts/update-cask.
 
 This fork publishes no npm sequence. The artifact gates may pack and install workspace tarballs, but neither CI nor the release workflow calls a registry publisher.
 
-Release readiness is launcher-owned: every dsh-family manifest shares one version, and the CLI reads its own package manifest and overlays only that version field onto the API gateway after user configuration, so `host.describe.version` reports the running product without freezing reloadable gateway settings. The timeout package keeps the precise name `@deepseek-ai/dsh-tool-call-timeout-policy`; the alternative `dsh-timeout-guard` is broader than its tool-call policy, so the release-blocking rename marker is removed without changing the established package name.
+Release readiness is launcher-owned: every dsh-family manifest shares one version, and the CLI reads its own package manifest. For each startup or hot-reload generation it recomposes the effective API gateway config, preserves its current settings, and replaces `productVersion` with that manifest value. Thus `host.describe.version` reports the running product without freezing or discarding reloadable gateway settings. The timeout package keeps the precise name `@deepseek-ai/dsh-tool-call-timeout-policy`; the alternative `dsh-timeout-guard` is broader than its tool-call policy, so the release-blocking rename marker is removed without changing the established package name.
 
 ## Alternatives considered
 
