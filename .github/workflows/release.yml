@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: desktop-release-${{ github.event.workflow_run.head_sha }}
+  group: desktop-release-${{ github.event.workflow_run.head_branch }}
   cancel-in-progress: false
 
 env:
@@ -25,6 +25,7 @@ jobs:
       tag: ${{ steps.release.outputs.tag }}
       version: ${{ steps.release.outputs.version }}
       prerelease: ${{ steps.release.outputs.prerelease }}
+      sha: ${{ steps.release.outputs.sha }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -36,7 +37,7 @@ jobs:
         id: release
         env:
           TAG: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_SHA: ${{ needs.resolve.outputs.sha }}
         run: |
           semver='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))(\.((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?'
           if [[ ! "$TAG" =~ ^v${semver}$ ]]; then
@@ -54,6 +55,7 @@ jobs:
             echo "tag=$TAG"
             echo "version=$version"
             echo "prerelease=$prerelease"
+            echo "sha=$HEAD_SHA"
           } >> "$GITHUB_OUTPUT"
 
   notes:
@@ -63,7 +65,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.tag }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify the CI-tested release commit
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checked-out release tag does not match CI-tested commit $EXPECTED_SHA"
+            exit 1
+          fi
 
       - name: Select the bilingual release highlights
         env:
@@ -100,7 +112,17 @@ jobs:
       - uses: actions/checkout@v6
         with:
           ref: ${{ needs.resolve.outputs.tag }}
+          fetch-depth: 0
           persist-credentials: false
+
+      - name: Verify the CI-tested release commit
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checked-out release tag does not match CI-tested commit $EXPECTED_SHA"
+            exit 1
+          fi
 
       - uses: pnpm/action-setup@v4
         with:
@@ -172,6 +194,21 @@ jobs:
     needs: [resolve, notes, dmg]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve.outputs.tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify the CI-tested release commit
+        env:
+          EXPECTED_SHA: ${{ needs.resolve.outputs.sha }}
+        run: |
+          if [ "$(git rev-parse HEAD)" != "$EXPECTED_SHA" ]; then
+            echo "::error::Checked-out release tag does not match CI-tested commit $EXPECTED_SHA"
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v5
         with:
           name: release-notes
@@ -208,21 +245,38 @@ jobs:
             fi
           done
 
+          verify_remote_tag() {
+            object_type="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.type)"
+            object_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$tag" --jq .object.sha)"
+            while [ "$object_type" = tag ]; do
+              object_type="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq .object.type)"
+              object_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq .object.sha)"
+            done
+            if [ "$object_type" != commit ] || [ "$object_sha" != "$HEAD_SHA" ]; then
+              echo "::error::Release tag $tag no longer points at CI-tested commit $HEAD_SHA"
+              exit 1
+            fi
+          }
+
+          verify_remote_tag
           generated="$(gh api --method POST "repos/$GITHUB_REPOSITORY/releases/generate-notes" \
             -f tag_name="$tag" -f target_commitish="$HEAD_SHA" --jq .body)"
           cp release-notes/highlights.md release-notes/body.md
           printf '\n\n%s\n' "$generated" >> release-notes/body.md
 
           if gh release view "$tag" >/dev/null 2>&1; then
+            verify_remote_tag
             gh release edit "$tag" \
               --title "DSH Desktop v${version}" \
               --notes-file release-notes/body.md \
               --draft=false \
               --prerelease="$prerelease" \
               --verify-tag
+            verify_remote_tag
             while IFS= read -r asset_id; do
               gh api --method DELETE "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id"
             done < <(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$tag" --jq '.assets[].id')
+            verify_remote_tag
             gh release upload "$tag" "${assets[@]}"
           else
             create_args=(
@@ -233,6 +287,7 @@ jobs:
               --verify-tag
             )
             if [ "$prerelease" = true ]; then create_args+=(--prerelease); fi
+            verify_remote_tag
             gh release create "${create_args[@]}"
           fi
 
@@ -270,7 +325,10 @@ jobs:
       - name: Update and push the stable cask
         working-directory: homebrew-dsh
         env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.resolve.outputs.tag }}
           VERSION: ${{ needs.resolve.outputs.version }}
+          HEAD_SHA: ${{ needs.resolve.outputs.sha }}
         run: |
           version="$VERSION"
           ruby scripts/update-cask.rb "$version"
@@ -282,4 +340,14 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add Casks/d/dsh-desktop.rb
           git commit -m "chore(cask): update dsh-desktop to ${version}"
+          object_type="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.type)"
+          object_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+          while [ "$object_type" = tag ]; do
+            object_type="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq .object.type)"
+            object_sha="$(gh api "repos/$GITHUB_REPOSITORY/git/tags/$object_sha" --jq .object.sha)"
+          done
+          if [ "$object_type" != commit ] || [ "$object_sha" != "$HEAD_SHA" ]; then
+            echo "::error::Release tag $TAG no longer points at CI-tested commit $HEAD_SHA"
+            exit 1
+          fi
           git push origin HEAD:main

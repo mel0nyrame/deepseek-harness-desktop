@@ -1,5 +1,6 @@
 /** Release family discovery, publish order, tag naming, and the bump judgements. */
 
+import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { releaseFamily, type ReleaseMember } from './families.ts'
 import { compareVersions, nextVendorVersion, reachesPayload } from './bump.ts'
@@ -17,6 +18,13 @@ function member(directory: string, name: string, manifest: Record<string, unknow
 }
 
 describe('release families', () => {
+  it('keeps every checked-in dsh member on one releasable version', () => {
+    const dsh = releaseFamily('dsh')
+    const root = fileURLToPath(new URL('../../', import.meta.url))
+
+    expect(() => { dsh.verifyVersions(dsh.members(root)) }).not.toThrow()
+  })
+
   it('names the desktop release tag for the whole dsh family and one per vendored package', () => {
     const dsh = releaseFamily('dsh')
     const vendor = releaseFamily('vendor')

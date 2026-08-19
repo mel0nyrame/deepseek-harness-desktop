@@ -6,7 +6,7 @@ Every product tag `v<version>` requires a committed `.github/release-notes/<vers
 
 Write the English highlights first and the Chinese highlights second. Keep both sections in the same file so a GitHub Release cannot publish only one language. The workflow appends GitHub's generated pull-request list after this file.
 
-先写英文亮点，再写中文亮点。两种语言保存在同一文件中，避免 GitHub Release 只发布其中一种；工作流会把 GitHub 自动生成的拉取请求列表追加在本文件之后。
+先写英文亮点，再写中文亮点。两种语言保存在同一文件中，避免 GitHub Release 只发布其中一种；工作流会把 GitHub 自动生成的 PR 列表追加在本文件之后。
 
 ```markdown
 ## Highlights

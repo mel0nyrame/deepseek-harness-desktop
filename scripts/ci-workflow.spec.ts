@@ -156,7 +156,7 @@ describe('Desktop release workflow', () => {
     expect(workflow.on).toEqual({ workflow_run: { workflows: ['CI'], types: ['completed'] } })
     expect(workflow.permissions).toEqual({ actions: 'write', contents: 'write' })
     expect(workflow.concurrency).toEqual({
-      group: 'desktop-release-${{ github.event.workflow_run.head_sha }}',
+      group: 'desktop-release-${{ github.event.workflow_run.head_branch }}',
       'cancel-in-progress': false,
     })
 
@@ -166,6 +166,7 @@ describe('Desktop release workflow', () => {
       tag: '${{ steps.release.outputs.tag }}',
       version: '${{ steps.release.outputs.version }}',
       prerelease: '${{ steps.release.outputs.prerelease }}',
+      sha: '${{ steps.release.outputs.sha }}',
     })
     if (!Array.isArray(resolveJob.steps)) throw new TypeError('release resolve job must define steps')
     const resolveSteps = resolveJob.steps.filter(isRecord)
@@ -176,6 +177,7 @@ describe('Desktop release workflow', () => {
     expect(JSON.stringify(releaseStep)).toContain('GITHUB_OUTPUT')
     expect(JSON.stringify(releaseStep)).toContain('prerelease')
     expect(JSON.stringify(releaseStep)).toContain('semver')
+    expect(JSON.stringify(releaseStep)).toContain('sha=$HEAD_SHA')
   })
 
   it('reads exact-version highlights and builds verified release assets for both architectures', () => {
@@ -191,7 +193,10 @@ describe('Desktop release workflow', () => {
 
     const notesSteps = notes.steps.filter(isRecord)
     expect(notesSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
-      with: { ref: '${{ needs.resolve.outputs.tag }}', 'persist-credentials': false },
+      with: { ref: '${{ needs.resolve.outputs.tag }}', 'fetch-depth': 0, 'persist-credentials': false },
+    })
+    expect(notesSteps.find(step => step.name === 'Verify the CI-tested release commit')).toMatchObject({
+      env: { EXPECTED_SHA: '${{ needs.resolve.outputs.sha }}' },
     })
     expect(JSON.stringify(notesSteps)).toContain('.github/release-notes/${version}.md')
     expect(JSON.stringify(notesSteps)).toContain('::error::')
@@ -203,7 +208,10 @@ describe('Desktop release workflow', () => {
     expect(dmg['timeout-minutes']).toBe(60)
     const dmgSteps = dmg.steps.filter(isRecord)
     expect(dmgSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
-      with: { ref: '${{ needs.resolve.outputs.tag }}', 'persist-credentials': false },
+      with: { ref: '${{ needs.resolve.outputs.tag }}', 'fetch-depth': 0, 'persist-credentials': false },
+    })
+    expect(dmgSteps.find(step => step.name === 'Verify the CI-tested release commit')).toMatchObject({
+      env: { EXPECTED_SHA: '${{ needs.resolve.outputs.sha }}' },
     })
     const runs = dmgSteps.filter((step): step is Record<string, unknown> & { run: string } => typeof step.run === 'string')
     expect(runs.map(step => step.run)).toContain('pnpm --filter @deepseek-ai/dsh-desktop run package:skip-build')
@@ -240,6 +248,12 @@ describe('Desktop release workflow', () => {
       throw new TypeError('release and Homebrew jobs must define steps')
     }
     const releaseSteps = release.steps.filter(isRecord)
+    expect(releaseSteps.find(step => step.uses === 'actions/checkout@v6')).toMatchObject({
+      with: { ref: '${{ needs.resolve.outputs.tag }}', 'fetch-depth': 0, 'persist-credentials': false },
+    })
+    expect(releaseSteps.find(step => step.name === 'Verify the CI-tested release commit')).toMatchObject({
+      env: { EXPECTED_SHA: '${{ needs.resolve.outputs.sha }}' },
+    })
     const publish = releaseSteps.find(step => step.name === 'Create or update the GitHub Release')
     expect(publish).toMatchObject({ env: { GH_REPO: '${{ github.repository }}' } })
     expect(JSON.stringify(publish)).toContain('DSH Desktop v${version}')
@@ -250,6 +264,9 @@ describe('Desktop release workflow', () => {
     expect(JSON.stringify(publish)).toContain('gh release upload')
     expect(JSON.stringify(publish)).toContain("--jq '.assets[].id'")
     expect(JSON.stringify(publish)).toContain('releases/assets/$asset_id')
+    expect(JSON.stringify(publish)).toContain('git/ref/tags/$tag')
+    expect(JSON.stringify(publish)).toContain('git/tags/$object_sha')
+    expect(JSON.stringify(publish)).toContain('HEAD_SHA')
     for (const asset of [
       'DSH.Desktop-${version}-arm64.dmg',
       'DSH.Desktop-${version}-arm64.dmg.sha256',
@@ -273,7 +290,14 @@ describe('Desktop release workflow', () => {
     if (!updateCask || typeof updateCask.run !== 'string') {
       throw new TypeError('Homebrew job must update and push the stable cask')
     }
+    expect(updateCask).toMatchObject({
+      env: {
+        TAG: '${{ needs.resolve.outputs.tag }}',
+        HEAD_SHA: '${{ needs.resolve.outputs.sha }}',
+      },
+    })
     expect(updateCask.run).toContain('ruby scripts/update-cask.rb "$version"')
+    expect(updateCask.run).toContain('git/ref/tags/$TAG')
     expect(updateCask.run).toContain('git push origin HEAD:main')
     expect(existsSync(resolve(root, '.github/workflows/desktop-release.yml'))).toBe(false)
   })

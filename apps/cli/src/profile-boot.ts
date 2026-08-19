@@ -1,7 +1,7 @@
 /**
  * Shared profile boot for every `dsh` surface: resolve the profile, stack its
  * patch layers (bundle layers in `dsh.profile.bundles` order, the profile's
- * own `cordis.patch.yml`, `--patch` overlays, the telemetry switch), mount the
+ * own `cordis.patch.yml`, `--patch` overlays, launcher-owned switches and identity), mount the
  * tree over the profile's empty root config, keep the profile patch layer
  * live, and wire fail-loud plus bounded shutdown.
  *
@@ -70,21 +70,14 @@ function productVersion(): string {
 
 /**
  * Build the launcher-owned API gateway identity patch.
- * @param row - composed gateway row, or undefined when the profile has no gateway.
- * @param version - explicit version for tests; defaults to this installation's CLI manifest.
+ * @param hasRow - whether the composed profile carries the API gateway.
  * @returns a final gateway overlay, or undefined for profiles without the gateway.
  */
-export function resolveProductVersionPatch(
-  row: EntryOptions | undefined,
-  version?: string,
-): PatchOptions | undefined {
-  if (row === undefined) return undefined
+export function resolveProductVersionPatch(hasRow: boolean): PatchOptions | undefined {
+  if (!hasRow) return undefined
   return {
     id: API_GATEWAY_ROW_ID,
-    config: {
-      ...(row.config ?? {}) as Record<string, unknown>,
-      productVersion: version ?? productVersion(),
-    },
+    config: { productVersion: productVersion() },
   }
 }
 
@@ -141,7 +134,7 @@ interface ComposedProfile {
   bundlePatches: PatchOptions[]
   /** The home-level user layer (`$DSH_HOME/cordis.patch.yml`), applied after the profile's own. */
   homePatches: PatchOptions[]
-  /** Layers above the user layers on a live reload: `--patch` overlays and the telemetry switch. */
+  /** Layers above live user configuration: `--patch` overlays plus launcher-owned switches and identity. */
   overlays: PatchOptions[]
   /**
    * id → row of the composed tree (bundles + user layers + overlays), for the
@@ -166,7 +159,7 @@ function allPatches(composed: ComposedProfile): PatchOptions[] {
  * platform on its own rows), the profile's user layer, the home-level user
  * layer (`$DSH_HOME/cordis.patch.yml` — machine-local preferences that apply
  * to every profile, so it outranks the per-profile layer), `--patch` overlays,
- * then the telemetry switch.
+ * then launcher-owned switches and product identity.
  * @param name - the profile name.
  * @param patchFiles - `--patch` overlay paths, in argv order.
  * @returns the profile, its patch layers, and the composed row index.
@@ -199,7 +192,7 @@ function composeProfile(
   }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
-  const productVersionPatch = resolveProductVersionPatch(rows.get(API_GATEWAY_ROW_ID))
+  const productVersionPatch = resolveProductVersionPatch(rows.has(API_GATEWAY_ROW_ID))
   if (productVersionPatch !== undefined) composedOverlays.push(productVersionPatch)
   return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
 }

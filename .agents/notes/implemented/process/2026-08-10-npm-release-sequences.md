@@ -26,7 +26,7 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 | vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | local bump, pack, and verify only |
 | native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | local bump, pack, and verify only |
 
-This desktop fork publishes none of the three sequences to npm. The scripts retain pack, installed-artifact, payload, version, and tag validation as local and CI gates, but no workflow invokes a registry publisher and the product release workflow receives no npm credentials. The manifests retain per-sequence `publishConfig.access` as packed-payload policy if registry distribution is reconsidered; the values remain documented in [the access decision](2026-08-13-public-vendor-and-native-sequences.md).
+This desktop fork publishes none of the three sequences to npm. The scripts retain pack, installed-artifact, payload, version, and tag validation as explicit local gates; ordinary CI validates source and built artifacts but no workflow invokes a registry publisher, and the product release workflow receives no npm credentials. The manifests retain per-sequence `publishConfig.access` as packed-payload policy if registry distribution is reconsidered; the values remain documented in [the access decision](2026-08-13-public-vendor-and-native-sequences.md).
 
 ### Versions land in the repository from a local command; CI only checks and uploads
 
@@ -107,7 +107,7 @@ The dsh family applies the repository's publication payload policy, which reject
 
 ### Workflow shape: validate packed artifacts without registry credentials
 
-The artifact gate walks each release set, packs its members, records the dependency-safe order, and exercises the installed entry from a throwaway consumer. It carries no credentials and runs in pull-request checks plus the exhaustive `v*` tag suite. No downstream job publishes the tarballs.
+The explicit local `release:pack` and `release:verify-packed-install` commands walk a release set, pack its members, record the dependency-safe order, and exercise the installed entry from a throwaway consumer. Automated pull-request and `v*` tag checks validate source and built artifacts without registry credentials; no downstream job publishes tarballs.
 
 A dsh verification installs the vendored family's pack output too. The harness packages declare the vendored framework as a peer, those packages live in another sequence, and credential-free verification cannot fetch them from a private registry, so the dsh pack command includes the vendored family for verification while publishing only its own set.
 
@@ -158,7 +158,7 @@ This Agent Note replaces the version scheme and the release-set boundary in [art
 
 The release scripts are importable modules behind a guarded entry point, and their judgements carry unit tests: tag naming, publish order and cycle reporting, version-baseline arithmetic, the payload change judgement, and each family's payload policy. Two defects the first draft carried — a publish command that ran the pack command on import, and a change judgement blind to `vendor/cordis` source edits — are exactly what a test at that seam catches.
 
-A pull request runs the full pack for both sequences without credentials and installs the packed dsh tarballs into a throwaway consumer, where plain Node drives `dsh --version`. That probe is deliberately one command: it proves `files` selected a complete payload and that the published ranges resolve, and says nothing about interactive behavior.
+The explicit packed-install probe installs the packed dsh tarballs into a throwaway consumer, where plain Node drives `dsh --version`. That probe is deliberately one command: it proves `files` selected a complete payload and that the packed ranges resolve, and says nothing about interactive behavior. It is local release preparation, not part of the automatic pull-request lane.
 
 What this costs:
 

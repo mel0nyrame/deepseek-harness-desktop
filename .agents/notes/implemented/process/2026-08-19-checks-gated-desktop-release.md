@@ -12,7 +12,7 @@ A product tag could build desktop artifacts without proving the exhaustive repos
 
 The human-created `v<semver>` tag is the product release authority. The semver shape is `v<major>.<minor>.<patch>` with an optional dot-separated prerelease segment; build metadata is not accepted. The dsh release family proposes this plain prefix, while vendor and native families retain their own prefixes and cannot pass dsh-family validation.
 
-CI runs eight exhaustive tag jobs and the `tag checks passed` aggregate. [Release](../../../../.github/workflows/release.yml) listens to the completed CI workflow and proceeds only when its event is a successful push whose head branch is a product tag. The resolve job checks out that tag, validates its shape, and verifies that it points to the CI run's exact head SHA. Every product-repository checkout uses the resolved tag.
+CI runs eight exhaustive tag jobs and the `tag checks passed` aggregate. [Release](../../../../.github/workflows/release.yml) listens to the completed CI workflow and proceeds only when its event is a successful push whose head branch is a product tag. The resolve job checks out that tag, validates its shape, and verifies that it points to the CI run's exact head SHA. Every product-repository checkout uses the resolved tag and verifies the resulting commit against that SHA; the GitHub Release and Homebrew push re-check the remote tag immediately before their side effects.
 
 Each version has one committed bilingual highlights file at `.github/release-notes/<version>.md`. Its absence fails the release. English and Chinese highlights remain in one file, followed by GitHub's generated pull-request list. Until the signing posture changes, each version file states that DMGs are ad-hoc signed and not notarized.
 
@@ -22,7 +22,7 @@ Stable releases update `mel0nyrame/homebrew-dsh` with `ruby scripts/update-cask.
 
 This fork publishes no npm sequence. The artifact gates may pack and install workspace tarballs, but neither CI nor the release workflow calls a registry publisher.
 
-Release readiness is launcher-owned: the CLI reads its own package manifest and overlays that version onto the API gateway after user configuration, so `host.describe.version` reports the running product. The timeout package keeps the precise name `@deepseek-ai/dsh-tool-call-timeout-policy`; the alternative `dsh-timeout-guard` is broader than its tool-call policy, so the release-blocking rename marker is removed without changing the established package name.
+Release readiness is launcher-owned: every dsh-family manifest shares one version, and the CLI reads its own package manifest and overlays only that version field onto the API gateway after user configuration, so `host.describe.version` reports the running product without freezing reloadable gateway settings. The timeout package keeps the precise name `@deepseek-ai/dsh-tool-call-timeout-policy`; the alternative `dsh-timeout-guard` is broader than its tool-call policy, so the release-blocking rename marker is removed without changing the established package name.
 
 ## Alternatives considered
 

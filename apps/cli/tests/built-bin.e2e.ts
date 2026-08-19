@@ -46,6 +46,50 @@ async function waitForFile(file: string): Promise<void> {
   }
 }
 
+function createProductVersionProbe(home: string): string {
+  const plugin = join(home, 'product-version-probe.mjs')
+  writeFileSync(plugin, [
+    "export const name = 'product-version-probe'",
+    "export const inject = ['apiProxy']",
+    'export function apply(ctx) {',
+    '  void ctx.loader.await().then(async () => {',
+    "    const response = await ctx.apiProxy.host.describe({ rpcId: 'product-version-probe', payload: {} })",
+    '    if (!response.result.ok) throw new Error(response.result.error.message)',
+    '    process.stdout.write(`${response.result.value.version}\\n`)',
+    "    if (process.platform === 'win32') process.emit('SIGTERM')",
+    "    else process.kill(process.pid, 'SIGTERM')",
+    '  })',
+    '}',
+    '',
+  ].join('\n'))
+  const overlay = join(home, 'product-version-probe.cordis.yml')
+  writeFileSync(overlay, [
+    '- id: api-gateway',
+    '  config:',
+    "    productVersion: 'user-controlled'",
+    '- id: webserver',
+    '  disabled: true',
+    '- id: web-runtime',
+    '  disabled: true',
+    '- id: client-hmr',
+    '  disabled: true',
+    '- id: directory-picker',
+    '  disabled: true',
+    '- id: modules',
+    '  disabled: true',
+    '- id: connection',
+    '  disabled: true',
+    '- insert:',
+    '    - id: directory-picker-browse',
+    "      name: '@deepseek-ai/dsh-host-directory-picker-browse'",
+    '- insert:',
+    '    - id: product-version-probe',
+    `      name: ${pathToFileURL(plugin).href}`,
+    '',
+  ].join('\n'))
+  return overlay
+}
+
 interface ProfileLifecycleFixture {
   home: string
   ready: string
@@ -472,6 +516,21 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(result.code).toBe(1)
       expect(result.stdout).toBe('')
       expect(result.stderr).toContain('llm-pi-ai')
+    } finally {
+      rmSync(home, { recursive: true, force: true })
+    }
+  }, 30_000)
+
+  it('reports the CLI manifest version through the assembled host API', async () => {
+    const home = mkdtempSync(join(tmpdir(), 'dsh-product-version-'))
+    try {
+      const overlay = createProductVersionProbe(home)
+      const result = await runBuiltBin(['--profile', 'web', '--patch', overlay], {
+        DSH_HOME: home,
+        DSH_TELEMETRY_DISABLED: '1',
+      })
+      expect(result.code, result.stderr).toBe(0)
+      expect(result.stdout).toBe(cliVersion)
     } finally {
       rmSync(home, { recursive: true, force: true })
     }

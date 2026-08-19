@@ -12,17 +12,17 @@ Status: implemented
 
 人工创建的 `v<semver>` 标签是产品发行权威。semver 形状为 `v<主版本>.<次版本>.<补丁版本>`，可带点分隔的预发布段；不接受 build metadata。dsh 发布族采用这个朴素前缀，vendor 与 native 族保留各自前缀，且无法通过 dsh 族校验。
 
-CI 运行八个穷尽式标签 job 和 `tag checks passed` 聚合。[发行工作流](../../../../.github/workflows/release.yml)监听已完成的 CI，仅当其事件是产品标签 push 且结论成功时继续。resolve job checkout 该标签、校验形状，并确认它指向 CI run 的精确 head SHA。产品仓库的每次 checkout 都使用解析后的标签。
+CI 运行八个穷尽式标签 job 和 `tag checks passed` 聚合。[发行工作流](../../../../.github/workflows/release.yml)监听已完成的 CI，仅当其事件是产品标签 push 且结论成功时继续。resolve job checkout 该标签、校验形状，并确认它指向 CI run 的精确 head SHA。产品仓库的每次 checkout 都使用解析后的标签，并把所得 commit 与该 SHA 核对；GitHub Release 与 Homebrew push 会在产生副作用前再次核对远端标签。
 
-每个版本在 `.github/release-notes/<版本>.md` 有且只有一份已提交的双语亮点文件；缺失会让发行失败。英文与中文亮点保存在同一文件，GitHub 自动生成的拉取请求列表排在其后。在签名方式改变前，每个版本文件都必须说明 DMG 使用 ad-hoc 签名且未经公证。
+每个版本在 `.github/release-notes/<版本>.md` 有且只有一份已提交的双语亮点文件；缺失会让发行失败。英文与中文亮点保存在同一文件，GitHub 自动生成的 PR 列表排在其后。在签名方式改变前，每个版本文件都必须说明 DMG 使用 ad-hoc 签名且未经公证。
 
 DMG 矩阵在原生 macOS runner 上构建 arm64 与 x64。arm64 运行完整安装包 smoke；x64 运行 artifact gate 与 keyless 场景；两个架构都用 `codesign` 验证已挂载 DMG，并从挂载位置运行 keyless 场景。Release 只拥有四个资产：两份 DMG，以及每份旁边的一份 SHA-256 文件。重跑会编辑同一标签的 Release 并替换资产，不会创建第二个 Release。
 
 稳定版通过 `ruby scripts/update-cask.rb <版本>` 更新 `mel0nyrame/homebrew-dsh`，并使用 `DSH_TAP_DEPLOY_KEY` 推送 Cask。预发布版跳过 Homebrew job。若 deploy key 缺失或 tap 不可用，会在 GitHub Release 已存在后以明确名称失败。
 
-本 fork 不发布任何 npm 序列。artifact 门禁可以打包并安装 workspace tarball，但 CI 与发行工作流都不调用 registry 发布器。
+本 fork 不发布任何 npm 序列。artifact 门禁可以打包并安装 workspace tarball，但 CI 与发行工作流都不调用注册表发布器。
 
-发行就绪信息由启动器拥有：CLI 从自身包 manifest 读取版本，并在用户配置之后将其叠加到 API gateway，因此 `host.describe.version` 报告正在运行的产品。timeout 包保留精确名称 `@deepseek-ai/dsh-tool-call-timeout-policy`；备选名 `dsh-timeout-guard` 的范围比工具调用策略更宽，因此删除阻塞发行的改名标记，不改变已经确立的包名。
+发行就绪信息由启动器拥有：dsh 族的每份 manifest 都共享同一版本；CLI 从自身包 manifest 读取版本，并在用户配置之后只把该版本字段叠加到 API gateway，因此 `host.describe.version` 报告正在运行的产品，且不会冻结可热重载的 gateway 设置。timeout 包保留精确名称 `@deepseek-ai/dsh-tool-call-timeout-policy`；备选名 `dsh-timeout-guard` 的范围比工具调用策略更宽，因此删除阻塞发行的改名标记，不改变已经确立的包名。
 
 ## 曾考虑的替代方案
 
