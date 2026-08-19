@@ -58,31 +58,8 @@
   font-variant-numeric: tabular-nums;
 }
 
-<<<<<<< HEAD
-=======
-.layer.rail {
-  width: 36px;
-  height: 36px;
-  margin: 0;
-}
-
-.rail .badge {
-  justify-content: center;
-  gap: 0;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  border-radius: 50%;
-}
-
-.rail .footerButtons {
-  flex-direction: column;
-  gap: 2px;
-}
-
 /* Fixed so the sidebar's overflow clip cannot cut the 420px surface; the
    left/bottom offsets are measured from the trigger before paint. */
->>>>>>> upstream/master
 .panel {
   position: fixed;
   z-index: 30;

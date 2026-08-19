@@ -438,15 +438,9 @@ export function CordisPanel({
   }
 
   return (
-<<<<<<< HEAD
-    <div className={css.layer}>
-      {open && (
-        <section className={css.panel} data-cordis-panel aria-label={t('panel.title')}>
-=======
-    <div ref={rootRef} className={wide ? css.layer : `${css.layer} ${css.rail}`}>
+    <div ref={rootRef} className={css.layer}>
       {open && anchor !== undefined && (
         <section className={css.panel} style={anchor} data-cordis-panel aria-label={t('panel.title')}>
->>>>>>> upstream/master
           <header className={css.header}>
             <span className={css.title}>{t('panel.title')}</span>
           </header>
@@ -482,19 +476,9 @@ export function CordisPanel({
           aria-expanded={open}
           onClick={() => { setOpen(value => !value) }}
         >
-<<<<<<< HEAD
           <IconCordisPluginOutline14 />
           <span className={css.badgeLabel}>{t('panel.trigger')}</span>
           <span className={css.badgeCount}>{t('panel.runningCount', { count: running })}</span>
-=======
-          <IconCordisPluginOutline14 size={wide ? 16 : 18} />
-          {wide && (
-            <>
-              <span className={css.badgeLabel}>{t('panel.trigger')}</span>
-              <span className={css.badgeCount}>{t('panel.runningCount', { count: running })}</span>
-            </>
-          )}
->>>>>>> upstream/master
         </button>
       </div>
     </div>
