@@ -96,7 +96,7 @@ export function createDesktopFetch(bridge: DesktopBridge): typeof fetch {
       const response = await (aborted === undefined ? pending : Promise.race([pending, aborted]))
       return new Response(response.body, {
         status: response.status,
-        headers: response.headers.map(([name, value]) => [name, value]),
+        headers: response.headers.map(([name, value]): [string, string] => [name, value]),
       })
     } finally {
       signal?.removeEventListener('abort', handleAbort)

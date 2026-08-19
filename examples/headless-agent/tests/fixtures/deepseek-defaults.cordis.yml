@@ -6,7 +6,8 @@
       - id: llm-deepseek
         config:
           baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
-          thinking: disabled
+          thinking: enabled
+          reasoningEffort: low
           # Outlast the comments-only prefix (12 × 100ms) so only transport
           # comments — never a data chunk — can rearm the watchdog.
           streamIdleTimeoutMs: 1000
