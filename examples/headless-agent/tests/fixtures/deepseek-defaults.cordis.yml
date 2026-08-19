@@ -6,10 +6,16 @@
       - id: llm-deepseek
         config:
           baseURL: !!js process.env.DSH_SNAPSHOT_BASE_URL
+<<<<<<< HEAD
           thinking: disabled
           # Outlast the comments-only prefix (12 × 100ms) so only transport
           # comments — never a data chunk — can rearm the watchdog.
           streamIdleTimeoutMs: 1000
+=======
+          thinking: enabled
+          reasoningEffort: low
+          streamIdleTimeoutMs: 150
+>>>>>>> upstream/master
       - id: agent-spine
         config:
           agents:
