@@ -8,7 +8,7 @@ Status: implemented
 
 这个仓库有三组互不相干的可发布包，却没有任何发布通道把它们送上注册表。
 
-`packages/*/*` 与 `apps/*` 组成 `@deepseek-ai/dsh` 的运行面；`vendor/*` 是九个 rescope 过的 Cordis 框架包，各自带着上游的版本号；`native/landlock-run/packages/*` 是 Linux 平台包，有自己的 workflow。三组的版本基线、变更节奏和构建要求都不同：dsh 随产品迭代，vendor 只在同步上游或改动本地修改时才动，native 需要 musl 工具链和逐架构构建。把它们塞进一条发布流水线，等于每次产品发版都要重发框架和原生二进制。
+`packages/*/*` 与核心应用 `apps/cli`、`apps/web` 组成 `@deepseek-ai/dsh` 的运行面；独立的 `apps/desktop` 外壳携带 DMG 与应用元数据所用的产品版本；`vendor/*` 是九个 rescope 过的 Cordis 框架包，各自带着上游的版本号；`native/landlock-run/packages/*` 是 Linux 平台包，有自己的 workflow。各组的版本基线、变更节奏和构建要求都不同：core dsh 随运行时迭代，Desktop 外壳随产品发行迭代，vendor 只在同步上游或改动本地修改时才动，native 需要 musl 工具链和逐架构构建。把它们塞进一条发布流水线，等于每次产品发版都要重发框架和原生二进制。
 
 挡路的还有两处硬门。全部 217 个 workspace manifest 都是 `private: true`，`npm publish` 直接拒绝。更隐蔽的是 933 条 dsh 兄弟包之间硬写的 `peerDependencies: "^0.0.1"`：`pnpm pack` 只替换 `workspace:` 协议，不动语义范围，而 `^0.0.1` 等于 `>=0.0.1 <0.0.2`——发 `0.0.2` 落不进去，发 `0.0.1-rc.1` 也落不进去（semver 规定不带预发布段的范围排除预发布版本）。这些条目至今没出事，只因为版本一直停在 `0.0.1`。
 
@@ -22,7 +22,8 @@ Status: implemented
 
 | 序列 | 成员 | 版本基线 | tag | 发布命令 |
 |---|---|---|---|---|
-| dsh | `packages/*/*` + `apps/*`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `v<版本>` | 仅在本地 bump、pack 与 verify |
+| dsh core | `packages/*/*` + `apps/{cli,web}`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `dsh-v<版本>` | 仅在本地 bump、pack 与 verify |
+| Desktop 产品 | `apps/desktop`（`@deepseek-ai/dsh-desktop`） | 自己的产品版本线 | `v<版本>` | 产品发行工作流 |
 | vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | 仅在本地 bump、pack 与 verify |
 | native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | 仅在本地 bump、pack 与 verify |
 
@@ -32,7 +33,7 @@ Status: implemented
 
 每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。产品版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库。
 
-`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `1.0.0-rc.1` 这样的预发布号会先演练完整 GitHub Release 路径，随后再发布数字版本。dsh tag 使用朴素的 `v<版本>`，因为同一个产品 tag 会唤醒穷尽式 CI 和桌面发行工作流；vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。
+`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进 core 族**以及 workspace 根**——workspace 约束要求每个 core 成员的版本等于根版本，所以根承载 core 族版本，而根的检查接受预发布段。Desktop 外壳不属于这条命令，它的版本只在 `apps/desktop/package.json` 中单独 bump。像 `1.0.0-rc.1` 这样的产品预发布号通过朴素的 `v<版本>` tag 演练完整 GitHub Release 路径；休眠的 core npm 族使用 `dsh-v<版本>`，因此两个 tag 权威不会碰撞。vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。参见 [Desktop 独立版本线决策](2026-08-19-independent-desktop-version-line.md)。
 
 ### vendor：谁改了谁发版，tag 就是账本
 
@@ -118,7 +119,7 @@ dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 ven
 | 项 | 内容 |
 |---|---|
 | 发布集 manifest | 去掉 `private: true`；按序列补 `publishConfig.access` 与带各自 `directory` 的 `repository` |
-| 发布集边界 | `packages/*/*`、`apps/*`、`vendor/*` 的全部成员 |
+| 发布集边界 | `packages/*/*`、`apps/{cli,web}`、`vendor/*` 的全部成员；`apps/desktop` 是独立产品外壳 |
 | 依赖协议 | workspace 内部引用为 `workspace:^`，由 `check-workspace-constraints.ts` 与 invariant companion 规则强制 |
 | 根 `AGENTS.md` | 「vendored 包是 `private: true`」这条约定不再成立 |
 | `vendor/README.md` | 记录「`src` 加入 `cordis` 的 `files`」这条本地修改 |

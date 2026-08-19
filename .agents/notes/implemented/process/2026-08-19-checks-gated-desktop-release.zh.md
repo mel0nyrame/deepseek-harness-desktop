@@ -6,11 +6,11 @@ Status: implemented
 
 ## 问题
 
-产品标签可以在未证明仓库穷尽式检查通过时构建桌面产物，而且没有一条工作流统一负责双语说明、已验证下载、GitHub Release 状态与稳定版 Homebrew 交付。dsh 族提出的标签前缀也与产品工作流不同，发行权威并不明确。
+产品标签可以在未证明仓库穷尽式检查通过时构建桌面产物，而且没有一条工作流统一负责双语说明、已验证下载、GitHub Release 状态与稳定版 Homebrew 交付。core dsh 族与 Desktop 产品还在携带独立版本时共用同一个 tag 前缀，发行权威并不明确。
 
 ## 决策
 
-人工创建的 `v<semver>` 标签是产品发行权威。semver 形状为 `v<主版本>.<次版本>.<补丁版本>`，可带点分隔的预发布段；不接受 build metadata。dsh 发布族采用这个朴素前缀，vendor 与 native 族保留各自前缀，且无法通过 dsh 族校验。
+人工创建的 `v<semver>` 标签是 Desktop 产品发行权威，并命名 `apps/desktop/package.json` 中的版本。semver 形状为 `v<主版本>.<次版本>.<补丁版本>`，可带点分隔的预发布段；不接受 build metadata。休眠的 core dsh npm 族使用 `dsh-v<semver>`，vendor 与 native 族保留各自前缀。版本线归属记录在 [Desktop 独立版本线决策](2026-08-19-independent-desktop-version-line.md)中。
 
 CI 运行八个穷尽式标签 job 和 `tag checks passed` 聚合。[发行工作流](../../../../.github/workflows/release.yml)监听已完成的 CI，仅当其事件是产品标签 push 且结论成功时继续。resolve job checkout 该标签、校验形状，并确认它指向 CI run 的精确 head SHA。产品仓库的每次 checkout 都使用解析后的标签，并把所得 commit 与该 SHA 核对；GitHub Release 与 Homebrew push 会在产生副作用前再次核对远端标签。
 
@@ -22,7 +22,7 @@ DMG 矩阵在原生 macOS runner 上构建 arm64 与 x64。arm64 运行完整安
 
 本 fork 不发布任何 npm 序列。artifact 门禁可以打包并安装 workspace tarball，但 CI 与发行工作流都不调用注册表发布器。
 
-发行就绪信息由启动器拥有：dsh 族的每份 manifest 都共享同一版本，CLI 从自身包 manifest 读取版本。每次启动或热重载 generation 都重新组合 API gateway 的有效配置、保留其当前设置，再以该 manifest 值替换 `productVersion`。因此 `host.describe.version` 会报告正在运行的产品，且不会冻结或丢弃可热重载的 gateway 设置。timeout 包保留精确名称 `@deepseek-ai/dsh-tool-call-timeout-policy`；备选名 `dsh-timeout-guard` 的范围比工具调用策略更宽，因此删除阻塞发行的改名标记，不改变已经确立的包名。
+运行时就绪信息由启动器拥有：core dsh 族的每份 manifest 都共享同一版本，CLI 从自身包 manifest 读取版本。每次启动或热重载 generation 都重新组合 API gateway 的有效配置、保留其当前设置，再以该 manifest 值替换 `productVersion`。因此 `host.describe.version` 会报告正在运行的运行时，且不会冻结或丢弃可热重载的 gateway 设置。Desktop bundle 与发行元数据改为读取外壳自身独立的 manifest 版本。timeout 包保留精确名称 `@deepseek-ai/dsh-tool-call-timeout-policy`；备选名 `dsh-timeout-guard` 的范围比工具调用策略更宽，因此删除阻塞发行的改名标记，不改变已经确立的包名。
 
 ## 曾考虑的替代方案
 

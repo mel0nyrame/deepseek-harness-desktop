@@ -305,11 +305,14 @@ export abstract class ReleaseFamily {
   abstract readonly installedEntry: InstalledEntry | undefined
 }
 
-/** `packages/*` and `apps/*`: one shared version across the whole family. */
+/** Core `packages/*` and apps share one version; the desktop shell has its own version line. */
 class DshFamily extends ReleaseFamily {
   readonly id = 'dsh'
-  readonly patterns = ['packages/*/*/package.json', 'apps/*/package.json'] as const
-  readonly tagPrefix = 'v'
+  readonly patterns = [
+    'packages/*/*/package.json',
+    'apps/{cli,web}/package.json',
+  ] as const
+  readonly tagPrefix = 'dsh-v'
 
   /**
    * Require one version across the family, the way a single tag can name it.
@@ -325,7 +328,7 @@ class DshFamily extends ReleaseFamily {
 
   /**
    * The single family prefix: every member shares one version, so one tag names it.
-   * @returns `v`.
+   * @returns `dsh-v`.
    */
   tagPrefixFor(): string {
     return this.tagPrefix
