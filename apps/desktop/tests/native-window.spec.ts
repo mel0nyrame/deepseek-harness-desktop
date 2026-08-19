@@ -190,8 +190,10 @@ describe('native macOS desktop window contract', () => {
       && selector.includes('[data-sidebar-collapsed]') === collapsed,
     )
 
-    expect(windowedRule('[data-conversation-title-row]', false)?.[1])
-      .toContain('transform: translateY(-8px) !important')
+    const expandedTitleRow = windowedRule('[data-conversation-title-row]', false)?.[1]
+    expect(expandedTitleRow).toContain('position: relative !important')
+    expect(expandedTitleRow).toContain('z-index: 1 !important')
+    expect(expandedTitleRow).toContain('transform: translateY(-8px) !important')
     expect(windowedRule('[data-conversation-view-tabs]', false)?.[1])
       .toContain('transform: translateY(-10px) !important')
     expect(windowedRule('[data-conversation-header]::after', false)?.[1])

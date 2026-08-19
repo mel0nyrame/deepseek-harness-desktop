@@ -16,6 +16,7 @@ import {
   webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
+import { DESKTOP_SURFACE_CSS } from '../../desktop/src/native-window.ts'
 
 const BASE_FIXTURE = fileURLToPath(new URL('./snapshots/live-interactions/session.jsonl', import.meta.url))
 const AVAILABLE_CHILD_EXPECTED = fileURLToPath(new URL('./snapshots/subagent-conversation/ui.expected.md', import.meta.url))
@@ -323,6 +324,43 @@ describe('web e2e: persisted subagent conversation and human continuation', () =
     )
     await compareOrRefreshGolden(TREE_EXPECTED, snapshot, MODE)
     await page.getByRole('tree', { name: 'Subagent sessions' }).press('Escape')
+  })
+
+  it('keeps the desktop subagent catalog above the conversation transcript', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-desktop-subagent-stacking'))
+    await page.evaluate(() => { document.body.dataset.dshPlatform = 'darwin' })
+    const desktopStyle = await page.addStyleTag({ content: DESKTOP_SURFACE_CSS })
+    try {
+      await page.getByRole('button', { name: '3 subagents' }).click()
+      await page.getByRole('button', { name: `Expand ${LABEL} descendants` }).click()
+      const nestedRow = page.getByRole('treeitem', { name: new RegExp(NESTED_LABEL) })
+      await nestedRow.waitFor({ timeout: 15_000 })
+      const stacking = await nestedRow.evaluate((row) => {
+        const menu = row.closest('[role="tree"]')
+        if (!(menu instanceof HTMLElement)) throw new Error('subagent catalog tree is missing')
+        const rect = row.getBoundingClientRect()
+        const topmost = document.elementFromPoint(
+          rect.left + rect.width / 2,
+          rect.top + rect.height / 2,
+        )
+        return {
+          menuBackground: getComputedStyle(menu).backgroundColor,
+          rowCenterIsWithinMenu: topmost !== null && menu.contains(topmost),
+        }
+      })
+      expect(stacking.menuBackground).not.toBe('rgba(0, 0, 0, 0)')
+      expect(stacking.rowCenterIsWithinMenu).toBe(true)
+      await nestedRow.click()
+      await page.getByRole('navigation', { name: 'Session hierarchy' })
+        .getByRole('button', { name: NESTED_LABEL, disabled: true })
+        .waitFor()
+    } finally {
+      await desktopStyle.evaluate(style => style.parentNode?.removeChild(style))
+      await page.evaluate(() => { delete document.body.dataset.dshPlatform })
+      await page.getByRole('tree', { name: 'Sessions' })
+        .getByRole('treeitem', { name: /Ask a research subagent to/ })
+        .click()
+    }
   })
 
   it('opens the completed child from persistence without activating it', async () => {
