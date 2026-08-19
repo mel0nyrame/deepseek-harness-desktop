@@ -60,9 +60,26 @@ React 客户端继续使用与 Web 产品相同、与传输无关的 Connection 
 
 <a id="run"></a><a id="run-from-source"></a>
 
+## 安装
+
+### Homebrew（推荐）
+
+```sh
+brew tap mel0nyrame/dsh
+brew install --cask dsh-desktop
+```
+
+Cask 会为当前 Mac 选择 arm64 或 x64 构建，并在安装后移除隔离属性。稳定版发布后会自动更新 Cask；预发布版仅在 GitHub 提供。
+
+### GitHub Releases
+
+从 [GitHub Releases](https://github.com/mel0nyrame/deepseek-harness-desktop/releases) 下载适合当前 Mac 的 DMG（Apple 芯片选择 `arm64`，Intel 选择 `x64`），使用相邻的 `.sha256` 文件校验后，将 DSH Desktop 拖入“应用程序”。
+
+发行 DMG 使用 ad-hoc 签名且未经公证。因此，直接下载 DMG 后可能需要在 macOS 上执行一次右键 → 打开；通过 Homebrew 安装时，Cask 会完成相应的隔离属性处理。
+
 ## 从源码启动
 
-本项目处于开发者预览阶段。在当前仓库 checkout 中运行：
+在当前仓库 checkout 中运行：
 
 ```sh
 pnpm install
@@ -76,7 +93,7 @@ pnpm run dev:desktop
 pnpm --filter @deepseek-ai/dsh-desktop run package
 ```
 
-打包命令会在 `apps/desktop/dist/` 下生成当前主机架构的 `.app` 与 `.dmg`。目前的本地产物使用 ad-hoc 签名且未经公证，因此下载后的构建可能需要在 macOS 上执行一次右键 → 打开。
+打包命令会在 `apps/desktop/dist/` 下生成当前主机架构的 `.app` 与 `.dmg`。
 
 ## 项目边界
 
@@ -89,8 +106,8 @@ pnpm --filter @deepseek-ai/dsh-desktop run package
 ## 状态与分发
 
 - 仓库与应用仍在积极开发中，未来仍可能出现破坏兼容性的变更。
-- 当前检入的打包路径面向 macOS，并构建主机架构产物。
-- 尚未配置 Developer ID 签名与公证；分发产物前请阅读[桌面端限制](apps/desktop/README.md#limitations)。
+- 产品发行版分别提供 arm64 与 x64 macOS DMG，并附带 SHA-256 校验文件。
+- 尚未配置 Developer ID 签名与公证；直接下载时可能需要执行上文所述的一次性右键 → 打开。再次分发产物前请阅读[桌面端限制](apps/desktop/README.md#limitations)。
 
 ## 开发
 

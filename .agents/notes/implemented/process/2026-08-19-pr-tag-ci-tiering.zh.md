@@ -16,7 +16,7 @@ Status: implemented
 
 Python 运行时构建器现在仅 `workflow_call`，没有 `ci` 输入，也没有 manual/label 入口。其 Linux node-pty 步骤只删除已解析 addon 的 `build` 目录，然后直接调用 lockfile 解析出的 node-gyp，从而在容器构建前重新生成 manylinux Makefile。
 
-其他全量工作流也仅 tag：`desktop-release.yml` 在 `v*` 上构建两种 macOS 架构；`sandbox.yml` 在 `v*` 上运行内核约束证明；`landlock-run.yml` 保留路径过滤的轻量 PR 原生作业，同时其完整原生矩阵和 darwin 证明在 tag 上运行。
+其他全量工作流也仅 tag：`release.yml` 在 `v*` CI 成功后构建两种 macOS 架构；`sandbox.yml` 在 `v*` 上运行内核约束证明；`landlock-run.yml` 保留路径过滤的轻量 PR 原生作业，同时其完整原生矩阵和 darwin 证明在 tag 上运行。
 
 ## Consequences
 

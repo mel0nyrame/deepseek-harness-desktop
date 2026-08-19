@@ -60,9 +60,26 @@ The [desktop application reference](apps/desktop/README.md) owns the complete ca
 
 <a id="run"></a><a id="run-from-source"></a>
 
-## Start from source
+## Install
 
-The project is in developer preview. From this repository checkout:
+### Homebrew (recommended)
+
+```sh
+brew tap mel0nyrame/dsh
+brew install --cask dsh-desktop
+```
+
+The cask selects the arm64 or x64 build for the current Mac and removes the quarantine attribute after installation. Stable releases update the cask automatically; prereleases remain available from GitHub only.
+
+### GitHub Releases
+
+Download the DMG for your Mac (`arm64` for Apple silicon or `x64` for Intel) from [GitHub Releases](https://github.com/mel0nyrame/deepseek-harness-desktop/releases), verify it against the adjacent `.sha256` file, and drag DSH Desktop to Applications.
+
+Release DMGs are ad-hoc signed and not notarized. A direct DMG download may therefore require the one-time macOS right-click → Open flow. The Homebrew cask performs the corresponding quarantine handling during installation.
+
+## Run from source
+
+From this repository checkout:
 
 ```sh
 pnpm install
@@ -76,7 +93,7 @@ pnpm run dev:desktop
 pnpm --filter @deepseek-ai/dsh-desktop run package
 ```
 
-The package command writes the host-architecture `.app` and `.dmg` under `apps/desktop/dist/`. Current local artifacts are ad-hoc signed and not notarized, so a downloaded build may require the one-time macOS right-click → Open flow.
+The package command writes the host-architecture `.app` and `.dmg` under `apps/desktop/dist/`.
 
 ## Project boundaries
 
@@ -89,8 +106,8 @@ The package command writes the host-architecture `.app` and `.dmg` under `apps/d
 ## Status and distribution
 
 - The repository and application are under active development; compatibility-breaking changes remain possible.
-- The checked-in packaging path currently targets macOS and builds the host architecture.
-- Developer ID signing and notarization are not configured; read the [desktop limitations](apps/desktop/README.md#limitations) before distributing artifacts.
+- Product releases provide separate arm64 and x64 macOS DMGs with SHA-256 checksum files.
+- Developer ID signing and notarization are not configured; direct downloads may need the one-time right-click → Open flow described above. Read the [desktop limitations](apps/desktop/README.md#limitations) before redistributing artifacts.
 
 ## Development
 

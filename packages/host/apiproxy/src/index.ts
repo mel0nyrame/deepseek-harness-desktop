@@ -56,6 +56,8 @@ declare module '@deepseek-ai/cordis' {
 
 /** Gateway plugin configuration. */
 export interface Config {
+  /** Product version read from the owning application manifest. */
+  productVersion: string
   /**
    * Whether this deployment can hand paths to a native desktop opener —
    * the `hasDocument` capability the agent-preset roster reports. Absent,
@@ -90,6 +92,7 @@ export class ApiProxyService extends Service implements ApiProxy {
   ]
 
   static Config: z<Config> = z.object({
+    productVersion: z.string().required(),
     nativeOpen: z.boolean(),
     sessionExportCompressionLevel: z.number().step(1).min(0).max(9)
       .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
@@ -114,6 +117,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     super(ctx, 'apiProxy')
     const nativePathOpener = ctx.get('nativePathOpener')
     const api = createApiProxy(ctx, {
+      productVersion: config.productVersion,
       defaultModelSelection: () => ctx.agentDefaultModel.currentSelection(),
       saveDefaultModelSelection: selection => ctx.agentDefaultModel.saveSelection(selection),
       cwd: process.cwd(),

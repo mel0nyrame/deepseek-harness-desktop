@@ -12,6 +12,8 @@ A restricted dependency is what actually blocks a public consumer. Every harness
 
 ## Decision
 
+This desktop fork publishes no release sequence to npm. The access values below remain manifest and packed-payload policy, enforced by workspace constraints, but no GitHub Actions workflow invokes `release:publish` or carries npm credentials. Product distribution uses GitHub Releases and Homebrew; wiring any registry publisher is a new decision.
+
 Access is a property of each release sequence, not of the scope:
 
 | Sequence | Members | `publishConfig.access` |
@@ -22,7 +24,7 @@ Access is a property of each release sequence, not of the scope:
 
 `check-workspace-constraints.ts` holds every manifest to its own sequence's level, which is what stops the scope from drifting: a new `vendor/*` package left at `restricted`, or a dsh member flipped to `public`, fails the workspace constraints.
 
-**No publish path passes `--access`.** A single flag cannot serve sequences that disagree, and a flag overrides the manifest that owns the fact, so both repository publishers pass none. Each packed manifest decides.
+**No current publish path reaches npm.** If the dormant publisher is invoked explicitly in a future policy, it must pass no `--access`: a single flag cannot serve sequences that disagree, and a flag would override the manifest that owns the fact. Each packed manifest decides.
 
 Harness consumers reference the Landlock entry as `workspace:^` rather than `workspace:*`, so a published harness package accepts the entry's patch and minor releases instead of pinning one exact version. The entry keeps `workspace:*` for its two platform packages, where the binary must match the entry version exactly.
 

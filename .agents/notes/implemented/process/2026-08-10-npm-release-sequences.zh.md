@@ -1,4 +1,4 @@
-# Agent Note: 三条独立序列的私有 NPM 发布
+# Agent Note: 三条独立序列的发布族版本与产物校验
 
 Status: implemented
 
@@ -22,17 +22,17 @@ Status: implemented
 
 | 序列 | 成员 | 版本基线 | tag | 发布命令 |
 |---|---|---|---|---|
-| dsh | `packages/*/*` + `apps/*`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `dsh-v<版本>` | `pnpm run release:publish` |
-| vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | `pnpm run release:publish` |
-| native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | `pnpm --dir native/landlock-run release:publish` |
+| dsh | `packages/*/*` + `apps/*`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `v<版本>` | 仅在本地 bump、pack 与 verify |
+| vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | 仅在本地 bump、pack 与 verify |
+| native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | 仅在本地 bump、pack 与 verify |
 
-三组一律发到 npmjs.com 的 `@deepseek-ai` scope，且 access 按序列而非按 scope 区分：vendored 框架与 native 包是 `public`，dsh 族是 `restricted`（[理由](2026-08-13-public-vendor-and-native-sequences.md)）。没有任何发布路径传 `--access`——一个选项无法服务级别互不相同的序列，且会覆盖真正拥有该级别的 manifest。
+这个桌面 fork 不把三条序列中的任何一条发布到 npm。脚本保留 pack、安装态产物、payload、版本与 tag 校验，作为本地和 CI 门禁；但没有工作流调用 registry 发布器，产品发行工作流也不接收 npm 凭据。各 manifest 保留按序列区分的 `publishConfig.access`，作为未来重新考虑 registry 分发时的打包 payload 策略；取值继续由 [access 决策](2026-08-13-public-vendor-and-native-sequences.md)记录。
 
 ### 版本由本地命令写进仓库，CI 只核对与上传
 
-每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。发布版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库，也不需要写权限。
+每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。产品版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库。
 
-`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `0.0.1-rc.1` 这样的预发布号先把 pack、已安装产物探针和一次真实私有发布跑通，数字版本随后。发布器把带预发布段的版本发到 `next`，其他版本进入 `latest`。
+`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `1.0.0-rc.1` 这样的预发布号会先演练完整 GitHub Release 路径，随后再发布数字版本。dsh tag 使用朴素的 `v<版本>`，因为同一个产品 tag 会唤醒穷尽式 CI 和桌面发行工作流；vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。
 
 ### vendor：谁改了谁发版，tag 就是账本
 
@@ -58,9 +58,9 @@ tag 只是 commit 指针，不是发布成功的证明。bump 会向 registry �
 
 `vendor/cordis` 现在也发布 `src`。它的 exports 声明了 `"./src/*"`，tarball 里没有这些文件就等于把消费方指向不存在的路径；而 `files` 只选构建产物，也让变更判据没有任何受 git 跟踪的路径可匹配。
 
-### 发布只在 GitHub 执行，由 registry 状态决定发什么
+### 本 fork 不启用 registry 发布机制
 
-发布只从 GitHub Actions 执行，没有本机发布路径。publish 不读 tag、不读任何「本次发布包含什么」的清单，而是对每个打包好的 tarball 拿版本与 registry 比对，分三态：
+发布器继续保持可导入且有测试，因为它的 tarball integrity 比较记录了未来若恢复 registry 发布时应如何安全重试。它可以对每个打包好的 tarball 拿版本与 registry 比对，分三态：
 
 | 状态 | 处置 |
 |---|---|
@@ -72,7 +72,7 @@ tag 只是 commit 指针，不是发布成功的证明。bump 会向 registry �
 
 三条序列都按这套判定，native 也在内：它通过自己的脚本发布，而不是 shell 循环——一串裸 `npm publish` 无法重试，registry 对「重发已存在的版本」的回答是永久失败，因此中途失败一次就没有前路了。
 
-registry 的两个行为决定了「怎么尝试一次发布」。写入之间至少间隔两秒并带退避重试，因为连续背靠背发多个包会超出 registry 自身的处理速度，换来 `E409 Failed to save packument`。而每次重试都先重查 registry：报出来的失败可能对应一次其实已经落地的写入，所以「该版本现在存在且 integrity 与本 tarball 相同」算作已发布，而不是又一个待放置的版本。
+registry 的两个行为决定了未来一次显式发布应如何尝试。写入之间至少间隔两秒并带退避重试，因为连续背靠背发多个包会超出 registry 自身的处理速度，换来 `E409 Failed to save packument`。而每次重试都先重查 registry：报出来的失败可能对应一次其实已经落地的写入，所以「该版本现在存在且 integrity 与本 tarball 相同」算作已发布，而不是又一个待放置的版本。当前没有工作流调用这套机制；启用它属于新的发行策略决策。
 
 ### workspace 内部引用走 `workspace:` 协议
 
@@ -105,11 +105,9 @@ registry 的两个行为决定了「怎么尝试一次发布」。写入之间�
 
 dsh 族套用仓库的发布 payload 策略（拒绝源码与声明映射）。vendored 族保留上游 payload，因为那些 manifest 导出 `./src/*`，去掉 `src` 会发出一个导出映射指向不存在文件的包。
 
-### workflow 形状：一次性 pack 全部，再统一 publish
+### workflow 形状：无 registry 凭据地校验打包产物
 
-`pack` job 一趟遍历整个发布集，把每个成员打进同一个目录，写出上传顺序，整个目录作为一份 artifact 上传；`publish` job 下载那一份 artifact，按顺序逐个发布。发布集是一个整体——绝不会出现一半的包已经上了 registry、另一半还在构建。
-
-`pack` 无凭据，在每个 pull request 和每次 master push 上跑，所以一个 pull request 就能证明发布集仍能完整打出来。`publish` 是手动 dispatch，挂在 `npm-publish` environment 后面等人工审批，且既不构建也不重建——它上传的就是 pack 产出的字节。pack 的 run 按 ref 分组，并发的 pull request 不会互相顶掉；全局分组落在 publish job 上，因为 dist-tag 是共享的 registry 状态。
+artifact 门禁遍历各发布集，打包成员，记录满足依赖关系的顺序，并在一次性 consumer 中驱动安装后的入口。它不携带凭据，在 pull request 检查和穷尽式 `v*` tag 套件中运行。没有任何下游 job 发布这些 tarball。
 
 dsh 的验证会一并安装 vendored 族的 pack 产物。harness 的包把 vendored 框架声明成 peer，而那些包属于另一条序列，无凭据验证无法从私有 registry 取到，因此 dsh 的 pack 命令为验证而包含 vendored 族，发布的仍只有自己那一份。
 

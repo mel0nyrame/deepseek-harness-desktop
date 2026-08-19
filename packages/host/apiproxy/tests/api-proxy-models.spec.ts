@@ -388,6 +388,7 @@ describe('Web session model selection', () => {
     const api = createApiProxy(ctx, {
       defaultModelSelection: () => stored,
       cwd: '/tmp',
+      productVersion: '1.2.3-rc.1',
     })
 
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
@@ -399,7 +400,11 @@ describe('Web session model selection', () => {
     expect(expectValue(await api.sessions.models(request({ sessionId }))).current)
       .toEqual({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
     expect(expectValue(await api.host.describe(request({}))))
-      .toMatchObject({ provider: 'deepseek-official', model: 'deepseek-reasoner' })
+      .toMatchObject({
+        version: '1.2.3-rc.1',
+        provider: 'deepseek-official',
+        model: 'deepseek-reasoner',
+      })
     await ctx.fiber.dispose()
   })
 

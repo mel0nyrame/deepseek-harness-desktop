@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh/profile-boot
  */
 
-import { writeFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { FiberState, type Context } from '@deepseek-ai/cordis'
@@ -55,6 +55,38 @@ export const INSTALL_ANCHOR = fileURLToPath(new URL('../package.json', import.me
 
 /** The session-telemetry row id the DSH_TELEMETRY_DISABLED switch targets. */
 const TELEMETRY_ROW_ID = 'session-telemetry-otel'
+
+/** The Web/Desktop gateway row whose product identity belongs to this launcher. */
+const API_GATEWAY_ROW_ID = 'api-gateway'
+
+/** Read the version this installation's CLI manifest carries. */
+function productVersion(): string {
+  const manifest = JSON.parse(readFileSync(INSTALL_ANCHOR, 'utf8')) as { version?: unknown }
+  if (typeof manifest.version !== 'string' || manifest.version === '') {
+    throw new Error(`${NAME}: ${INSTALL_ANCHOR} must declare a string version`)
+  }
+  return manifest.version
+}
+
+/**
+ * Build the launcher-owned API gateway identity patch.
+ * @param row - composed gateway row, or undefined when the profile has no gateway.
+ * @param version - explicit version for tests; defaults to this installation's CLI manifest.
+ * @returns a final gateway overlay, or undefined for profiles without the gateway.
+ */
+export function resolveProductVersionPatch(
+  row: EntryOptions | undefined,
+  version?: string,
+): PatchOptions | undefined {
+  if (row === undefined) return undefined
+  return {
+    id: API_GATEWAY_ROW_ID,
+    config: {
+      ...(row.config ?? {}) as Record<string, unknown>,
+      productVersion: version ?? productVersion(),
+    },
+  }
+}
 
 /** The empty root entry list every profile tree patches over. */
 const PROFILE_ROOT_CONFIG = `# dsh profile root — an empty entry list. The tree is composed as patches:
@@ -167,6 +199,8 @@ function composeProfile(
   }
   const telemetryPatch = resolveTelemetryPatch(process.env.DSH_TELEMETRY_DISABLED, rows.has(TELEMETRY_ROW_ID))
   if (telemetryPatch !== undefined) composedOverlays.push(telemetryPatch)
+  const productVersionPatch = resolveProductVersionPatch(rows.get(API_GATEWAY_ROW_ID))
+  if (productVersionPatch !== undefined) composedOverlays.push(productVersionPatch)
   return { profile, bundlePatches, homePatches, overlays: composedOverlays, rows }
 }
 

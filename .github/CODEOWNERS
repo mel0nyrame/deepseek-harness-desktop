@@ -1,0 +1,8 @@
+# Release policy and automation
+/.github/CODEOWNERS @mel0nyrame
+/.github/workflows/ci.yml @mel0nyrame
+/.github/workflows/release.yml @mel0nyrame
+/.github/release-notes/ @mel0nyrame
+/scripts/release/ @mel0nyrame
+/apps/desktop/ @mel0nyrame
+/SECURITY.md @mel0nyrame

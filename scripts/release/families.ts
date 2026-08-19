@@ -309,7 +309,7 @@ export abstract class ReleaseFamily {
 class DshFamily extends ReleaseFamily {
   readonly id = 'dsh'
   readonly patterns = ['packages/*/*/package.json', 'apps/*/package.json'] as const
-  readonly tagPrefix = 'dsh-v'
+  readonly tagPrefix = 'v'
 
   /**
    * Require one version across the family, the way a single tag can name it.
@@ -325,7 +325,7 @@ class DshFamily extends ReleaseFamily {
 
   /**
    * The single family prefix: every member shares one version, so one tag names it.
-   * @returns `dsh-v`.
+   * @returns `v`.
    */
   tagPrefixFor(): string {
     return this.tagPrefix

@@ -16,7 +16,7 @@ All exhaustive checks move to `v*` tag pushes. `ci.yml` defines eight parallel t
 
 The Python runtime builder is now `workflow_call` only, with no `ci` input and no manual/label entry points. Its Linux node-pty step deletes only the resolved addon's `build` directory and then invokes the lockfile-resolved node-gyp directly, so the manylinux Makefile is regenerated before the container build.
 
-Other full workflows are also tag-only: `desktop-release.yml` builds both macOS architectures on `v*`; `sandbox.yml` runs kernel-confinement proofs on `v*`; and `landlock-run.yml` keeps a path-filtered lightweight PR native job while its full native matrix and darwin proof run on tags.
+Other full workflows are also tag-only: `release.yml` builds both macOS architectures after successful `v*` CI; `sandbox.yml` runs kernel-confinement proofs on `v*`; and `landlock-run.yml` keeps a path-filtered lightweight PR native job while its full native matrix and darwin proof run on tags.
 
 ## Consequences
 
