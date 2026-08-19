@@ -8,7 +8,7 @@ English | [中文](2026-08-10-npm-release-sequences.zh.md)
 
 This repository held three unrelated groups of publishable packages and no channel that sent any of them to a registry.
 
-`packages/*/*` and `apps/*` form the runtime surface of `@deepseek-ai/dsh`; `vendor/*` holds nine rescoped Cordis framework packages, each carrying its upstream version; `native/landlock-run/packages/*` holds Linux platform packages with their own workflow. The three differ in version baseline, change rate, and build requirements: dsh moves with the product, vendor moves only when upstream is re-synced or a local modification changes, and native needs a musl toolchain and one build per architecture. Forcing them through one pipeline means every product release republishes the framework and the native binaries.
+`packages/*/*` and the core apps `apps/cli` and `apps/web` form the runtime surface of `@deepseek-ai/dsh`; the independent `apps/desktop` shell carries the product version for DMGs and app metadata; `vendor/*` holds nine rescoped Cordis framework packages, each carrying its upstream version; `native/landlock-run/packages/*` holds Linux platform packages with their own workflow. The groups differ in version baseline, change rate, and build requirements: core dsh moves with the runtime, the desktop shell moves with product releases, vendor moves only when upstream is re-synced or a local modification changes, and native needs a musl toolchain and one build per architecture. Forcing them through one pipeline means every product release republishes the framework and the native binaries.
 
 Two hard blockers sat in the way. All 217 workspace manifests set `private: true`, which npm refuses to publish. The subtler one was 933 hand-written `peerDependencies: "^0.0.1"` entries between sibling dsh packages: `pnpm pack` substitutes the `workspace:` protocol but leaves semver ranges alone, and `^0.0.1` means `>=0.0.1 <0.0.2` — it excludes `0.0.2`, and semver excludes prereleases from a range without a prerelease of its own, so it excluded `0.0.1-rc.1` too. Those entries never failed only because the version never left `0.0.1`.
 
@@ -22,7 +22,8 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 
 | Sequence | Members | Version baseline | Tag | Publication command |
 |---|---|---|---|---|
-| dsh | `packages/*/*` + `apps/*` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root, `0.0.x` | `v<version>` | local bump, pack, and verify only |
+| dsh core | `packages/*/*` + `apps/{cli,web}` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root, `0.0.x` | `dsh-v<version>` | local bump, pack, and verify only |
+| desktop product | `apps/desktop` (`@deepseek-ai/dsh-desktop`) | its own product version | `v<version>` | product release workflow |
 | vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | local bump, pack, and verify only |
 | native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | local bump, pack, and verify only |
 
@@ -32,7 +33,7 @@ This desktop fork publishes none of the three sequences to npm. The scripts reta
 
 Each sequence has one bump-and-commit command: it derives the target version, writes it into the relevant manifests, runs `pnpm install --lockfile-only`, and commits the manifests with the lockfile. The product version is therefore readable from the repository. A human creates the tag after the commit merges to master; CI never writes to the repository.
 
-`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the family **and the workspace root** — the workspace constraint requires every member's version to equal the root's, so the root carries the family version, and the root check accepts a prerelease segment. A prerelease such as `1.0.0-rc.1` drives the complete GitHub Release rehearsal before the numbered version follows. The dsh tag is plain `v<version>` because that product tag wakes the exhaustive CI and desktop release workflows; vendor and native tags retain their distinct prefixes and cannot pass dsh-family validation.
+`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the core family **and the workspace root** — the workspace constraint requires every core member's version to equal the root's, so the root carries the core family version, and the root check accepts a prerelease segment. The desktop shell is excluded from this command and has its own version bump in `apps/desktop/package.json`. A product prerelease such as `1.0.0-rc.1` drives the complete GitHub Release rehearsal through the plain `v<version>` tag; the dormant core npm family uses `dsh-v<version>` so the two tag authorities cannot collide. Vendor and native tags retain their distinct prefixes and cannot pass dsh-family validation. See [the independent Desktop version-line decision](2026-08-19-independent-desktop-version-line.md).
 
 ### vendor: publish what changed, and let tags be the ledger
 
@@ -118,7 +119,7 @@ The verification also packs the Landlock entry, which `dsh-sandbox-local` declar
 | Item | Content |
 |---|---|
 | release-set manifests | `private: true` removed; `publishConfig.access` per sequence and `repository` with each package's `directory` added |
-| release-set boundary | every member of `packages/*/*`, `apps/*`, and `vendor/*` |
+| release-set boundary | every member of `packages/*/*`, `apps/{cli,web}`, and `vendor/*`; `apps/desktop` is the independent product shell |
 | dependency protocol | workspace-internal references are `workspace:^`, with `check-workspace-constraints.ts` and the invariant-companion rule requiring it |
 | root `AGENTS.md` | the convention that vendored packages are `private: true` no longer holds |
 | `vendor/README.md` | records `src` joining `cordis`'s `files` as a local modification |

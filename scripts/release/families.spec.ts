@@ -18,20 +18,24 @@ function member(directory: string, name: string, manifest: Record<string, unknow
 }
 
 describe('release families', () => {
-  it('keeps every checked-in dsh member on one releasable version', () => {
+  it('keeps the core dsh family on one version and the desktop shell outside it', () => {
     const dsh = releaseFamily('dsh')
     const root = fileURLToPath(new URL('../../', import.meta.url))
+    const members = dsh.members(root)
 
-    expect(() => { dsh.verifyVersions(dsh.members(root)) }).not.toThrow()
+    expect(members.map(member => member.name)).toContain('@deepseek-ai/dsh')
+    expect(members.map(member => member.name)).toContain('@deepseek-ai/dsh-web-frontend')
+    expect(members.map(member => member.name)).not.toContain('@deepseek-ai/dsh-desktop')
+    expect(() => { dsh.verifyVersions(members) }).not.toThrow()
   })
 
-  it('names the desktop release tag for the whole dsh family and one per vendored package', () => {
+  it('keeps core dsh tags distinct from desktop product tags and names one per vendored package', () => {
     const dsh = releaseFamily('dsh')
     const vendor = releaseFamily('vendor')
     const cli = member('apps/cli', '@deepseek-ai/dsh')
     const cordis = { ...member('vendor/cordis', '@deepseek-ai/cordis'), version: '4.0.1' }
 
-    expect(dsh.tagFor(cli)).toBe('v0.0.1')
+    expect(dsh.tagFor(cli)).toBe('dsh-v0.0.1')
     expect(vendor.tagFor(cordis)).toBe('vendor-cordis-v4.0.1')
     // The prefix is constructed, not recovered from a tag: a version with a
     // hyphen would defeat any suffix-stripping.
@@ -43,20 +47,19 @@ describe('release families', () => {
     const dsh = releaseFamily('dsh')
     const prerelease = { ...member('apps/cli', '@deepseek-ai/dsh'), version: '1.2.3-123alpha.1' }
 
-    expect(() => { verifyTag(dsh, [prerelease], 'refs/tags/v1.2.3-123alpha.1') }).not.toThrow()
+    expect(() => { verifyTag(dsh, [prerelease], 'refs/tags/dsh-v1.2.3-123alpha.1') }).not.toThrow()
 
-    const invalid = [
-      'refs/heads/v1.2.3',
-      'refs/tags/dsh-v1.2.3',
+    const wrongFamily = [
+      'refs/heads/dsh-v1.2.3-123alpha.1',
+      'refs/tags/v1.2.3-123alpha.1',
       'refs/tags/vendor-cordis-v1.2.3',
       'refs/tags/landlock-run-v1.2.3',
-      'refs/tags/v1.2',
-      'refs/tags/v01.2.3',
-      'refs/tags/v1.2.3-rc..1',
     ]
-    for (const ref of invalid) {
-      expect(() => { verifyTag(dsh, [{ ...prerelease, version: ref.slice('refs/tags/v'.length) }], ref) })
-        .toThrow()
+    for (const ref of wrongFamily) expect(() => { verifyTag(dsh, [prerelease], ref) }).toThrow()
+
+    const malformed = ['1.2', '01.2.3', '1.2.3-rc..1']
+    for (const version of malformed) {
+      expect(() => { verifyTag(dsh, [{ ...prerelease, version }], `refs/tags/dsh-v${version}`) }).toThrow()
     }
   })
 

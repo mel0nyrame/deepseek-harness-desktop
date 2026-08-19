@@ -6,11 +6,11 @@ English | [中文](2026-08-19-checks-gated-desktop-release.zh.md)
 
 ## Problem
 
-A product tag could build desktop artifacts without proving the exhaustive repository checks, and no single workflow owned bilingual notes, verified downloads, GitHub Release state, and stable Homebrew delivery. The dsh family also proposed a different tag prefix from the product workflows, leaving the release authority ambiguous.
+A product tag could build desktop artifacts without proving the exhaustive repository checks, and no single workflow owned bilingual notes, verified downloads, GitHub Release state, and stable Homebrew delivery. The core dsh family and the Desktop product also shared the same tag prefix despite carrying independent versions, leaving the release authority ambiguous.
 
 ## Decision
 
-The human-created `v<semver>` tag is the product release authority. The semver shape is `v<major>.<minor>.<patch>` with an optional dot-separated prerelease segment; build metadata is not accepted. The dsh release family proposes this plain prefix, while vendor and native families retain their own prefixes and cannot pass dsh-family validation.
+The human-created `v<semver>` tag is the Desktop product release authority and names the version in `apps/desktop/package.json`. The semver shape is `v<major>.<minor>.<patch>` with an optional dot-separated prerelease segment; build metadata is not accepted. The dormant core dsh npm family uses `dsh-v<semver>`, while vendor and native families retain their own prefixes. The version-line ownership is recorded in [the independent Desktop version-line decision](2026-08-19-independent-desktop-version-line.md).
 
 CI runs eight exhaustive tag jobs and the `tag checks passed` aggregate. [Release](../../../../.github/workflows/release.yml) listens to the completed CI workflow and proceeds only when its event is a successful push whose head branch is a product tag. The resolve job checks out that tag, validates its shape, and verifies that it points to the CI run's exact head SHA. Every product-repository checkout uses the resolved tag and verifies the resulting commit against that SHA; the GitHub Release and Homebrew push re-check the remote tag immediately before their side effects.
 
@@ -22,7 +22,7 @@ Stable releases update `mel0nyrame/homebrew-dsh` with `ruby scripts/update-cask.
 
 This fork publishes no npm sequence. The artifact gates may pack and install workspace tarballs, but neither CI nor the release workflow calls a registry publisher.
 
-Release readiness is launcher-owned: every dsh-family manifest shares one version, and the CLI reads its own package manifest. For each startup or hot-reload generation it recomposes the effective API gateway config, preserves its current settings, and replaces `productVersion` with that manifest value. Thus `host.describe.version` reports the running product without freezing or discarding reloadable gateway settings. The timeout package keeps the precise name `@deepseek-ai/dsh-tool-call-timeout-policy`; the alternative `dsh-timeout-guard` is broader than its tool-call policy, so the release-blocking rename marker is removed without changing the established package name.
+Runtime readiness is launcher-owned: every core dsh-family manifest shares one version, and the CLI reads its own package manifest. For each startup or hot-reload generation it recomposes the effective API gateway config, preserves its current settings, and replaces `productVersion` with that manifest value. Thus `host.describe.version` reports the running runtime without freezing or discarding reloadable gateway settings. The Desktop bundle and release metadata read the shell's independent manifest version instead. The timeout package keeps the precise name `@deepseek-ai/dsh-tool-call-timeout-policy`; the alternative `dsh-timeout-guard` is broader than its tool-call policy, so the release-blocking rename marker is removed without changing the established package name.
 
 ## Alternatives considered
 
