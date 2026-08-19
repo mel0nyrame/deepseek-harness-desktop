@@ -18,9 +18,13 @@
 import { useEffect, useRef, useState } from 'react'
 import clsx from 'clsx'
 import {
+<<<<<<< HEAD
   BrandWordmark,
   IconNewChatOutline16, IconPanelLeftOutline16,
   Tooltip,
+=======
+  FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
+>>>>>>> upstream/master
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SidebarRootComponentProps } from './contract/slots.ts'
 import css from './SidebarRoot.module.css'
@@ -124,6 +128,7 @@ export function SidebarRoot({
       }}
       onPointerLeave={() => { armLinger() }}
     >
+<<<<<<< HEAD
       <div className={css.logoRow} data-sidebar-control-row="">
         {/* Default shell (Web and non-macOS desktop): the wordmark shares
             this first row and the toggle sits at its right edge. The macOS
@@ -143,6 +148,40 @@ export function SidebarRoot({
             affordance belongs to the frame's reveal control (AppFrame),
             which sits outside this zero-width subtree. */}
         <Tooltip label={t('toggle.collapse')} delayMs={500}>
+=======
+      <div className={css.logoRow}>
+        {/* Expanded, the brand doubles as a New Session shortcut; the
+            collapsed rail's logo is the expand toggle below instead. */}
+        {wide && (
+          <button
+            type="button"
+            className={clsx(css.brand, css.wide)}
+            aria-label={t('session.new.label')}
+            onClick={() => { startSession() }}
+          >
+            <span className={css.brandIdentity} aria-hidden="true">
+              <span className={css.brandMark}>
+                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+              </span>
+              <span className={css.brandName}>
+                {renderSlot('sidebar.brand.name', {}, {
+                  fallback: (
+                    <>
+                      <span className={css.fallbackBrandName}>DSH Local Build</span>
+                      {process.env.DSH_CLIENT_COMMIT_HASH
+                        ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
+                        : null}
+                    </>
+                  ),
+                })}
+              </span>
+            </span>
+          </button>
+        )}
+        {/* Rail resting state is the whale mark; hovering swaps in the panel
+            icon (the expand affordance, figma sidebar-hover flow). */}
+        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
+>>>>>>> upstream/master
           <button
             type="button"
             className={clsx(css.iconButton, css.toggle)}
@@ -150,7 +189,17 @@ export function SidebarRoot({
             aria-label={t('toggle.collapse')}
             onClick={() => { toggleSidebar() }}
           >
+<<<<<<< HEAD
             <IconPanelLeftOutline16 className={css.panelIcon} size={16} />
+=======
+            {!wide && (
+              <span className={css.railMark} aria-hidden="true">
+                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+              </span>
+            )}
+            {/* Rail icons render at 18 (figma rail spec); expanded keeps the glyph-native sizes. */}
+            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
+>>>>>>> upstream/master
           </button>
         </Tooltip>
       </div>

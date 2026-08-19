@@ -1,6 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+<<<<<<< HEAD
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+=======
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
+>>>>>>> upstream/master
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
@@ -234,6 +239,7 @@ describe('host.openPath', () => {
     const headless = await harness(undefined, undefined, { canOpenPath: () => false })
     expect(expectOk(await visible.api.host.describe(request({}))).canOpenPath).toBe(true)
     expect(expectOk(await headless.api.host.describe(request({}))).canOpenPath).toBe(false)
+    expect(expectOk(await visible.api.host.describe(request({}))).home).toBe(homedir())
   })
 
   it('opens through the injected native boundary', async () => {

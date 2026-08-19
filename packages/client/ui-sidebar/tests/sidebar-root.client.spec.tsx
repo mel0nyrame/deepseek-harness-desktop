@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import type {
   SidebarFooterActionOwnerProps, SidebarRootComponentProps, SidebarSectionOwnerProps,
   SidebarSettingsOwnerProps,
@@ -14,6 +15,7 @@ const t: SidebarRootComponentProps['t'] = key => (en as Record<string, string>)[
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllEnvs()
   vi.useRealTimers()
 })
 
@@ -27,6 +29,8 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
   let regionOwner: SidebarSectionOwnerProps | undefined
   let settingsOwner: SidebarSettingsOwnerProps | undefined
   let footerActionOwner: SidebarFooterActionOwnerProps | undefined
+  const brandMark = <span data-testid="custom-brand-mark">M</span>
+  const brandName = <span data-testid="custom-brand-name">Custom Brand</span>
   let current = { collapsed, width }
   const root = () => (
     <SidebarRoot
@@ -37,6 +41,8 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
         key: string,
         owner: SidebarFooterActionOwnerProps | SidebarSectionOwnerProps | SidebarSettingsOwnerProps,
       ) => {
+        if (key === 'sidebar.brand.mark') return brandMark
+        if (key === 'sidebar.brand.name') return brandName
         if (key === 'sidebar.settings') {
           settingsOwner = owner
           return <div data-testid="settings-seat" />
@@ -76,9 +82,15 @@ function mountShell({ collapsed = false, width = 300 }: { collapsed?: boolean; w
 describe('SidebarRoot shell', () => {
   it('routes New Session (capsule + wordmark) and the column toggle', () => {
     const b = mountShell()
+<<<<<<< HEAD
     // Expanded, the wordmark and the capsule start a session; the compact
     // brand-row seam (CSS-hidden in the browser) adds its button to the
     // un-styled test DOM.
+=======
+    expect(screen.getByTestId('custom-brand-mark')).toBeTruthy()
+    expect(screen.getByTestId('custom-brand-name')).toBeTruthy()
+    // Expanded, both the wordmark and the capsule start a session.
+>>>>>>> upstream/master
     const starters = screen.getAllByRole('button', { name: 'New session' })
     expect(starters).toHaveLength(3)
     expect(document.querySelector('[data-sidebar-new-session]')).toBe(starters[2])
@@ -88,6 +100,7 @@ describe('SidebarRoot shell', () => {
     expect(b.toggleSidebar).toHaveBeenCalledOnce()
   })
 
+<<<<<<< HEAD
   it('keeps the wordmark in the first row by default and exposes the compact brand-row seam', () => {
     mountShell()
     const controlRow = document.querySelector('[data-sidebar-control-row]')
@@ -97,6 +110,32 @@ describe('SidebarRoot shell', () => {
     expect(controlRow?.querySelector('[data-sidebar-toggle]')?.getAttribute('aria-label')).toBe('Collapse sidebar')
     expect(controlRow?.querySelector('[data-sidebar-brand-inline]')?.getAttribute('aria-label')).toBe('New session')
     expect(brandRow?.querySelector('button')?.getAttribute('aria-label')).toBe('New session')
+=======
+  it('renders generic brand fallbacks when no package fills the slots', () => {
+    vi.stubEnv('DSH_CLIENT_COMMIT_HASH', '0123456')
+    const { container } = render(<SidebarRoot
+      collapsed={false} width={300}
+      useSessions={neverHook} useWorkspaces={neverHook}
+      startSession={vi.fn()} toggleSidebar={vi.fn()} t={t}
+      renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
+        options?.fallback ?? null) as SidebarRootComponentProps['renderSlot']}
+    />)
+
+    expect(screen.getByText('DSH Local Build')).toBeTruthy()
+    expect(screen.getByText('0123456')).toBeTruthy()
+    expect(container.querySelector('svg')).not.toBeNull()
+  })
+
+  it('hands the region its wide flag and clamps expandSidebar to the collapsed state', () => {
+    const b = mountShell()
+    expect(b.regionOwner().wide).toBe(true)
+    // The settings seat rides the same wide flag (ui-settings renders the row).
+    expect(b.settingsOwner().wide).toBe(true)
+    expect(b.footerActionOwner().wide).toBe(true)
+    // Expanded: the request is a no-op (no accidental collapse).
+    b.regionOwner().expandSidebar()
+    expect(b.toggleSidebar).not.toHaveBeenCalled()
+>>>>>>> upstream/master
   })
 
   it('hands child seats no collapse compatibility state', () => {

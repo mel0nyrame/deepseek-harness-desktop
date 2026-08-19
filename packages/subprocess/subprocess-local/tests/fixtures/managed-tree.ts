@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process'
+<<<<<<< HEAD
 import { setTimeout as delay } from 'node:timers/promises'
 import { writeFile } from 'node:fs/promises'
+=======
+import { rename, writeFile } from 'node:fs/promises'
+>>>>>>> upstream/master
 
 const [statePath, publication = 'complete'] = process.argv.slice(2)
 if (statePath === undefined || (publication !== 'complete' && publication !== 'partial')) {
@@ -15,9 +19,15 @@ const descendant = spawn(process.execPath, [
 ], { stdio: 'ignore' })
 if (descendant.pid === undefined) throw new Error('managed descendant did not publish a pid')
 
+<<<<<<< HEAD
 if (publication === 'partial') {
   await writeFile(statePath, '')
   await delay(100)
 }
 await writeFile(statePath, JSON.stringify({ root: process.pid, descendant: descendant.pid }))
+=======
+const pendingStatePath = `${statePath}.pending-${process.pid}`
+await writeFile(pendingStatePath, JSON.stringify({ root: process.pid, descendant: descendant.pid }))
+await rename(pendingStatePath, statePath)
+>>>>>>> upstream/master
 setInterval(() => {}, 60_000)

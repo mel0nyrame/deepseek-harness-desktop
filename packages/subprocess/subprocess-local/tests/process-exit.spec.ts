@@ -111,12 +111,19 @@ async function runScenario(
   let settled = false
   let treeGone = false
   try {
+<<<<<<< HEAD
     state = await readTree(join(root, 'tree.json'), timeoutMs)
     if (process.platform !== 'win32') identities = await captureIdentities(createProcessInspector(), state)
     await vi.waitFor(() => readFile(join(root, 'ready'), 'utf8'), {
       interval: 10,
       timeout: timeoutMs,
     })
+=======
+    // The host validates tree.json before waiting for proceed, so observing it
+    // is sufficient readiness; a second marker only adds a redundant Windows poll.
+    state = await readTree(join(root, 'tree.json'))
+    if (process.platform !== 'win32') identities = await captureIdentities(createProcessInspector(), state)
+>>>>>>> upstream/master
     await writeFile(join(root, 'proceed'), 'proceed')
     const outcome = await child
     settled = true

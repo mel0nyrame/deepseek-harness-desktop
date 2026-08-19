@@ -69,7 +69,11 @@ brew tap mel0nyrame/dsh
 brew install --cask dsh-desktop
 ```
 
+<<<<<<< HEAD
 The cask selects the arm64 or x64 build for the current Mac and removes the quarantine attribute after installation. Stable releases update the cask automatically; prereleases remain available from GitHub only.
+=======
+The command starts the Web UI at `http://127.0.0.1:3080` by default and opens it in the default browser for a local launch. An SSH launch only prints the host URL because the SSH client or editor owns the local forwarded address. Pass `--no-open` to run the server without opening a browser. See [Web UI guide](docs/user/guide/index.md).
+>>>>>>> upstream/master
 
 ### GitHub Releases
 
@@ -87,7 +91,13 @@ pnpm run build
 pnpm run dev:desktop
 ```
 
+<<<<<<< HEAD
 ### Build macOS artifacts
+=======
+`pnpm run build` prepares the repository artifacts. `pnpm dsh web` uses those built artifacts without rebuilding.
+
+## Community and support
+>>>>>>> upstream/master
 
 ```sh
 pnpm --filter @deepseek-ai/dsh-desktop run package

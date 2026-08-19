@@ -308,7 +308,107 @@ describe('Desktop release workflow', () => {
     expect(existsSync(resolve(root, '.github/workflows/desktop-release.yml'))).toBe(false)
   })
 })
+<<<<<<< HEAD
 describe('Python runtime build workflows', () => {
+=======
+
+describe('DeepSeek e2e workflow', () => {
+  it('prepares bubblewrap from the pinned payload without a package transaction', () => {
+    const workflow = loadWorkflow('.github/workflows/e2e.yml')
+    const e2e = workflowJob(workflow, 'e2e')
+    if (!Array.isArray(e2e.steps)) throw new TypeError('DeepSeek e2e workflow must define steps')
+
+    const steps = e2e.steps.filter(isRecord)
+    expect(steps.find(step => step.name === 'Prepare bubblewrap (unrestrict userns)')).toMatchObject({
+      run: 'bash scripts/prepare-ci-bubblewrap.sh',
+    })
+    expect(JSON.stringify(steps)).not.toContain('apt-get')
+  })
+})
+
+describe('Python release workflows', () => {
+  it('keeps complete wheel validation separate from protected public publication', () => {
+    const workflow = loadWorkflow('.github/workflows/python-release.yml')
+    const dispatch = workflowEvent(workflow, 'workflow_dispatch')
+    const pullRequest = workflowEvent(workflow, 'pull_request')
+    const build = workflowJob(workflow, 'build')
+    const pythonCompat = workflowJob(workflow, 'python-compat')
+    const validate = workflowJob(workflow, 'validate')
+    const publishRuntime = workflowJob(workflow, 'publish-runtime')
+    const publishSdk = workflowJob(workflow, 'publish-sdk')
+    if (!isRecord(dispatch.inputs)
+      || !isRecord(dispatch.inputs.publish)
+      || !Array.isArray(pythonCompat.steps)
+      || !Array.isArray(validate.steps)
+      || !Array.isArray(publishRuntime.steps)
+      || !Array.isArray(publishSdk.steps)) {
+      throw new TypeError('Python release workflow must define publish input and release steps')
+    }
+
+    expect(dispatch.inputs.publish).toMatchObject({ type: 'boolean', default: false })
+    expect(pullRequest).toEqual({ types: ['labeled'] })
+    expect(build).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' || github.event.label.name == 'python-release-dry-run'",
+      uses: './.github/workflows/build-exe-for-python-sdk.yml',
+      with: {
+        targets: 'node24-linux-x64,node24-linux-arm64,node24-macos-arm64',
+        release: true,
+      },
+    })
+    expect(pythonCompat.strategy).toMatchObject({ matrix: { python: ['3.10', '3.14'] } })
+    const pythonCompatSteps = JSON.stringify(pythonCompat.steps)
+    expect(pythonCompatSteps).toContain('dist/deepseek_harness_sdk-$VERSION-py3-none-any.whl')
+    expect(pythonCompatSteps).toContain('dist/deepseek_harness_runtime_bin-$VERSION-py3-none-manylinux_2_28_x86_64.whl')
+    expect(pythonCompatSteps).not.toContain('--find-links')
+    const validateSteps = JSON.stringify(validate.steps)
+    const authorize = validate.steps.filter(isRecord).find(step => step.name === 'Authorize publication request')
+    if (!isRecord(authorize) || typeof authorize.run !== 'string') {
+      throw new TypeError('Python release validation must authorize publication requests')
+    }
+    expect(validateSteps).toContain('PUBLIC_PYPI_RELEASE_ENABLED')
+    expect(authorize).toMatchObject({
+      env: {
+        PYPI_PUBLISHER_REPOSITORY: '${{ vars.PYPI_PUBLISHER_REPOSITORY }}',
+        REPOSITORY: '${{ github.repository }}',
+      },
+    })
+    expect(authorize.run).toContain('[ "$REPOSITORY" = "$PYPI_PUBLISHER_REPOSITORY" ]')
+    expect(validateSteps).toContain('100000000')
+    expect(publishRuntime).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' && inputs.publish",
+      needs: 'validate',
+      environment: 'pypi-runtime',
+      permissions: { contents: 'read', 'id-token': 'write' },
+    })
+    expect(publishSdk).toMatchObject({
+      if: "github.event_name == 'workflow_dispatch' && inputs.publish",
+      needs: ['validate', 'publish-runtime'],
+      environment: 'pypi',
+      permissions: { contents: 'read', 'id-token': 'write' },
+    })
+    const runtimeSteps = publishRuntime.steps.filter(isRecord)
+    const sdkSteps = publishSdk.steps.filter(isRecord)
+    const runtimePublish = runtimeSteps.find(step => step.name === 'Publish runtime wheels')
+    const sdkPublish = sdkSteps.find(step => step.name === 'Publish SDK wheel')
+    const runtimeHashes = runtimeSteps.find(step => step.name === 'Verify release artifact hashes')
+    const sdkHashes = sdkSteps.find(step => step.name === 'Verify release artifact hashes')
+    expect([...runtimeSteps, ...sdkSteps].some(
+      step => typeof step.uses === 'string' && step.uses.startsWith('actions/checkout@'),
+    )).toBe(false)
+    expect([...runtimeSteps, ...sdkSteps].filter(
+      step => step.uses === 'pypa/gh-action-pypi-publish@release/v1',
+    )).toHaveLength(2)
+    expect(runtimePublish).toMatchObject({
+      with: { 'packages-dir': 'dist/runtime/', attestations: false },
+    })
+    expect(sdkPublish).toMatchObject({
+      with: { 'packages-dir': 'dist/sdk/', attestations: false },
+    })
+    expect(runtimeHashes).toMatchObject({ run: 'cd dist && sha256sum -c SHA256SUMS' })
+    expect(sdkHashes).toMatchObject({ run: 'cd dist && sha256sum -c SHA256SUMS' })
+  })
+
+>>>>>>> upstream/master
   it('exposes the native wheel builder to the release caller with normalized versions', () => {
     const workflow = loadWorkflow('.github/workflows/build-exe-for-python-sdk.yml')
     const call = workflowEvent(workflow, 'workflow_call')
@@ -332,7 +432,14 @@ describe('Python runtime build workflows', () => {
     })
     expect(plan.if).toBeUndefined()
     expect(JSON.stringify(plan.steps)).toContain('pep440_version')
-    expect(JSON.stringify(workflow)).toContain('macosx_14_0_arm64')
+    const workflowJson = JSON.stringify(workflow)
+    expect(workflowJson).toContain('macosx_14_0_arm64')
+    expect(workflowJson).toContain('dist-python/$SDK_WHEEL')
+    expect(workflowJson).toContain('dist-python/$RUNTIME_WHEEL')
+    expect(workflowJson).toContain('/work/dist-python/$SDK_WHEEL')
+    expect(workflowJson).toContain('/work/dist-python/$RUNTIME_WHEEL')
+    expect(workflowJson).not.toContain('--find-links dist-python')
+    expect(workflowJson).not.toContain('--find-links /work/dist-python')
     expect(manylinuxAddon).toMatchObject({ if: "runner.os == 'Linux'" })
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_x86_64')
     expect(JSON.stringify(manylinuxAddon)).toContain('manylinux_2_28_aarch64')

@@ -22,9 +22,15 @@ Two hard blockers sat in the way. All 217 workspace manifests set `private: true
 
 | Sequence | Members | Version baseline | Tag | Publication command |
 |---|---|---|---|---|
+<<<<<<< HEAD
 | dsh | `packages/*/*` + `apps/*` (`@deepseek-ai/dsh` and `@deepseek-ai/dsh-web-frontend`) | one version for the family and the workspace root, `0.0.x` | `v<version>` | local bump, pack, and verify only |
 | vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | local bump, pack, and verify only |
 | native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | local bump, pack, and verify only |
+=======
+| dsh | Publish set: non-experimental `packages/*/*` + `apps/*`; private experimental packages join only the shared version bump | one version for the publish set, private dsh packages, and workspace root, `0.0.x` | `dsh-v<version>` | `release.yml` |
+| vendored framework | the nine `vendor/*` packages | each package on its own version line | `vendor-<package>-v<version>` (one per package) | `release-vendor.yml` |
+| native | `native/landlock-run/packages/*` | its own `0.0.x` | `landlock-run-v<version>` | `landlock-run-release.yml` |
+>>>>>>> upstream/master
 
 This desktop fork publishes none of the three sequences to npm. The scripts retain pack, installed-artifact, payload, version, and tag validation as explicit local gates; ordinary CI validates source and built artifacts but no workflow invokes a registry publisher, and the product release workflow receives no npm credentials. The manifests retain per-sequence `publishConfig.access` as packed-payload policy if registry distribution is reconsidered; the values remain documented in [the access decision](2026-08-13-public-vendor-and-native-sequences.md).
 
@@ -32,7 +38,11 @@ This desktop fork publishes none of the three sequences to npm. The scripts reta
 
 Each sequence has one bump-and-commit command: it derives the target version, writes it into the relevant manifests, runs `pnpm install --lockfile-only`, and commits the manifests with the lockfile. The product version is therefore readable from the repository. A human creates the tag after the commit merges to master; CI never writes to the repository.
 
+<<<<<<< HEAD
 `release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the family **and the workspace root** — the workspace constraint requires every member's version to equal the root's, so the root carries the family version, and the root check accepts a prerelease segment. A prerelease such as `1.0.0-rc.1` drives the complete GitHub Release rehearsal before the numbered version follows. The dsh tag is plain `v<version>` because that product tag wakes the exhaustive CI and desktop release workflows; vendor and native tags retain their distinct prefixes and cannot pass dsh-family validation.
+=======
+`release:dsh` accepts `major`, `minor`, `patch`, or an explicit version, and writes one version across the publishable family, every private package under `packages/*/*`, **and the workspace root**. Private packages receive no release tag and remain outside pack and publish; they follow the version because the workspace constraint requires every dsh package's version to equal the root's. The root check accepts a prerelease segment. A prerelease such as `0.0.1-rc.1` drives pack, the installed-artifact probe, and one real private publication before numbered versions follow. The dist-tag decision is the one `landlock-run-release.yml` already made: a version with a prerelease segment publishes under `--tag next`, anything else takes `latest`.
+>>>>>>> upstream/master
 
 ### vendor: publish what changed, and let tags be the ledger
 

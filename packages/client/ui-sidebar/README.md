@@ -2,11 +2,17 @@
 
 English | [中文](README.zh.md)
 
+<<<<<<< HEAD
 Sidebar shell plugin: the wordmark, New Session action, the layout-owned collapse toggle, scroll-aware region seat, and bottom-pinned Settings seat. [ui-workspace](../ui-workspace/README.md) owns the Workspace and Session browser rendered into `sidebar.workspaces`; this package neither derives its rows nor owns its view preferences. Collapse resolves to the layout-owned zero-width track: the shell unmounts at the crossfade settle and the frame's reveal control (owned by [ui-layout](../ui-layout/README.md), outside this subtree) takes over. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
+=======
+Sidebar shell plugin: the brand row, New Session action, layout-owned collapse control, scroll-aware region seat, and bottom-pinned Settings seat. [ui-workspace](../ui-workspace/README.md) owns the Workspace and Session browser rendered into `sidebar.workspaces`; this package neither derives its rows nor owns its view preferences. Collapse into the layout-owned 56px rail remains presentation-local. Contract: the [slot system standard](../../../.agents/notes/implemented/architecture/2026-07-22-slot-type-chain-implementation.md).
+
+The expanded brand row renders `sidebar.brand.mark` and `sidebar.brand.name` as independent single slots, while the collapsed rail renders the same mark slot. Without occupants, the shell uses the fish mark and a `DSH Local Build` label carrying the build's 7-character `DSH_CLIENT_COMMIT_HASH` badge. A deployment package can replace either value without replacing the New Session control or rail geometry; declaration-aware `slots.inject()` lets such a package activate before or after the sidebar.
+>>>>>>> upstream/master
 
 New Session starts the runtime's page-local frontend Session Intent. The runtime targets the explicit Workspace used by a scoped action, otherwise the current Session's Workspace, otherwise the most recently active Workspace; when none exists it clears into the blank New Session page. Workspace-specific controls and the shared picker belong to ui-workspace.
 
-`SidebarRootComponentProps` composes the layout owner share, the global `useSessions` and `useWorkspaces` hooks, the declared `sidebar.workspaces` and `sidebar.settings` child slots, and injected `startSession` plus sidebar-toggle callbacks. There is no plugin store.
+`SidebarRootComponentProps` composes the layout owner share, the global `useSessions` and `useWorkspaces` hooks, the declared brand, `sidebar.workspaces`, and `sidebar.settings` child slots, and injected `startSession` plus sidebar-toggle callbacks. There is no plugin store.
 
 During a live collapse, the shell holds the expanded content at its current width (inline style) while it fades out for 150ms; the layout's 300ms column slide clips it to the zero-width track, and at the settle the shell unmounts entirely — no compact rail remains. A page that starts collapsed renders nothing (the frame's reveal control is the only affordance), and reduced-motion mode disables the transitions. Expanding remounts the wide content with the 200ms wide-in fade.
 

@@ -22,9 +22,15 @@ Status: implemented
 
 | 序列 | 成员 | 版本基线 | tag | 发布命令 |
 |---|---|---|---|---|
+<<<<<<< HEAD
 | dsh | `packages/*/*` + `apps/*`（`@deepseek-ai/dsh` 与 `@deepseek-ai/dsh-web-frontend`） | 全族与 workspace 根共用一个 `0.0.x` | `v<版本>` | 仅在本地 bump、pack 与 verify |
 | vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | 仅在本地 bump、pack 与 verify |
 | native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | 仅在本地 bump、pack 与 verify |
+=======
+| dsh | 发布集：非 experimental 的 `packages/*/*` + `apps/*`；私有实验性包仅加入共享版本 bump | 发布集、私有 dsh 包与 workspace 根共用一个 `0.0.x` | `dsh-v<版本>` | `release.yml` |
+| vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | `release-vendor.yml` |
+| native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | `landlock-run-release.yml` |
+>>>>>>> upstream/master
 
 这个桌面 fork 不把三条序列中的任何一条发布到 npm。脚本保留 pack、安装态产物、payload、版本与 tag 校验，作为显式本地门禁；常规 CI 校验源码与构建产物，但没有工作流调用注册表发布器，产品发行工作流也不接收 npm 凭据。各 manifest 保留按序列区分的 `publishConfig.access`，作为未来重新考虑注册表分发时的打包 payload 策略；取值继续由 [access 决策](2026-08-13-public-vendor-and-native-sequences.md)记录。
 
@@ -32,7 +38,11 @@ Status: implemented
 
 每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。产品版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库。
 
+<<<<<<< HEAD
 `release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进全族**以及 workspace 根**——workspace 约束要求每个成员的版本等于根版本，所以根承载族版本，而根的检查接受预发布段。像 `1.0.0-rc.1` 这样的预发布号会先演练完整 GitHub Release 路径，随后再发布数字版本。dsh tag 使用朴素的 `v<版本>`，因为同一个产品 tag 会唤醒穷尽式 CI 和桌面发行工作流；vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。
+=======
+`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进可发布族、`packages/*/*` 下的每个私有包**以及 workspace 根**。私有包不会获得发布 tag，仍位于 pack 与 publish 之外；它们跟随版本是因为 workspace 约束要求每个 dsh 包的版本等于根版本。根的检查接受预发布段。像 `0.0.1-rc.1` 这样的预发布号先把 pack、已安装产物探针和一次真实私有发布跑通，数字版本随后。dist-tag 沿用 `landlock-run-release.yml` 已有的判定：版本带预发布段就 `--tag next`，否则进 `latest`。
+>>>>>>> upstream/master
 
 ### vendor：谁改了谁发版，tag 就是账本
 
