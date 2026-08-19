@@ -174,6 +174,12 @@ describe('Desktop release workflow', () => {
       with: { ref: '${{ github.event.workflow_run.head_branch }}', 'persist-credentials': false },
     })
     const releaseStep = resolveSteps.find(step => step.id === 'release')
+    expect(releaseStep).toMatchObject({
+      env: {
+        TAG: '${{ github.event.workflow_run.head_branch }}',
+        HEAD_SHA: '${{ github.event.workflow_run.head_sha }}',
+      },
+    })
     expect(JSON.stringify(releaseStep)).toContain('GITHUB_OUTPUT')
     expect(JSON.stringify(releaseStep)).toContain('prerelease')
     expect(JSON.stringify(releaseStep)).toContain('semver')

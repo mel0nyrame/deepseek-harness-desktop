@@ -728,6 +728,8 @@ Requires: `agentDefaultModel` · `agents` · `attachments` · `directoryPicker` 
 ```ts config-catalog
 /** Gateway plugin configuration. */
 export interface Config {
+  /** Product version read from the owning application manifest. */
+  productVersion: string
   /**
    * Whether this deployment can hand paths to a native desktop opener —
    * the `hasDocument` capability the agent-preset roster reports. Absent,

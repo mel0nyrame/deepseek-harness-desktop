@@ -37,7 +37,7 @@ jobs:
         id: release
         env:
           TAG: ${{ github.event.workflow_run.head_branch }}
-          HEAD_SHA: ${{ needs.resolve.outputs.sha }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           semver='(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))(\.((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)))*)?'
           if [[ ! "$TAG" =~ ^v${semver}$ ]]; then
