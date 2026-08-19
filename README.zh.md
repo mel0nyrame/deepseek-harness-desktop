@@ -14,6 +14,25 @@
 
 <p align="center"><sub>使用隔离临时配置与预制会话，从已安装 macOS 应用包捕获的原生窗口，并以中性背景呈现。</sub></p>
 
+## 原生 macOS 体验
+
+<table>
+  <tbody>
+    <tr>
+      <td align="center" width="18%"><img src="./assets/readme/icons/compact-native-window.svg" width="96" alt="紧凑原生窗口插画"></td>
+      <td><strong>紧凑原生框架</strong><br>内容铺满窗口，控件与红绿灯区域自然衔接，并保留原生拖动与全屏行为。</td>
+    </tr>
+    <tr>
+      <td align="center" width="18%"><img src="./assets/readme/icons/persistent-glass-sidebar.svg" width="96" alt="持久化玻璃侧栏插画"></td>
+      <td><strong>会记住偏好的玻璃侧栏</strong><br>浅色、深色与跟随系统外观匹配 macOS；玻璃偏好可以持久化，并兼容“减少透明度”的不透明回退。</td>
+    </tr>
+    <tr>
+      <td align="center" width="18%"><img src="./assets/readme/icons/zero-width-focus.svg" width="96" alt="零宽侧栏插画"></td>
+      <td><strong>零宽专注模式</strong><br>完全收起侧栏，让会话占满窗口宽度；再次展开时恢复上次可用的侧栏宽度。</td>
+    </tr>
+  </tbody>
+</table>
+
 ## 桌面外壳，完整 harness
 
 <table>
