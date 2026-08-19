@@ -14,6 +14,25 @@ English | [中文](README.zh.md)
 
 <p align="center"><sub>Native window capture from the installed macOS bundle using an isolated temporary profile and preset sessions, framed against a neutral backing.</sub></p>
 
+## Native macOS experience
+
+<table>
+  <tbody>
+    <tr>
+      <td align="center" width="18%"><img src="./assets/readme/icons/compact-native-window.svg" width="96" alt="Compact native window illustration"></td>
+      <td><strong>Compact native frame</strong><br>Content fills the window while controls share the traffic-light region, with native dragging and full-screen behavior.</td>
+    </tr>
+    <tr>
+      <td align="center" width="18%"><img src="./assets/readme/icons/persistent-glass-sidebar.svg" width="96" alt="Persistent glass sidebar illustration"></td>
+      <td><strong>Glass that remembers</strong><br>Light, Dark, and System appearances follow macOS; the glass preference persists, with an opaque Reduce Transparency fallback.</td>
+    </tr>
+    <tr>
+      <td align="center" width="18%"><img src="./assets/readme/icons/zero-width-focus.svg" width="96" alt="Zero-width sidebar illustration"></td>
+      <td><strong>Zero-width focus mode</strong><br>Collapse the sidebar completely to reclaim the conversation width, then restore the last usable sidebar size.</td>
+    </tr>
+  </tbody>
+</table>
+
 ## Desktop shell, full harness
 
 <table>

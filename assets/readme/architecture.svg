@@ -1,62 +1,81 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="360" viewBox="0 0 1200 360" role="img" aria-labelledby="title desc">
-  <title id="title">DSH Desktop architecture</title>
-  <desc id="desc">The React renderer crosses a narrow preload bridge into Electron main, which supervises a bundled DeepSeek Harness child process.</desc>
-
-  <rect x="1" y="1" width="1198" height="358" rx="28" fill="#F9FAFB" stroke="#E1E5EE" stroke-width="2"/>
-
-  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif">
-    <g transform="translate(46 48)">
-      <rect width="242" height="210" rx="24" fill="#FFFFFF" stroke="#CFD3DA"/>
-      <rect x="22" y="22" width="48" height="48" rx="15" fill="#E4EDFD"/>
-      <path d="M36 46H56M46 36V56" stroke="#4176E6" stroke-width="4" stroke-linecap="round"/>
-      <text x="22" y="105" fill="#0F1115" font-size="25" font-weight="700">React renderer</text>
-      <text x="22" y="138" fill="#61666B" font-size="19">Existing Connection API</text>
-      <text x="22" y="168" fill="#61666B" font-size="19">Local dsh://app assets</text>
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 1200 360" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
+    <path d="M1199,29L1199,331C1199,346.454 1186.454,359 1171,359L29,359C13.546,359 1,346.454 1,331L1,29C1,13.546 13.546,1 29,1L1171,1C1186.454,1 1199,13.546 1199,29Z" style="fill:rgb(249,250,251);stroke:rgb(225,229,238);stroke-width:2px;"/>
+    <g>
+        <g transform="matrix(1,0,0,1,46,48)">
+            <path d="M242,24L242,186C242,199.246 231.246,210 218,210L24,210C10.754,210 0,199.246 0,186L0,24C0,10.754 10.754,0 24,0L218,0C231.246,0 242,10.754 242,24Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:1px;"/>
+            <path d="M70,37L70,55C70,63.279 63.279,70 55,70L37,70C28.721,70 22,63.279 22,55L22,37C22,28.721 28.721,22 37,22L55,22C63.279,22 70,28.721 70,37Z" style="fill:rgb(228,237,253);"/>
+            <path d="M36,46L56,46M46,36L46,56" style="fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;"/>
+            <g transform="matrix(1,0,0,1,22,105)">
+                <text x="0px" y="0px" style="font-family:'Helvetica-Bold', 'Helvetica';font-weight:700;font-size:25px;fill:rgb(15,17,21);">React renderer</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,138)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Existing Connection <tspan x="172.169px 184.842px " y="0px 0px ">AP</tspan>I</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,168)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Local dsh://app assets</text>
+            </g>
+        </g>
+        <path d="M298,153L330,153" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;"/>
+        <path d="M321,143L331,153L321,163" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;stroke-linejoin:round;"/>
+        <g transform="matrix(1,0,0,1,340,48)">
+            <path d="M242,24L242,186C242,199.246 231.246,210 218,210L24,210C10.754,210 0,199.246 0,186L0,24C0,10.754 10.754,0 24,0L218,0C231.246,0 242,10.754 242,24Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:1px;"/>
+            <path d="M70,37L70,55C70,63.279 63.279,70 55,70L37,70C28.721,70 22,63.279 22,55L22,37C22,28.721 28.721,22 37,22L55,22C63.279,22 70,28.721 70,37Z" style="fill:rgb(228,237,253);"/>
+            <path d="M35,50L45,40L57,52" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;stroke-linejoin:round;"/>
+            <path d="M35,58L58,58" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;"/>
+            <g transform="matrix(1,0,0,1,22,105)">
+                <text x="0px" y="0px" style="font-family:'Helvetica-Bold', 'Helvetica';font-weight:700;font-size:25px;fill:rgb(15,17,21);">Preload bridge</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,138)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Context isolated</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,168)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Narrow validated <tspan x="146.805px 159.478px " y="0px 0px ">AP</tspan>I</text>
+            </g>
+        </g>
+        <path d="M592,153L624,153" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;"/>
+        <path d="M615,143L625,153L615,163" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;stroke-linejoin:round;"/>
+        <g transform="matrix(1,0,0,1,634,48)">
+            <path d="M242,24L242,186C242,199.246 231.246,210 218,210L24,210C10.754,210 0,199.246 0,186L0,24C0,10.754 10.754,0 24,0L218,0C231.246,0 242,10.754 242,24Z" style="fill:white;stroke:rgb(65,118,230);stroke-width:2px;"/>
+            <path d="M70,37L70,55C70,63.279 63.279,70 55,70L37,70C28.721,70 22,63.279 22,55L22,37C22,28.721 28.721,22 37,22L55,22C63.279,22 70,28.721 70,37Z" style="fill:rgb(65,118,230);"/>
+            <path d="M34,47L58,47M46,35L46,59" style="fill-rule:nonzero;stroke:white;stroke-width:4px;stroke-linecap:round;"/>
+            <g transform="matrix(1,0,0,1,22,105)">
+                <text x="0px" y="0px" style="font-family:'Helvetica-Bold', 'Helvetica';font-weight:700;font-size:25px;fill:rgb(15,17,21);">Electron main</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,138)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Native actions + window</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,168)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Lifecycle supervision</text>
+            </g>
+        </g>
+        <path d="M886,153L918,153" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;"/>
+        <path d="M909,143L919,153L909,163" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:4px;stroke-linecap:round;stroke-linejoin:round;"/>
+        <g transform="matrix(1,0,0,1,928,48)">
+            <path d="M226,24L226,186C226,199.246 215.246,210 202,210L24,210C10.754,210 0,199.246 0,186L0,24C0,10.754 10.754,0 24,0L202,0C215.246,0 226,10.754 226,24Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:1px;"/>
+            <path d="M70,37L70,55C70,63.279 63.279,70 55,70L37,70C28.721,70 22,63.279 22,55L22,37C22,28.721 28.721,22 37,22L55,22C63.279,22 70,28.721 70,37Z" style="fill:rgb(228,237,253);"/>
+            <path d="M60,37.5C60,39.432 58.432,41 56.5,41L35.5,41C33.568,41 32,39.432 32,37.5C32,35.568 33.568,34 35.5,34L56.5,34C58.432,34 60,35.568 60,37.5Z" style="fill:rgb(103,158,254);"/>
+            <path d="M60,47.5C60,49.432 58.432,51 56.5,51L35.5,51C33.568,51 32,49.432 32,47.5C32,45.568 33.568,44 35.5,44L56.5,44C58.432,44 60,45.568 60,47.5Z" style="fill:rgb(65,118,230);"/>
+            <path d="M60,57.5C60,59.432 58.432,61 56.5,61L35.5,61C33.568,61 32,59.432 32,57.5C32,55.568 33.568,54 35.5,54L56.5,54C58.432,54 60,55.568 60,57.5Z" style="fill:rgb(103,158,254);"/>
+            <g transform="matrix(1,0,0,1,22,105)">
+                <text x="0px" y="0px" style="font-family:'Helvetica-Bold', 'Helvetica';font-weight:700;font-size:25px;fill:rgb(15,17,21);">DSH child</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,138)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Cordis + sessions</text>
+            </g>
+            <g transform="matrix(1,0,0,1,22,168)">
+                <text x="0px" y="0px" style="font-family:'Helvetica';font-size:19px;fill:rgb(97,102,107);">Plugins + tools + PTYs</text>
+            </g>
+        </g>
     </g>
-
-    <path d="M298 153H330" stroke="#4176E6" stroke-width="4" stroke-linecap="round"/>
-    <path d="M321 143L331 153L321 163" fill="none" stroke="#4176E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-
-    <g transform="translate(340 48)">
-      <rect width="242" height="210" rx="24" fill="#FFFFFF" stroke="#CFD3DA"/>
-      <rect x="22" y="22" width="48" height="48" rx="15" fill="#E4EDFD"/>
-      <path d="M35 50L45 40L57 52" fill="none" stroke="#4176E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-      <path d="M35 58H58" stroke="#4176E6" stroke-width="4" stroke-linecap="round"/>
-      <text x="22" y="105" fill="#0F1115" font-size="25" font-weight="700">Preload bridge</text>
-      <text x="22" y="138" fill="#61666B" font-size="19">Context isolated</text>
-      <text x="22" y="168" fill="#61666B" font-size="19">Narrow validated API</text>
+    <g transform="matrix(1,0,0,1,211,291)">
+        <g transform="matrix(1.074586,0,0,1,-0,0)">
+            <path d="M724,21C724,32.59 715.243,42 704.458,42L19.542,42C8.757,42 0,32.59 0,21C0,9.41 8.757,0 19.542,0L704.458,0C715.243,0 724,9.41 724,21Z" style="fill:rgb(228,237,253);"/>
+        </g>
+        <circle cx="24" cy="21" r="6" style="fill:rgb(65,118,230);"/>
+        <g transform="matrix(1,0,0,1,42,27)">
+            <text x="0px" y="0px" style="font-family:'Menlo-Bold', 'Menlo', monospace;font-weight:700;font-size:18px;fill:rgb(14,48,116);">PRIVATE IPC · NO BROWSER-FACING HTTP LISTENER · SHARED ~/.dsh HOME</text>
+        </g>
     </g>
-
-    <path d="M592 153H624" stroke="#4176E6" stroke-width="4" stroke-linecap="round"/>
-    <path d="M615 143L625 153L615 163" fill="none" stroke="#4176E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-
-    <g transform="translate(634 48)">
-      <rect width="242" height="210" rx="24" fill="#FFFFFF" stroke="#4176E6" stroke-width="2"/>
-      <rect x="22" y="22" width="48" height="48" rx="15" fill="#4176E6"/>
-      <path d="M34 47H58M46 35V59" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
-      <text x="22" y="105" fill="#0F1115" font-size="25" font-weight="700">Electron main</text>
-      <text x="22" y="138" fill="#61666B" font-size="19">Native actions + window</text>
-      <text x="22" y="168" fill="#61666B" font-size="19">Lifecycle supervision</text>
-    </g>
-
-    <path d="M886 153H918" stroke="#4176E6" stroke-width="4" stroke-linecap="round"/>
-    <path d="M909 143L919 153L909 163" fill="none" stroke="#4176E6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-
-    <g transform="translate(928 48)">
-      <rect width="226" height="210" rx="24" fill="#FFFFFF" stroke="#CFD3DA"/>
-      <rect x="22" y="22" width="48" height="48" rx="15" fill="#E4EDFD"/>
-      <rect x="32" y="34" width="28" height="7" rx="3.5" fill="#679EFE"/>
-      <rect x="32" y="44" width="28" height="7" rx="3.5" fill="#4176E6"/>
-      <rect x="32" y="54" width="28" height="7" rx="3.5" fill="#679EFE"/>
-      <text x="22" y="105" fill="#0F1115" font-size="25" font-weight="700">DSH child</text>
-      <text x="22" y="138" fill="#61666B" font-size="19">Cordis + sessions</text>
-      <text x="22" y="168" fill="#61666B" font-size="19">Plugins + tools + PTYs</text>
-    </g>
-  </g>
-
-  <g transform="translate(238 291)">
-    <rect width="724" height="42" rx="21" fill="#E4EDFD"/>
-    <circle cx="24" cy="21" r="6" fill="#4176E6"/>
-    <text x="42" y="27" fill="#0E3074" font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="18" font-weight="700">PRIVATE IPC · NO BROWSER-FACING HTTP LISTENER · SHARED ~/.dsh HOME</text>
-  </g>
 </svg>
