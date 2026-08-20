@@ -1,12 +1,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 
-/**
- * @dsh-desktop/bundle — role declaration.
- *
- * composes the desktop profile over the official base and Web bundles and mounts desktop-owned plugins; implementation lands with the profile-bootstrap slice (decoupling 3/10).
- */
+export { DESKTOP_COMPONENTS, DESKTOP_PROFILE_BUNDLES, bootstrapDesktopProfile, composeDesktopEntries } from './profile-bootstrap.js'
+
 export const name = '@dsh-desktop/bundle'
 
-export function apply(_ctx: Context): void {
-  // No composition yet: this package declares its role and boundary only.
-}
+/** Desktop bundle marker; profile composition is declared by the bundle patch. */
+export function apply(_ctx: Context): void {}

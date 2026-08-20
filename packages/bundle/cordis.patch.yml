@@ -1,0 +1,17 @@
+# Desktop keeps the official base and Web trees, replaces browser-owned startup,
+# and mounts desktop capability providers through Cordis.
+- id: web-startup
+  disabled: true
+- id: webserver
+  disabled: true
+- id: web-runtime
+  disabled: true
+- id: client-hmr
+  disabled: true
+- insert:
+    - id: desktop-connection
+      name: '@dsh-desktop/connection'
+    - id: desktop-native
+      name: '@dsh-desktop/native'
+    - id: desktop-ui
+      name: '@dsh-desktop/ui'
