@@ -7,9 +7,10 @@ packages:
 
 # pnpm 10+ blocks any dependency shipping an install/build script until it is
 # explicitly reviewed here (strictDepBuilds defaults to true: an unlisted script
-# is a hard install error). esbuild (native binary validation) and electron
-# (platform binary download) genuinely need theirs; everything else is denied
-# by default.
+# is a hard install error). esbuild's postinstall validates its native binary;
+# electron 43.x currently ships no install script (its binary downloads lazily on
+# first run), and its entry is kept as a forward guard in case a future version
+# reintroduces one. Everything else is denied by default.
 allowBuilds:
   esbuild: true
   electron: true

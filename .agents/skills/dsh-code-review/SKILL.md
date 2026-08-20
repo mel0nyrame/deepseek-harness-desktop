@@ -11,7 +11,7 @@ description: Use when reviewing a pull request in the deepseek-harness-desktop r
 
 - [AGENTS.md](../../../AGENTS.md) and [packages/AGENTS.md](../../../packages/AGENTS.md): standing repository and package authoring rules.
 - [defensive-patterns.md in the frozen monorepo](../../../legacy/docs/defensive-patterns.md): subprocess, callback, async-state, and disposal bug classes in the official runtime layers.
-- [AGENTS.md](../../../AGENTS.md): documentation placement and prose discipline.
+- [docs/AGENTS.md in the frozen monorepo](../../../legacy/docs/AGENTS.md): documentation placement and prose discipline.
 - [dsh-prose-standard](../dsh-prose-standard/SKILL.md): required coverage and editorial judgment for comments, docs, prompts, and visible strings.
 - [testing.md in the frozen monorepo](../../../legacy/docs/testing.md) and the [quality-gates Agent Note in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-06-11-quality-gates.md): required test tiers and gates.
 - [Agent Notes](../../notes/README.md): design rationale. Treat disagreement with an Agent Note as a design discussion, not an automatic veto.

@@ -27,7 +27,7 @@ For every suspect passage ask: **could a reader at HEAD, with no access to any s
 Unaided citation passes fail in both directions by deleting durable references and keeping dead ones. Apply these keep rules as written; [examples](references/examples.md) calibrates each:
 
 - **Issue references** — `#1470`, `TODO(name):`, "issue #N owns the follow-up" resolve at HEAD; keep them on any surface, including READMEs. Do not relocate them to Agent Notes.
-- **Merged-PR and issue citations inside Agent Notes and postmortems** — sanctioned evidence per [AGENTS.md](../../../AGENTS.md)'s change-story routing.
+- **Merged-PR and issue citations inside Agent Notes and postmortems** — sanctioned evidence per the [documentation standard in the frozen monorepo](../../../legacy/docs/AGENTS.md)'s change-story routing.
 - **Suppression justifications** — `oxlint-disable … -- reason`, coverage-ignore reasons, empty-catch explanations are required prose; fix a false reason, never delete it.
 - **Counterfactual-present regression pins** — "without X, Y happens", "a naive X would…".
 - **Measured bounds** — "(measured: 512 nests ≈ 0.15s)" calibrating a constant; the provenance word "measured" is load-bearing.

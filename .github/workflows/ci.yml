@@ -3,7 +3,6 @@ name: CI
 on:
   pull_request:
   push:
-    branches: [master, codex/desktop-decoupling]
 
 # Pull request runs are cheap and superseded quickly; cancel in-progress runs
 # when a new commit lands on the same ref.

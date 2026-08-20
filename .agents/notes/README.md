@@ -55,7 +55,7 @@ A feature-addition note may be consolidated into the later removal note only whe
 
 ## The file format
 
-Every active Agent Note follows one in-file format, enforced by the repository-layout test (`pnpm run test:layout`); the rationale for the format — and the alternatives it rejected — is [the uniform-format Agent Note in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md). Archived notes retain the format they had when sealed plus the archive-date line above.
+Every active Agent Note follows one in-file format; the repository-layout test (`pnpm run test:layout`) enforces the machine-checkable basics — the `# Agent Note: ` header, the blank second line, the `Status:`/lifecycle agreement, and an Alternatives section (or the pre-format marker) — and the rest of the format is manual per this file. The rationale for the format — and the alternatives it rejected — is [the uniform-format Agent Note in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md). Archived notes retain the format they had when sealed plus the archive-date line above.
 
 ### The header block
 
@@ -112,7 +112,7 @@ A rejected Agent Note is the proposal, frozen: it keeps whatever proposal-time s
 
 Every Agent Note carries an `## Alternatives considered` section: each genuine alternative and why it lost, one bold-led paragraph per alternative or a `### Why not <X>?` subsection per contested one. A decision recorded without what it beat invites re-litigation — the failure Agent Notes exist to prevent.
 
-Alternatives are recorded, never invented. An Agent Note dated before 2026-07-05 whose alternatives are not reconstructible from the record carries this exact comment in place of the section, which the format check accepts for pre-format files only:
+Alternatives are recorded, never invented. An Agent Note dated before 2026-07-05 whose alternatives are not reconstructible from the record carries this exact comment in place of the section — the repository-layout test tolerates the marker as a substitute for the section:
 
 ```markdown
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->
@@ -120,8 +120,8 @@ Alternatives are recorded, never invented. An Agent Note dated before 2026-07-05
 
 ### Moving between lifecycles
 
-Moving a file between lifecycle folders means updating the `Status:` line and re-satisfying that folder's skeleton in the same change — the format check fails the move otherwise. Concretely, `proposed/` → `implemented/` rewrites `## Proposal` into a present-tense `## Decision`, folds `## Acceptance criteria` and `## Risks` into `## Consequences` (or a present-tense `## Testing`/`## Verification` section for what now pins the behavior), and drops plans in favor of what shipped — the rewrite [implemented/AGENTS.md](implemented/AGENTS.md) requires, made mechanical. `proposed/` → `rejected/` only adds the reason to the `Status:` line and freezes the file.
+Moving a file between lifecycle folders means updating the `Status:` line and re-satisfying that folder's skeleton in the same change — the repository-layout test fails the move otherwise. Concretely, `proposed/` → `implemented/` rewrites `## Proposal` into a present-tense `## Decision`, folds `## Acceptance criteria` and `## Risks` into `## Consequences` (or a present-tense `## Testing`/`## Verification` section for what now pins the behavior), and drops plans in favor of what shipped — the rewrite [implemented/AGENTS.md](implemented/AGENTS.md) requires, made mechanical. `proposed/` → `rejected/` only adds the reason to the `Status:` line and freezes the file.
 
 ### Chinese counterparts
 
-A `.zh.md` counterpart mirrors its English sibling's structure section-for-section; the machine-checked header tokens (`# Agent Note: ` and the `Status:` line) stay in English verbatim. Bilingual pairing is recorded in the triplet's `.i18n.yaml` consistency record: after editing either side, bring the other along in the same change and re-record both blob hashes by hand (`git hash-object` each file, then update the record). The format check skips `.zh.md` files — the consistency record captures their pairing.
+A `.zh.md` counterpart mirrors its English sibling's structure section-for-section; the machine-checked header tokens (`# Agent Note: ` and the `Status:` line) stay in English verbatim. Bilingual pairing is recorded in the triplet's `.i18n.yaml` consistency record: after editing either side, bring the other along in the same change and re-record both blob hashes by hand (`git hash-object` each file, then update the record). The repository-layout test skips `.zh.md` files — the consistency record captures their pairing.

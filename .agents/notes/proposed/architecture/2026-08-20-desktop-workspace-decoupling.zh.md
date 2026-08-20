@@ -17,7 +17,7 @@ Status: proposed
 ### 仓库布局
 
 - 根工作区：`pnpm-workspace.yaml` 只声明 `apps/*` 与 `packages/*`。`legacy/` 树刻意不是工作区成员，因此常规 install、typecheck、test、build 与打包从不读取旧依赖图。
-- `legacy/` 持有冻结的 monorepo：其自身的 `package.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`AGENTS.md`、`.agents/`、`.github/`、`docs/`、`packages/`、`apps/`、`vendor/` 以及解耦前的所有根级文件。它保留用于对比与恢复，直到解耦将其移除；`legacy` 分支是它的恢复归属。禁止从产品工作区编辑、构建或依赖它。
+- `legacy/` 持有冻结的 monorepo：其自身的 `package.json`、`pnpm-workspace.yaml`、`pnpm-lock.yaml`、`AGENTS.md`、`.agents/`、`.github/`、`docs/`、`packages/`、`apps/`、`vendor/` 以及解耦前的所有根级文件，包括原始的 `README.md`/`README.zh.md`/`README.i18n.yaml` 三件组、`CLAUDE.md`、`LICENSE`、`SECURITY.md` 与 `assets/readme/` 树（作为冻结副本）。唯一未随迁的解耦前根级条目是过时的 `.codegraph/` 数据库与三张社区二维码图（`assets/community-*.png`），按产品决策作为废弃产物移除。它保留用于对比与恢复，直到解耦将其移除；`legacy` 分支是它的恢复归属。禁止从产品工作区编辑、构建或依赖它。
 - `upstream/` 是固定到提交 `141eb6fef83422698aef7a981029e843e8161534`（`deepseek-ai/deepseek-harness` 上的 `dsh-v0.1.0-rc.8`）的子模块，在 `.gitmodules` 中声明并在索引中记录 gitlink。它服务于源码检视、兼容性对比与升级工作；常规开发从不依赖它，运行时装配（第 2 阶段）消费精确的已发布包，而非该子模块。
 - 视觉资产保持内容、名称与位置不变：`assets/readme/*` 留在根目录（README 引用它），应用图标留在新 shell 包内的 `apps/desktop/build/icon.{png,svg}`。
 

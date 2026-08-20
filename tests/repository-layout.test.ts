@@ -67,8 +67,58 @@ const MIGRATED_NOTES = [
   'rejected/process/2026-08-04-artifact-first-npm-baseline-publication',
 ]
 
+/**
+ * Git blob hashes (`git hash-object`) of the product identity assets. The
+ * decoupling issue requires these assets to retain their content, names, and
+ * locations; pinning the hashes makes any content change a deliberate commit.
+ */
+const IDENTITY_ASSET_BLOBS: Record<string, string> = {
+  'apps/desktop/build/icon.png': 'efd386acafa941b5e873dfa9611c919898fd44fe',
+  'apps/desktop/build/icon.svg': 'b19e5b8d35f41b05d9fda1d07e02735e2341778d',
+  'assets/readme/architecture.svg': '05edf2ef548accec8daeabdedb8c128f0e330230',
+  'assets/readme/hero-light.svg': '96e1af69aeb28e9ecd59641d52a953da5b454247',
+  'assets/readme/icons/bundled-runtime.png': '2173975d0463c63a0937b3fb238365c5a84913f2',
+  'assets/readme/icons/compact-native-window.svg': '5433dad07fb5512752dee99940d2307ec8e6aa1a',
+  'assets/readme/icons/native-workspace.png': 'b76ea8ed37de6efb33a262174f35b459b38ab689',
+  'assets/readme/icons/persistent-glass-sidebar.svg': '7e8c864a539262a9d032574e3453820660cc9b7e',
+  'assets/readme/icons/private-carrier.png': '076468fee1aa7f0d76ebd841045d8414d15911d7',
+  'assets/readme/icons/shared-state.png': '982a86bc50bc0696bb59190e823b8462f6aab9d4',
+  'assets/readme/icons/zero-width-focus.svg': '077edd18d8e0b977e5ed80d3b1c4c838a5b4abcf',
+  'assets/readme/product-window.png': '3c9d0bdc6c0b103a9bd2e5bd22729b36c6937dd3',
+  'assets/readme/source/icons/dsh-desktop-feature-sheet-flat.png': 'a23f22d00ef6d6e27ca0967ae26ea3de4eb3bc51',
+  'assets/readme/source/icons/dsh-desktop-feature-sheet-prompt.txt': 'b96966fa11aac5f5a85bccbd30f3531f2215225f',
+  'assets/readme/source/icons/dsh-desktop-feature-sheet.png': '67b9f1d8b66df027d087b45872ce08b60d8837f2',
+  'assets/readme/source/icons/dsh-desktop-light-spot.json': '4909713f6ba22a51130280ab28efe6faa0077845',
+  'assets/readme/source/screenshots/native-window-product.png': '4be3a76373ee6b2bb6906afb391182453e5ee0f7',
+}
+
+/** The pre-decoupling root files that must stay present inside `legacy/`. */
+const FROZEN_ROOT_DOCS = [
+  'AGENTS.md',
+  'CLAUDE.md',
+  'README.md',
+  'README.zh.md',
+  'README.i18n.yaml',
+  'LICENSE',
+  'SECURITY.md',
+  '.editorconfig',
+  '.gitattributes',
+]
+
 function readJson(relative: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8')) as Record<string, unknown>
+}
+
+function gitBlob(relative: string): string {
+  return execFileSync('git', ['hash-object', relative], { cwd: ROOT, encoding: 'utf8' }).trim()
+}
+
+function walkFiles(dir: string): string[] {
+  return fs
+    .readdirSync(dir, { withFileTypes: true })
+    .flatMap((entry) =>
+      entry.isDirectory() ? walkFiles(path.join(dir, entry.name)) : [path.join(dir, entry.name)],
+    )
 }
 
 function expandWorkspaceGlobs(globs: string[]): string[] {
@@ -227,6 +277,18 @@ describe('repository layout', () => {
     expect(fs.existsSync(path.join(notesDir, 'README.md'))).toBe(true)
     expect(fs.existsSync(path.join(notesDir, 'AGENTS.md'))).toBe(true)
 
+    // The lifecycle set is closed: no other top-level folder may appear here.
+    expect(fs.readdirSync(notesDir).toSorted()).toEqual([
+      'AGENTS.md',
+      'README.i18n.yaml',
+      'README.md',
+      'README.zh.md',
+      'archived',
+      'implemented',
+      'proposed',
+      'rejected',
+    ])
+
     for (const note of MIGRATED_NOTES) {
       for (const suffix of ['.md', '.zh.md', '.i18n.yaml']) {
         expect(fs.existsSync(path.join(notesDir, note + suffix)), `${note}${suffix}`).toBe(true)
@@ -239,20 +301,27 @@ describe('repository layout', () => {
     }
   })
 
-  it('keeps the visual assets at their preserved locations', () => {
-    const assets: Array<[string, string]> = [
-      ['assets/readme/hero-light.svg', 'README hero'],
-      ['assets/readme/product-window.png', 'README product window'],
-      ['assets/readme/architecture.svg', 'README architecture diagram'],
-      ['apps/desktop/build/icon.png', 'application icon PNG'],
-      ['apps/desktop/build/icon.svg', 'application icon SVG'],
-    ]
-    for (const [relative, label] of assets) {
-      const stat = fs.statSync(path.join(ROOT, relative))
-      expect(stat.size, `${label} at ${relative}`).toBeGreaterThan(0)
+  it('keeps the identity assets with their content intact', () => {
+    for (const [relative, blob] of Object.entries(IDENTITY_ASSET_BLOBS)) {
+      expect(gitBlob(relative), `${relative} content`).toBe(blob)
     }
-    const icons = fs.readdirSync(path.join(ROOT, 'assets/readme/icons'))
-    expect(icons.length).toBeGreaterThan(0)
+  })
+
+  it('keeps the frozen legacy tree complete', () => {
+    for (const relative of FROZEN_ROOT_DOCS) {
+      expect(fs.existsSync(path.join(ROOT, 'legacy', relative)), `legacy/${relative}`).toBe(true)
+    }
+    const claude = fs.lstatSync(path.join(ROOT, 'legacy/CLAUDE.md'))
+    expect(claude.isSymbolicLink()).toBe(true)
+    expect(fs.readlinkSync(path.join(ROOT, 'legacy/CLAUDE.md'))).toBe('AGENTS.md')
+
+    // The frozen assets/readme tree mirrors the product identity assets blob-for-blob.
+    for (const file of walkFiles(path.join(ROOT, 'assets/readme'))) {
+      const relative = path.relative(ROOT, file)
+      expect(gitBlob(`legacy/${relative}`), `legacy/${relative} mirrors ${relative}`).toBe(
+        gitBlob(relative),
+      )
+    }
   })
 
   it('enforces the Agent Note format basics', () => {

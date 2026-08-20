@@ -59,7 +59,7 @@
 
 ## 文件格式
 
-每份活跃 Agent Note 遵循统一的文件内格式，由 repository-layout 测试（`pnpm run test:layout`）强制执行；该格式的设计动机及其否决的替代方案见[冻结树中的统一格式 Agent Note](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md)。归档记录保留封存时的格式，并增加上述归档日期行。
+每份活跃 Agent Note 遵循统一的文件内格式；repository-layout 测试（`pnpm run test:layout`）强制执行其中可机器检查的基础项——`# Agent Note: ` 标题、空白的第二行、`Status:` 与生命周期的一致性，以及「曾考虑的替代方案」章节（或格式规范之前的标记）——其余格式按本文件手工执行。该格式的设计动机及其否决的替代方案见[冻结树中的统一格式 Agent Note](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md)。归档记录保留封存时的格式，并增加上述归档日期行。
 
 ### 头部块
 
@@ -116,7 +116,7 @@ Status: <status>
 
 每份 Agent Note 都必须包含 `## Alternatives considered` 章节：每个真实的替代方案及其落选原因，每个替代方案用一个加粗引导的段落，或对争议较大的替代方案用 `### Why not <X>?` 子节。记录决策时不记录它击败了什么，就是在邀请反复争论——这正是 Agent Note 旨在防止的问题。
 
-替代方案是记录下来的，不是凭空编造的。日期早于 2026-07-05 且替代方案无法从记录中重建的 Agent Note，用以下精确注释代替该章节，格式检查仅对格式规范之前的文件接受此注释：
+替代方案是记录下来的，不是凭空编造的。日期早于 2026-07-05 且替代方案无法从记录中重建的 Agent Note，用以下精确注释代替该章节——repository-layout 测试接受该标记作为章节的替代：
 
 ```markdown
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->
@@ -124,8 +124,8 @@ Status: <status>
 
 ### 在生命周期之间移动
 
-将文件在生命周期文件夹之间移动意味着在同一个变更中更新 `Status:` 行并满足目标文件夹的骨架要求——否则格式检查会失败。具体而言，`proposed/` → `implemented/` 将 `## Proposal` 改写为现在时态的 `## Decision`，将 `## Acceptance criteria` 和 `## Risks` 折入 `## Consequences`（或折入一个现在时态的 `## Testing`/`## Verification` 章节，用于描述现在锁定该行为的内容），并用实际交付的内容替换计划——也就是将 [implemented/AGENTS.md](implemented/AGENTS.md) 所要求的改写变成可机械检查的规则。`proposed/` → `rejected/` 仅在 `Status:` 行添加原因并冻结文件。
+将文件在生命周期文件夹之间移动意味着在同一个变更中更新 `Status:` 行并满足目标文件夹的骨架要求——否则 repository-layout 测试会失败。具体而言，`proposed/` → `implemented/` 将 `## Proposal` 改写为现在时态的 `## Decision`，将 `## Acceptance criteria` 和 `## Risks` 折入 `## Consequences`（或折入一个现在时态的 `## Testing`/`## Verification` 章节，用于描述现在锁定该行为的内容），并用实际交付的内容替换计划——也就是将 [implemented/AGENTS.md](implemented/AGENTS.md) 所要求的改写变成可机械检查的规则。`proposed/` → `rejected/` 仅在 `Status:` 行添加原因并冻结文件。
 
 ### 中文对侧文件
 
-`.zh.md` 对侧文件逐章节与其英文对侧文件保持相同结构；机器检查的头部标记（`# Agent Note: ` 和 `Status:` 行）保持英文原样不翻译。双语配对记录在三文件组中的 `.i18n.yaml` 一致性记录里：编辑任一侧后，应在同一变更中同步另一侧，并手工重新记录两侧 blob hash（对每个文件执行 `git hash-object`，再更新记录）。格式检查跳过 `.zh.md` 文件；一致性记录承载配对信息。
+`.zh.md` 对侧文件逐章节与其英文对侧文件保持相同结构；机器检查的头部标记（`# Agent Note: ` 和 `Status:` 行）保持英文原样不翻译。双语配对记录在三文件组中的 `.i18n.yaml` 一致性记录里：编辑任一侧后，应在同一变更中同步另一侧，并手工重新记录两侧 blob hash（对每个文件执行 `git hash-object`，再更新记录）。repository-layout 测试跳过 `.zh.md` 文件；一致性记录承载配对信息。

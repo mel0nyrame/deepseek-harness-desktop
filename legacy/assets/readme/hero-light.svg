@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 1200 420" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;">
+    <path d="M1199,33L1199,387C1199,404.661 1184.661,419 1167,419L33,419C15.339,419 1,404.661 1,387L1,33C1,15.339 15.339,1 33,1L1167,1C1184.661,1 1199,15.339 1199,33Z" style="fill:url(#_Linear1);stroke:rgb(225,229,238);stroke-width:2px;"/>
+    <g id="title-block" transform="matrix(1,0,0,1,64,52)">
+        <g transform="matrix(1.074468,0,0,1,0,0)">
+            <path d="M282,19C282,29.486 274.076,38 264.317,38L17.683,38C7.924,38 0,29.486 0,19C0,8.514 7.924,0 17.683,0L264.317,0C274.076,0 282,8.514 282,19Z" style="fill:rgb(228,237,253);"/>
+        </g>
+        <circle cx="20" cy="19" r="6" style="fill:rgb(65,118,230);"/>
+        <g transform="matrix(1,0,0,1,36,25)">
+            <text x="0px" y="0px" style="font-family:'Menlo-Bold', 'Menlo', monospace;font-weight:700;font-size:16px;fill:rgb(14,48,116);">D<tspan x="9.825px 19.65px 29.474px 39.299px 49.124px 58.949px 68.774px 78.599px 88.423px 98.248px 108.073px 117.898px 127.723px 137.547px 147.372px 157.197px 167.022px 176.847px 186.671px 196.496px 206.321px 216.146px 225.971px 235.796px 245.62px " y="0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px 0px ">EEPSEEK HARNESS · DESKTOP</tspan></text>
+        </g>
+        <g transform="matrix(1,0,0,1,0,123)">
+            <text x="0px" y="0px" style="font-family:'Helvetica-Bold', 'Helvetica';font-weight:700;font-size:76px;fill:rgb(15,17,21);">D<tspan x="52.985px 101.776px 154.761px 173.976px 226.961px 267.329px 307.696px 348.064px 371.472px 415.996px " y="0px 0px 0px 0px 0px 0px 0px 0px 0px 0px ">SH Desktop</tspan></text>
+        </g>
+        <g transform="matrix(1,0,0,1,0,169)">
+            <text x="0px" y="0px" style="font-family:'Helvetica';font-size:27px;fill:rgb(53,54,56);">The full DSH runtime, inside a native Electron app.</text>
+        </g>
+        <g transform="matrix(1,0,0,1,0,207)">
+            <text x="0px" y="0px" style="font-family:'Helvetica';font-size:20px;fill:rgb(97,102,107);">Local sessions, tools, plugins, PTYs, and native workspace actions.</text>
+        </g>
+        <g transform="matrix(1,0,0,1,0,255)">
+            <path d="M166,21C166,32.59 156.59,42 145,42L21,42C9.41,42 0,32.59 0,21C0,9.41 9.41,0 21,0L145,0C156.59,0 166,9.41 166,21Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:1px;"/>
+            <circle cx="20" cy="21" r="5" style="fill:rgb(65,118,230);"/>
+            <g transform="matrix(1,0,0,1,34,27)">
+                <text x="0px" y="0px" style="font-family:'Menlo-Bold', 'Menlo', monospace;font-weight:700;font-size:16px;fill:rgb(15,17,21);">BUNDLED DSH</text>
+            </g>
+            <path d="M344,21C344,32.59 334.59,42 323,42L201,42C189.41,42 180,32.59 180,21C180,9.41 189.41,0 201,0L323,0C334.59,0 344,9.41 344,21Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:1px;"/>
+            <circle cx="200" cy="21" r="5" style="fill:rgb(103,158,254);"/>
+            <g transform="matrix(1,0,0,1,214,27)">
+                <text x="0px" y="0px" style="font-family:'Menlo-Bold', 'Menlo', monospace;font-weight:700;font-size:16px;fill:rgb(15,17,21);">PRIVATE IPC</text>
+            </g>
+            <path d="M532,21C532,32.59 522.59,42 511,42L379,42C367.41,42 358,32.59 358,21C358,9.41 367.41,0 379,0L511,0C522.59,0 532,9.41 532,21Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:1px;"/>
+            <circle cx="378" cy="21" r="5" style="fill:rgb(40,200,64);"/>
+            <g transform="matrix(1,0,0,1,392,27)">
+                <text x="0px" y="0px" style="font-family:'Menlo-Bold', 'Menlo', monospace;font-weight:700;font-size:16px;fill:rgb(15,17,21);">NATIVE MACOS</text>
+            </g>
+        </g>
+    </g>
+    <g id="desktop-window" transform="matrix(1,0,0,1,760,46)">
+        <path d="M380,42L380,302C380,317.454 367.454,330 352,330L38,330C22.546,330 10,317.454 10,302L10,42C10,26.546 22.546,14 38,14L352,14C367.454,14 380,26.546 380,42Z" style="fill:rgb(15,17,21);fill-opacity:0.08;"/>
+        <path d="M370,28L370,288C370,303.454 357.454,316 342,316L28,316C12.546,316 0,303.454 0,288L0,28C0,12.546 12.546,0 28,0L342,0C357.454,0 370,12.546 370,28Z" style="fill:white;stroke:rgb(207,211,218);stroke-width:2px;"/>
+        <path d="M0,58L370,58" style="fill:none;fill-rule:nonzero;stroke:rgb(225,229,238);stroke-width:2px;"/>
+        <circle cx="26" cy="29" r="7" style="fill:rgb(255,95,87);"/>
+        <circle cx="49" cy="29" r="7" style="fill:rgb(254,188,46);"/>
+        <circle cx="72" cy="29" r="7" style="fill:rgb(40,200,64);"/>
+        <g transform="matrix(1,0,0,1,260,37)">
+            <text x="0px" y="0px" style="font-family:'Menlo-Regular', 'Menlo', monospace;font-size:17px;fill:rgb(129,133,140);">dsh://app</text>
+        </g>
+        <path d="M94,98L94,274C94,285.038 85.038,294 74,294L40,294C28.962,294 20,285.038 20,274L20,98C20,86.962 28.962,78 40,78L74,78C85.038,78 94,86.962 94,98Z" style="fill:rgb(249,250,251);"/>
+        <path d="M76,104C76,106.208 74.208,108 72,108L42,108C39.792,108 38,106.208 38,104C38,101.792 39.792,100 42,100L72,100C74.208,100 76,101.792 76,104Z" style="fill:rgb(65,118,230);"/>
+        <path d="M66,130.5C66,132.432 64.432,134 62.5,134L41.5,134C39.568,134 38,132.432 38,130.5C38,128.568 39.568,127 41.5,127L62.5,127C64.432,127 66,128.568 66,130.5Z" style="fill:rgb(207,211,218);"/>
+        <path d="M76,153.5C76,155.432 74.432,157 72.5,157L41.5,157C39.568,157 38,155.432 38,153.5C38,151.568 39.568,150 41.5,150L72.5,150C74.432,150 76,151.568 76,153.5Z" style="fill:rgb(207,211,218);"/>
+        <path d="M70,176.5C70,178.432 68.432,180 66.5,180L41.5,180C39.568,180 38,178.432 38,176.5C38,174.568 39.568,173 41.5,173L66.5,173C68.432,173 70,174.568 70,176.5Z" style="fill:rgb(207,211,218);"/>
+        <circle cx="57" cy="261" r="14" style="fill:rgb(228,237,253);"/>
+        <g transform="matrix(1,0,0,1,120,88)">
+            <path d="M222,24L222,166C222,179.246 211.246,190 198,190L24,190C10.754,190 0,179.246 0,166L0,24C0,10.754 10.754,0 24,0L198,0C211.246,0 222,10.754 222,24Z" style="fill:rgb(249,250,251);stroke:rgb(225,229,238);stroke-width:1px;"/>
+            <g transform="matrix(1,0,0,1,24,35)">
+                <text x="0px" y="0px" style="font-family:'Menlo-Regular', 'Menlo', monospace;font-size:16px;fill:rgb(97,102,107);">BUNDLED RUNTIME</text>
+            </g>
+            <g transform="matrix(1,0,0,1,0,6)">
+                <path d="M183,86L183,122C183,137.454 170.454,150 155,150L67,150C51.546,150 39,137.454 39,122L39,86C39,70.546 51.546,58 67,58L155,58C170.454,58 183,70.546 183,86Z" style="fill:url(#_Linear2);stroke:rgb(15,17,21);stroke-width:2px;"/>
+            </g>
+            <path d="M161,89C161,94.519 156.519,99 151,99L71,99C65.481,99 61,94.519 61,89C61,83.481 65.481,79 71,79L151,79C156.519,79 161,83.481 161,89Z" style="fill:white;stroke:rgb(103,158,254);stroke-width:1px;"/>
+            <path d="M161,112C161,117.519 156.519,122 151,122L71,122C65.481,122 61,117.519 61,112C61,106.481 65.481,102 71,102L151,102C156.519,102 161,106.481 161,112Z" style="fill:rgb(65,118,230);"/>
+            <path d="M161,135C161,140.519 156.519,145 151,145L71,145C65.481,145 61,140.519 61,135C61,129.481 65.481,125 71,125L151,125C156.519,125 161,129.481 161,135Z" style="fill:white;stroke:rgb(103,158,254);stroke-width:1px;"/>
+            <g transform="matrix(1,0,0,1,8,5)">
+                <path d="M176,102L204,102" style="fill:none;fill-rule:nonzero;stroke:rgb(65,118,230);stroke-width:5px;stroke-linecap:round;"/>
+            </g>
+            <g transform="matrix(1,0,0,1,4,5)">
+                <circle cx="205" cy="102" r="8" style="fill:rgb(65,118,230);"/>
+            </g>
+            <g transform="matrix(1,0,0,1,6,0)">
+                <path d="M105,169C98,158 87,158 80,163C87,166 92,173 105,177C118,173 123,166 130,163C123,158 112,158 105,169Z" style="fill:rgb(65,118,230);fill-rule:nonzero;"/>
+            </g>
+        </g>
+    </g>
+    <defs>
+        <linearGradient id="_Linear1" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(1198,418,-418,1198,1,1)"><stop offset="0" style="stop-color:white;stop-opacity:1"/><stop offset="1" style="stop-color:rgb(237,243,254);stop-opacity:1"/></linearGradient>
+        <linearGradient id="_Linear2" x1="0" y1="0" x2="1" y2="0" gradientUnits="userSpaceOnUse" gradientTransform="matrix(0,92,-92,0,39,58)"><stop offset="0" style="stop-color:white;stop-opacity:1"/><stop offset="1" style="stop-color:rgb(228,237,253);stop-opacity:1"/></linearGradient>
+    </defs>
+</svg>
