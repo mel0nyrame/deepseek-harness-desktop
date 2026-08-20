@@ -5,7 +5,7 @@ description: Use when landing a stack of dependent GitHub PRs (A ← B ← C, wh
 
 # Landing an official GitHub PR stack
 
-Land dependent PRs through GitHub's native stack object and `gh stack merge`. Do not reproduce stack semantics by merging and retargeting individual PRs with `gh pr merge` and `gh pr edit`. The root [AGENTS.md](../../../AGENTS.md) owns the allowed merge-forward and rebase histories; the [stack review guide](../../../docs/cookbook/responding-to-pr-review-on-a-stack.md) owns review-fix propagation.
+Land dependent PRs through GitHub's native stack object and `gh stack merge`. Do not reproduce stack semantics by merging and retargeting individual PRs with `gh pr merge` and `gh pr edit`. The root [AGENTS.md](../../../AGENTS.md) owns the allowed merge-forward and rebase histories; the [stack review guide in the frozen monorepo](../../../legacy/docs/cookbook/responding-to-pr-review-on-a-stack.md) owns review-fix propagation.
 
 ## Require native stack support
 

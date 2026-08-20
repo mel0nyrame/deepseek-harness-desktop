@@ -9,9 +9,9 @@ This skill helps turn a broad "find things to simplify" request into evidence-ba
 
 ## Start With Repo Context
 
-- Read `AGENTS.md`, especially the pre-release stance and the conventions (including the tests-are-not-golden-truth and Agent Notes-are-not-golden-truth doctrines), plus [docs/defensive-patterns.md](../../../docs/defensive-patterns.md) and [docs/testing.md](../../../docs/testing.md).
-- Skim [docs/architecture.md](../../../docs/architecture.md) before judging anything under `packages/`; simplifications that fight the service map or event taxonomy need extra evidence.
-- Use the Agent Note tree and its [rules](../../notes/README.md) to understand intentional architecture. The most relevant implemented examples are [drop mutable session summary](../../notes/implemented/simplification/2026-06-19-drop-mutable-session-summary.md), [shared persistence write coordinator](../../notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md), [capability seams](../../notes/implemented/architecture/2026-06-13-capability-seams.md), and the twin adapter / dual persistence backend Agent Notes.
+- Read `AGENTS.md`, especially the pre-release stance and the conventions (including the tests-are-not-golden-truth and Agent Notes-are-not-golden-truth doctrines), plus [defensive-patterns.md in the frozen monorepo](../../../legacy/docs/defensive-patterns.md) and [testing.md in the frozen monorepo](../../../legacy/docs/testing.md).
+- Skim [architecture.md in the frozen monorepo](../../../legacy/docs/architecture.md) before judging anything under the official runtime layers; desktop-owned packages are judged against [packages/AGENTS.md](../../../packages/AGENTS.md). Simplifications that fight the service map or event taxonomy need extra evidence.
+- Use the Agent Note tree and its [rules](../../notes/README.md) to understand intentional architecture. The most relevant implemented examples live in the frozen tree: [drop mutable session summary](../../../legacy/.agents/notes/implemented/simplification/2026-06-19-drop-mutable-session-summary.md), [shared persistence write coordinator](../../../legacy/.agents/notes/implemented/architecture/2026-06-18-shared-persistence-write-coordinator.md), [capability seams](../../../legacy/.agents/notes/implemented/architecture/2026-06-13-capability-seams.md), and the twin adapter / dual persistence backend Agent Notes.
 - Treat dual LLM adapters and dual persistence backends as intentional by default. Do not propose deleting either twin/backend as "low effort" unless the user explicitly overrides that constraint. Removing an unused method or hook inside a protected seam can still be valid if it does not collapse the protected design.
 
 ## What Counts As A Strong Candidate
@@ -25,7 +25,7 @@ A strong simplification removes, folds, or demotes something real and has clear 
 - A separate package exists only for test/demo/support code and adds publish or dependency overhead.
 - A feature implements speculative product generality: multi-session/session-load, background job rosters, live registry invalidation, mid-turn steering, tool-owned UI rendering, and similar designs with no product owner.
 - An invariant, rollback path, set of expected outputs, or special-case test exists only to protect an unused API.
-- Hand-rolled code reimplements what a well-maintained external package or a Node builtin at the engine floor already provides, and the swap would delete the implementation plus its dedicated tests ([dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
+- Hand-rolled code reimplements what a well-maintained external package or a Node builtin at the engine floor already provides, and the swap would delete the implementation plus its dedicated tests ([dependency policy in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md)).
 - The simplified behavior may differ slightly, but the new behavior is still reasonable and easier to explain.
 
 Thin candidates are usually not enough for an Agent Note: deleting one typo, running `knip` once, removing an intentionally documented backend/adapter, or flagging "this looks complex" without call-site proof.
@@ -38,7 +38,7 @@ Use parallel subagents when the user asks for breadth or many candidates. Give e
 - ACP automation and human UI APIs: prompt settlement and teardown on the protocol side; transcript rendering and interaction state on the UI side.
 - LLM/tools/system prompt: stream/generate APIs, assemblers, registries, tool schema defaults, presentation hooks.
 - Bash and tool execution: foreground/background split, job ownership, output spill files, executor methods.
-- Packages/examples/scripts/tests: package splits, static inventories, redundant snapshot expected outputs, support packages.
+- Packages/scripts/tests: package splits, static inventories, redundant snapshot expected outputs, support packages.
 
 If subagents are unavailable, simulate the same breadth yourself. Do not let the first good candidate stop the survey.
 
@@ -52,7 +52,7 @@ For complex asynchronous code, draw the ownership graph and map each sentinel, r
 
 ## Hand-Rolled Code Versus A Dependency
 
-Introducing a dependency is a valid simplification move, not a policy exception: the [dependency policy](../../notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md) owns the bar. When surveying, ask of protocol parsers, framers, retry/backoff loops, glob matchers, diff engines, and similar infrastructure: does a well-maintained npm package or a Node builtin at the repo's engine floor already do this?
+Introducing a dependency is a valid simplification move, not a policy exception: the [dependency policy in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-07-26-dependencies-over-hand-rolling.md) owns the bar. When surveying, ask of protocol parsers, framers, retry/backoff loops, glob matchers, diff engines, and similar infrastructure: does a well-maintained npm package or a Node builtin at the repo's engine floor already do this?
 
 Prove a dependency-swap candidate like any other, plus:
 
@@ -65,7 +65,7 @@ Prove a dependency-swap candidate like any other, plus:
 
 For every symbol or behavior, classify consumers before writing:
 
-- Production corpus: `packages/*/src`, `examples/*/src`, `examples/**/*.yml`, runtime scripts, and loader/config paths.
+- Production corpus: `packages/*/src`, `apps/*/src`, runtime scripts, and loader/config paths.
 - Non-production corpus: tests, README/docs, Agent Notes, snapshots, generated expected outputs, and comments.
 - Ambiguous corpus: examples and scripts that may be product smoke paths. Inspect usage before classifying.
 
@@ -76,7 +76,7 @@ Reject or downgrade a candidate when:
 - A production caller exists and the simplification would be a feature decision rather than a cleanup.
 - The API is explicitly justified by an implemented Agent Note or a hard-won defensive pattern, and the new evidence does not beat that reason.
 - The removal would force unrelated churn without actually reducing the public API or required behavior.
-- The idea is correct but tiny. Add a targeted TODO/FIXME/XXX instead, using the urgency semantics in [docs/development.md](../../../docs/development.md).
+- The idea is correct but tiny. Add a targeted TODO/FIXME/XXX instead, using the urgency semantics in [development.md in the frozen monorepo](../../../legacy/docs/development.md).
 
 ## Coalesce Superseded Agent Notes
 
@@ -132,7 +132,7 @@ Diff the sibling branch against `origin/master`, not against the current PR bran
 
 ## Validation And PR Hygiene
 
-For docs-only Agent Note work, run at least `pnpm run doc-sync`, `pnpm run lint`, and `git diff --check`. For code comments or skill changes, also run the relevant validator when one exists. Select any other evidence from the outgoing diff; the pre-push hook contributes typecheck only.
+For docs-only Agent Note work, run at least `pnpm run check` and `git diff --check`. For code comments or skill changes, also run the relevant validator when one exists. Select any other evidence from the outgoing diff.
 
 When opening or updating a PR, summarize:
 

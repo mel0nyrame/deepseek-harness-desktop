@@ -18,9 +18,11 @@ The date in the filename is when the topic was **first proposed** (per git histo
 
 The active lifecycle tree is the working inventory: browse its lifecycle/class folders or search the repository. Do not add a centralized `INDEX.md`; the [no-index Agent Note](implemented/process/2026-07-19-remove-generated-agent-note-index.md) owns the rationale. Low-future-value implemented records move to the separate frozen [`archived/`](archived/AGENTS.md) tree described below.
 
+The pre-decoupling decision corpus remains frozen under `legacy/.agents/notes/`; notes whose decisions still guide the desktop product are migrated here with their lifecycle status preserved and their references updated. The repository-layout test (`pnpm run test:layout`) pins the lifecycle tree, the migrated note set, and the retained skill set.
+
 ## Classification
 
-Each Agent Note belongs to one path-encoded class from the closed set in `scripts/agent-note-tree.ts`; the classification gate rejects other folders. Adding a class requires updating the canonical set and this section. See the [classification Agent Note](implemented/process/2026-06-20-agent-note-classification.md).
+Each Agent Note belongs to one path-encoded class from the closed set below; the repository-layout test rejects other folders. Adding a class requires updating the canonical set and this section. See the [classification Agent Note](implemented/process/2026-06-20-agent-note-classification.md).
 
 | Class | What it covers |
 |---|---|
@@ -39,7 +41,7 @@ Archive an implemented Agent Note when the shipped decision is complete and its 
 
 The archive is path-encoded as `archived/{class}/yyyy-mm-dd-topic-title.md`; `implemented` is deliberately absent because only implemented notes can enter it. An archival change moves the complete English/Chinese/sidecar triplet, retains `Status: implemented`, inserts the same `Archived: YYYY-MM-DD` line immediately below that status in both language files, re-records the sidecar, and repairs or deletes inbound links. These are the only permitted content changes during archival.
 
-Once sealed, every archived triplet is permanently frozen. Do not edit, translate, reformat, update, move, or delete it, and do not treat it as authority for current behavior. Documentation gates skip archived sources, including their outbound links; active prose may still link into an archived note when it intentionally cites history. [`verify-archived-agent-notes`](../../scripts/verify-archived-agent-notes.ts) enforces the closed class tree, complete triplets, archive metadata, sidecar hashes, and the append-only frozen-content manifest. The [archive-policy Agent Note](implemented/process/2026-07-26-frozen-agent-note-archive.md) owns the rationale.
+Once sealed, every archived triplet is permanently frozen. Do not edit, translate, reformat, update, move, or delete it, and do not treat it as authority for current behavior. Archived sources are excluded from editorial maintenance and evolving gates; active prose may still link into an archived note when it intentionally cites history. The automated archive verifier returns with a later slice; until then the repository-layout test pins the lifecycle tree. The [archive-policy Agent Note](implemented/process/2026-07-26-frozen-agent-note-archive.md) owns the rationale.
 
 ## When to write one
 
@@ -53,7 +55,7 @@ A feature-addition note may be consolidated into the later removal note only whe
 
 ## The file format
 
-Every active Agent Note follows one in-file format, enforced by `pnpm run verify-agent-note-format` ([scripts/verify-agent-note-format.ts](../../scripts/verify-agent-note-format.ts), part of `doc-sync`); the rationale for the format — and the alternatives it rejected — is [the uniform-format Agent Note](implemented/process/2026-07-05-uniform-agent-note-format.md). Archived notes retain the format they had when sealed plus the archive-date line above.
+Every active Agent Note follows one in-file format, enforced by the repository-layout test (`pnpm run test:layout`); the rationale for the format — and the alternatives it rejected — is [the uniform-format Agent Note in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md). Archived notes retain the format they had when sealed plus the archive-date line above.
 
 ### The header block
 
@@ -65,7 +67,7 @@ The first three lines of every Agent Note are exactly:
 Status: <status>
 ```
 
-followed by a blank line. The `Status:` value is one of three forms, and must agree with the lifecycle folder the file sits in — the gate cross-checks them:
+followed by a blank line. The `Status:` value is one of three forms, and must agree with the lifecycle folder the file sits in — the repository-layout test cross-checks them:
 
 - `Status: proposed`
 - `Status: implemented`
@@ -100,7 +102,7 @@ Every Agent Note opens its body with `## Problem` — the motivation, written to
 ## Consequences
 ```
 
-`## Decision` describes shipped reality in the present tense, and the whole file is kept current with it per [implemented/AGENTS.md](implemented/AGENTS.md). `## Consequences` records what the trade-off cost **and** bought. Proposal-era headings are spec-speak here and the gate rejects them: `## Proposal`, `## Plan`, `## Migration plan`, and `## Acceptance criteria` may not appear in an implemented Agent Note (the [slop checklist](../../docs/AGENTS.md) names why). A `## Testing`, `## Deferred`, or `## Related` section is fine where it states present-tense fact.
+`## Decision` describes shipped reality in the present tense, and the whole file is kept current with it per [implemented/AGENTS.md](implemented/AGENTS.md). `## Consequences` records what the trade-off cost **and** bought. Proposal-era headings are spec-speak here and the format rules reject them: `## Proposal`, `## Plan`, `## Migration plan`, and `## Acceptance criteria` may not appear in an implemented Agent Note (the [prose standard skill](../skills/dsh-prose-standard/SKILL.md) names why). A `## Testing`, `## Deferred`, or `## Related` section is fine where it states present-tense fact.
 
 #### `rejected/`
 
@@ -110,7 +112,7 @@ A rejected Agent Note is the proposal, frozen: it keeps whatever proposal-time s
 
 Every Agent Note carries an `## Alternatives considered` section: each genuine alternative and why it lost, one bold-led paragraph per alternative or a `### Why not <X>?` subsection per contested one. A decision recorded without what it beat invites re-litigation — the failure Agent Notes exist to prevent.
 
-Alternatives are recorded, never invented. An Agent Note dated before 2026-07-05 whose alternatives are not reconstructible from the record carries this exact comment in place of the section, which the gate accepts for pre-format files only:
+Alternatives are recorded, never invented. An Agent Note dated before 2026-07-05 whose alternatives are not reconstructible from the record carries this exact comment in place of the section, which the format check accepts for pre-format files only:
 
 ```markdown
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->
@@ -118,8 +120,8 @@ Alternatives are recorded, never invented. An Agent Note dated before 2026-07-05
 
 ### Moving between lifecycles
 
-Moving a file between lifecycle folders means updating the `Status:` line and re-satisfying that folder's skeleton in the same change — the gate fails the move otherwise. Concretely, `proposed/` → `implemented/` rewrites `## Proposal` into a present-tense `## Decision`, folds `## Acceptance criteria` and `## Risks` into `## Consequences` (or a present-tense `## Testing`/`## Verification` section for what now pins the behavior), and drops plans in favor of what shipped — the rewrite [implemented/AGENTS.md](implemented/AGENTS.md) requires, made mechanical. `proposed/` → `rejected/` only adds the reason to the `Status:` line and freezes the file.
+Moving a file between lifecycle folders means updating the `Status:` line and re-satisfying that folder's skeleton in the same change — the format check fails the move otherwise. Concretely, `proposed/` → `implemented/` rewrites `## Proposal` into a present-tense `## Decision`, folds `## Acceptance criteria` and `## Risks` into `## Consequences` (or a present-tense `## Testing`/`## Verification` section for what now pins the behavior), and drops plans in favor of what shipped — the rewrite [implemented/AGENTS.md](implemented/AGENTS.md) requires, made mechanical. `proposed/` → `rejected/` only adds the reason to the `Status:` line and freezes the file.
 
 ### Chinese counterparts
 
-A `.zh.md` counterpart mirrors its English sibling's structure section-for-section under the [i18n contract](../../docs/i18n/README.md); the machine-checked header tokens (`# Agent Note: ` and the `Status:` line) stay in English verbatim. The format gate skips `.zh.md` files — the pairing gate checks their consistency.
+A `.zh.md` counterpart mirrors its English sibling's structure section-for-section; the machine-checked header tokens (`# Agent Note: ` and the `Status:` line) stay in English verbatim. Bilingual pairing is recorded in the triplet's `.i18n.yaml` consistency record: after editing either side, bring the other along in the same change and re-record both blob hashes by hand (`git hash-object` each file, then update the record). The format check skips `.zh.md` files — the consistency record captures their pairing.
