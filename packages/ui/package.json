@@ -1,0 +1,14 @@
+{
+  "name": "@dsh-desktop/ui",
+  "version": "0.1.0",
+  "description": "UI contributions for DSH Desktop: client renderer registrations, theme tokens, layout contributions, and slots through documented client extension points.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}

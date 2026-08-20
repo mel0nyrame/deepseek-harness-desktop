@@ -1,11 +1,11 @@
 ---
 name: dsh-pre-push-checks
-description: Use before pushing, force-pushing, marking ready for review, or claiming checks pass on a deepseek-harness branch, and immediately after gh stack sync publishes rewritten branches, to select the smallest tests and checks that cover the outgoing or just-published diff without reflexively running the full repository suite.
+description: Use before pushing, force-pushing, marking ready for review, or claiming checks pass on a deepseek-harness-desktop branch, and immediately after gh stack sync publishes rewritten branches, to select the smallest tests and checks that cover the outgoing or just-published diff without reflexively running the full repository suite.
 ---
 
 # DSH Pre-Push Checks
 
-Use this skill to run relevant local evidence once before a `deepseek-harness` push. The sole ordering exception is `gh stack sync`, which may publish a cascading rebase before the rewritten layers can be validated; validate them immediately afterward and do not merge until the evidence passes. Git hooks are intentionally narrow: pre-commit fixes staged lint, checks staged whitespace, and guards vendored-source metadata; pre-push runs only the incremental repository typecheck. CI owns exhaustive coverage and the platform matrix.
+Use this skill to run relevant local evidence once before a `deepseek-harness-desktop` push. The sole ordering exception is `gh stack sync`, which may publish a cascading rebase before the rewritten layers can be validated; validate them immediately afterward and do not merge until the evidence passes. The repository currently has no git hooks; CI runs the full workspace check suite (typecheck, lint, layout test, unit tests) on Ubuntu.
 
 ## Inspect the outgoing change
 
@@ -19,49 +19,50 @@ git rev-parse --show-toplevel
 2. Verify the live PR base or stack parent, fetch that ref, and inspect the complete scope against it.
 
 ```sh
-pnpm --silent run change-scope --base <verified-base-ref>
+git diff --name-status <verified-base-ref>...HEAD
+git status --short
 ```
 
-The command never guesses or fetches a base. Supply the ref verified from current remote or stack state; use `--head <ref>` when inspecting a commit other than `HEAD`. Its versioned JSON records committed paths relative to the resolved merge base, while staged, unstaged, and untracked paths describe the current worktree. After merging a changed base, rerun the report, reassess which behavior the combined scope can affect, and rerun only checks invalidated by the merge.
+The diff never guesses or fetches a base. Supply the ref verified from current remote or stack state; `--name-status` lists committed paths relative to the resolved merge base, while staged, unstaged, and untracked paths describe the current worktree. After merging a changed base, rerun the inspection, reassess which behavior the combined scope can affect, and rerun only checks invalidated by the merge.
 
 ## Select relevant evidence
 
 There is no universal local baseline beyond the hooks. Every behavior change needs the narrowest available test or purpose-built check that would fail for its regression; add broader checks only for surfaces the diff actually reaches.
 
 - **Package or script behavior:** run the owning Vitest file or focused test name. Add adjacent package tests when a shared contract changes; leave repository-wide coverage to CI unless the change is genuinely cross-cutting or the user requests it.
-- **Documentation, Agent Notes, catalogs, or doc-linked comments:** run `pnpm run doc-sync`; run full lint when the documentation workflow requires it.
+- **Documentation, Agent Notes, or doc-linked comments:** run `pnpm run lint` and `git diff --check`; run the repository-layout test (`pnpm run test:layout`) when the change touches agent-development resources or the workspace boundary.
 - **Model-, editor-, CLI-, or terminal-visible output:** run the focused keyless snapshot or real runnable-example scenario that owns the output.
-- **Package manifests, public exports, build configuration, worker/bin entries, or built runtime paths:** run `pnpm run build`, the relevant hygiene checks, and the owning built-artifact smoke.
-- **Real provider or agent behavior:** run the relevant `pnpm run test:e2e` target when credentials are available; never print secrets.
+- **Package manifests, public exports, or build configuration:** run `pnpm run check`; when a build exists, run it and the owning built-artifact smoke.
+- **Real provider or agent behavior:** run the relevant end-to-end target when one exists and credentials are available; never print secrets.
 
 Do not manually repeat a passing check merely because commit or push follows. In particular, do not run typecheck immediately before pushing solely to duplicate the pre-push hook.
 
 ### Focus unit coverage on the affected source
 
-Test selection and coverage selection are separate. A Vitest file filter chooses which tests run, while the repository configuration otherwise measures every `packages/*/*/src/**/*.ts` file. When unit coverage is relevant, name both the owning tests and the source files or package whose coverage those tests must prove:
+Test selection and coverage selection are separate. A Vitest file filter chooses which tests run; the workspace configures no coverage provider or thresholds, so `--coverage` requires installing `@vitest/coverage-v8` (exact version) first. When unit coverage is relevant, name both the owning tests and the source files or package whose coverage those tests must prove:
 
 ```sh
-pnpm exec vitest run packages/<group>/<package>/tests/<behavior>.spec.ts \
+pnpm exec vitest run packages/<role>/tests/<behavior>.spec.ts \
   --coverage \
-  --coverage.include='packages/<group>/<package>/src/**/*.ts'
+  --coverage.include='packages/<role>/src/**/*.ts'
 ```
 
-Use an exact source file when the behavior is truly confined to one module. Repeat `--coverage.include` for multiple affected files or packages, and pass every owning test file needed to exercise that scope. The configured per-file 100% thresholds still apply inside the selected source scope.
+Use an exact source file when the behavior is truly confined to one module. Repeat `--coverage.include` for multiple affected files or packages, and pass every owning test file needed to exercise that scope. There are no configured thresholds to lower; keep the selected source scope covered by its owning tests.
 
 When the owning tests are unclear, use Vitest's dependency graph to discover a candidate set, then inspect the selected tests before treating the run as evidence:
 
 ```sh
-pnpm exec vitest related packages/<group>/<package>/src/<changed>.ts \
+pnpm exec vitest related packages/<role>/src/<changed>.ts \
   --run \
   --coverage \
-  --coverage.include='packages/<group>/<package>/src/<changed>.ts'
+  --coverage.include='packages/<role>/src/<changed>.ts'
 ```
 
-`vitest related` cannot discover behavior reached only through configuration, dynamic loading, subprocesses, workers, built artifacts, or external providers; select those owning tests explicitly. Do not use `--passWithNoTests`, lower coverage thresholds, or narrow `--coverage.include` merely to hide an uncovered affected file. If a selected package scope fails because one focused test does not cover it, add its other relevant owning tests or narrow the source scope only when the excluded modules cannot be affected by the change.
+`vitest related` cannot discover behavior reached only through configuration, dynamic loading, subprocesses, workers, built artifacts, or external providers; select those owning tests explicitly. Do not use `--passWithNoTests` or narrow `--coverage.include` merely to hide an uncovered affected file. If a selected package scope fails because one focused test does not cover it, add its other relevant owning tests or narrow the source scope only when the excluded modules cannot be affected by the change.
 
 ## Full local rehearsal
 
-Run the complete local approximation only when the user explicitly requests it, while diagnosing a CI failure, or when the change spans the repository so broadly that no narrower set is credible. Use the current workflow and package scripts as the inventory; do not recreate the removed `check:pre-push` aggregate.
+Run the complete local approximation only when the user explicitly requests it, while diagnosing a CI failure, or when the change spans the repository so broadly that no narrower set is credible. Use the current workflow and package scripts as the inventory (`pnpm run check`).
 
 ## Protect history-rewriting pushes
 

@@ -56,7 +56,7 @@ The React client retains the transport-neutral Connection surface used by the We
   <img src="./assets/readme/architecture.svg" width="100%" alt="React renderer to preload bridge to Electron main to bundled DSH child architecture">
 </p>
 
-The [desktop application reference](apps/desktop/README.md) owns the complete carrier, lifecycle, packaging, native-action, recovery, and installed-app acceptance contracts.
+The pre-decoupling carrier, lifecycle, packaging, native-action, recovery, and installed-app acceptance contracts remain in the frozen [legacy desktop reference](legacy/apps/desktop/README.md); the decoupled shell and desktop provider contracts land with their owning slices ([`apps/desktop`](apps/desktop), [`packages/`](packages)).
 
 <a id="run"></a><a id="run-from-source"></a>
 
@@ -83,38 +83,32 @@ From this repository checkout:
 
 ```sh
 pnpm install
-pnpm run build
-pnpm run dev:desktop
+pnpm run check
 ```
 
-### Build macOS artifacts
-
-```sh
-pnpm --filter @deepseek-ai/dsh-desktop run package
-```
-
-The package command writes the host-architecture `.app` and `.dmg` under `apps/desktop/dist/`.
+The `dev:desktop` and packaging commands return with the decoupled runtime and shell slices; until then the frozen pre-decoupling product remains on the `legacy` branch.
 
 ## Project boundaries
 
-- [DSH Desktop application reference](apps/desktop/README.md) — Electron architecture, security, lifecycle, packaging, acceptance, and limitations.
-- [DeepSeek Harness architecture](docs/architecture.md) — the bundled plugin runtime and its extension model.
-- [DeepSeek Harness user documentation](docs/user/index.md) — core DSH concepts and supported workflows.
-- [Archived upstream README: English](archive/deepseek-harness-readme.md) · [中文](archive/deepseek-harness-readme.zh.md) — the original project overview and onboarding material retained when the desktop homepage replaced the root entry.
+- [DSH Desktop shell](apps/desktop/README.md) — the Electron shell role and its boundary.
+- [Desktop product packages](packages/AGENTS.md) — ownership and dependency rules for `@dsh-desktop/*`.
+- [Frozen official monorepo source](legacy/README.md) — the pre-decoupling product and the official core, preserved for comparison and recovery.
+- [Frozen legacy desktop reference](legacy/apps/desktop/README.md) — Electron architecture, security, lifecycle, packaging, acceptance, and limitations as shipped pre-decoupling.
+- [Pinned upstream source](upstream/README.md) — the exact official DeepSeek Harness source at `dsh-v0.1.0-rc.8`, for inspection and compatibility work.
 - [Upstream repository](https://github.com/deepseek-ai/deepseek-harness) — the original DeepSeek Harness project this desktop repository is based on.
 
 ## Status and distribution
 
 - The repository and application are under active development; compatibility-breaking changes remain possible.
 - Product releases provide separate arm64 and x64 macOS DMGs with SHA-256 checksum files.
-- Developer ID signing and notarization are not configured; direct downloads may need the one-time right-click → Open flow described above. Read the [desktop limitations](apps/desktop/README.md#limitations) before redistributing artifacts.
+- Developer ID signing and notarization are not configured; direct downloads may need the one-time right-click → Open flow described above. Read the [legacy desktop limitations](legacy/apps/desktop/README.md#limitations) before redistributing artifacts.
 
 ## Development
 
-Core contributor workflows remain in [CONTRIBUTING.md](CONTRIBUTING.md), the [development guide](docs/development.md), and [AGENTS.md](AGENTS.md). Changes to the bundled harness continue to follow those upstream-derived contracts; desktop-specific implementation lives under [`apps/desktop`](apps/desktop) and its supporting desktop plugins.
+Core contributor workflows remain in [AGENTS.md](AGENTS.md); the frozen [development guide](legacy/docs/development.md) and [CONTRIBUTING.md](legacy/CONTRIBUTING.md) document the pre-decoupling contribution flow. Desktop-specific implementation lives under [`apps/desktop`](apps/desktop) and the desktop provider packages ([`packages/`](packages)).
 
 ## License
 
 [MIT](LICENSE)
 
-Third-party dependencies and their licenses are disclosed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Third-party dependencies and their licenses of the pre-decoupling product are disclosed in the frozen [THIRD_PARTY_NOTICES.md](legacy/THIRD_PARTY_NOTICES.md); the decoupled product's notice list lands with the packaging slice.

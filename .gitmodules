@@ -1,0 +1,7 @@
+# Pinned official DeepSeek Harness source, used ONLY for source inspection,
+# compatibility comparison, and upgrade work. It is never an input to ordinary
+# desktop install, build, or packaging; see AGENTS.md and the workspace-decoupling
+# Agent Note. Pin moves with the runtime manifest (decoupling 2/10).
+[submodule "upstream"]
+	path = upstream
+	url = https://github.com/deepseek-ai/deepseek-harness.git

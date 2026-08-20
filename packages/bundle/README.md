@@ -1,14 +1,11 @@
-# bundle/ — profile plugin bundles
+# `@dsh-desktop/bundle`
 
-English | [中文](README.zh.md)
+The desktop bundle and profile bootstrap role. This package composes the
+`desktop` profile over the official base and Web bundles, mounts
+desktop-owned plugins, and creates, validates, and repairs product-owned
+profile entries on first and later launches without touching user overlays,
+user-installed plugins, or unrelated profile configuration.
 
-Profile bundles: npm packages whose manifest declares `"dsh": { "bundle": { "patch": "./cordis.patch.yml" } }`, making them installable patch layers for `dsh --profile` compositions ([profile contract](../boot/app-boot/README.md#profiles)). A bundle's substance is its patch list; some also ship runtime glue plugins their patch mounts.
-
-| Package | Role | ctx key |
-|---|---|---|
-| [`base/`](base/README.md) | The shared dsh core every profile applies first | — (patch only) |
-| [`web-app/`](web-app/README.md) | Browser surface: web patch layer + runtime glue plugin | mounts rows |
-| [`headless/`](headless/README.md) | Direct one-shot task mode over base, with no Host or Web layer | mounts `headless-runner` |
-| [`desktop-app/`](desktop-app/README.md) | Electron desktop overlay: disables the browser transport rows and mounts the dedicated-child IPC runtime | mounts `desktop-runtime` |
-
-In-box bundles resolve from the dsh installation; out-of-tree bundles install into a profile through `dsh plugin --profile <name> add <package>`.
+The `desktop` profile name is product identity and stays stable across the
+decoupling. Bootstrap implementation lands with decoupling 3/10; runtime
+assembly over exact official published packages is decoupling 2/10.

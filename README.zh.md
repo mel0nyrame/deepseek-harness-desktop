@@ -56,7 +56,7 @@ React 客户端继续使用与 Web 产品相同、与传输无关的 Connection 
   <img src="./assets/readme/architecture.svg" width="100%" alt="React renderer 经 preload 桥和 Electron main 连接到内置 DSH 子进程的架构">
 </p>
 
-完整的载体、生命周期、打包、原生操作、恢复与安装态验收约定由[桌面应用参考](apps/desktop/README.md)维护。
+解耦前的载体、生命周期、打包、原生操作、恢复与安装态验收约定保留在冻结的[旧版桌面参考](legacy/apps/desktop/README.md)中；解耦后的外壳与桌面 Provider 约定随各自的切片落地（[`apps/desktop`](apps/desktop)、[`packages/`](packages)）。
 
 <a id="run"></a><a id="run-from-source"></a>
 
@@ -83,38 +83,32 @@ Cask 会为当前 Mac 选择 arm64 或 x64 构建，并在安装后移除隔离�
 
 ```sh
 pnpm install
-pnpm run build
-pnpm run dev:desktop
+pnpm run check
 ```
 
-### 构建 macOS 产物
-
-```sh
-pnpm --filter @deepseek-ai/dsh-desktop run package
-```
-
-打包命令会在 `apps/desktop/dist/` 下生成当前主机架构的 `.app` 与 `.dmg`。
+`dev:desktop` 与打包命令会随解耦后的运行时与外壳切片回归；在此之前，冻结的旧版产品保留在 `legacy` 分支上。
 
 ## 项目边界
 
-- [DSH Desktop 应用参考](apps/desktop/README.md) — Electron 架构、安全、生命周期、打包、验收与限制。
-- [DeepSeek Harness 架构](docs/architecture.md) — 内置插件运行时及其扩展模型。
-- [DeepSeek Harness 用户文档](docs/user/index.md) — DSH 内核概念与受支持工作流。
-- [上游 README 归档：English](archive/deepseek-harness-readme.md) · [中文](archive/deepseek-harness-readme.zh.md) — 桌面版首页替换根入口时保留的原项目概览与上手资料。
+- [DSH Desktop 外壳](apps/desktop/README.md) — Electron 外壳角色及其边界。
+- [桌面产品包](packages/AGENTS.md) — `@dsh-desktop/*` 的归属与依赖方向规则。
+- [冻结的官方 monorepo 源码](legacy/README.md) — 解耦前的产品与官方内核，保留用于对比与恢复。
+- [冻结的旧版桌面参考](legacy/apps/desktop/README.md) — 解耦前发布的 Electron 架构、安全、生命周期、打包、验收与限制。
+- [固定的上游源码](upstream/README.md) — `dsh-v0.1.0-rc.8` 处锁定的官方 DeepSeek Harness 源码，仅用于源码检视与兼容性工作。
 - [上游仓库](https://github.com/deepseek-ai/deepseek-harness) — 本桌面仓库直接基于的原始 DeepSeek Harness 项目。
 
 ## 状态与分发
 
 - 仓库与应用仍在积极开发中，未来仍可能出现破坏兼容性的变更。
 - 产品发行版分别提供 arm64 与 x64 macOS DMG，并附带 SHA-256 校验文件。
-- 尚未配置 Developer ID 签名与公证；直接下载时可能需要执行上文所述的一次性右键 → 打开。再次分发产物前请阅读[桌面端限制](apps/desktop/README.md#limitations)。
+- 尚未配置 Developer ID 签名与公证；直接下载时可能需要执行上文所述的一次性右键 → 打开。再次分发产物前请阅读[旧版桌面限制](legacy/apps/desktop/README.md#limitations)。
 
 ## 开发
 
-内核贡献流程继续以 [CONTRIBUTING.md](CONTRIBUTING.md)、[开发指南](docs/development.md)和 [AGENTS.md](AGENTS.md) 为准。修改内置 harness 时仍应遵守这些源自上游的约定；桌面端专属实现位于 [`apps/desktop`](apps/desktop) 及其配套桌面插件中。
+内核贡献流程以 [AGENTS.md](AGENTS.md) 为准；冻结的[开发指南](legacy/docs/development.md)与 [CONTRIBUTING.md](legacy/CONTRIBUTING.md) 记录了解耦前的贡献流程。桌面端专属实现位于 [`apps/desktop`](apps/desktop) 与桌面 Provider 包（[`packages/`](packages)）中。
 
 ## 许可证
 
 [MIT](LICENSE)
 
-第三方依赖及其许可证见 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
+解耦前产品的第三方依赖及其许可证见冻结的 [THIRD_PARTY_NOTICES.md](legacy/THIRD_PARTY_NOTICES.md)；解耦后产品的声明清单随打包切片落地。

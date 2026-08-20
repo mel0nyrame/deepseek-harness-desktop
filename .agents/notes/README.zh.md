@@ -18,11 +18,13 @@
 
 活跃生命周期目录树就是工作清单：浏览其生命周期/类别文件夹，或搜索仓库即可。请勿添加集中式 `INDEX.md`；设计理由见[不设索引的 Agent Note](implemented/process/2026-07-19-remove-generated-agent-note-index.md)。未来指导价值较低的已实施记录会移至下文所述、单独冻结的 [`archived/`](archived/AGENTS.md) 目录树。
 
+解耦前的决策语料冻结在 `legacy/.agents/notes/` 中；仍能指导桌面产品的记录迁移至此，生命周期状态保持不变，引用已更新。repository-layout 测试（`pnpm run test:layout`）固定生命周期目录树、已迁移记录集合与保留的技能集合。
+
 <a id="classification"></a>
 
 ## 分类
 
-每份 Agent Note 属于 `scripts/agent-note-tree.ts` 中封闭集合里的一个路径编码类别；分类门禁拒绝其他文件夹。新增类别需要同时更新规范集合与本节。见[分类 Agent Note](implemented/process/2026-06-20-agent-note-classification.md)。
+每份 Agent Note 属于下方封闭集合里的一个路径编码类别；repository-layout 测试拒绝其他文件夹。新增类别需要同时更新规范集合与本节。见[分类 Agent Note](implemented/process/2026-06-20-agent-note-classification.md)。
 
 | 类别 | 覆盖范围 |
 |---|---|
@@ -41,7 +43,7 @@
 
 归档路径编码为 `archived/{class}/yyyy-mm-dd-topic-title.md`；其中有意省略 `implemented`，因为只有 implemented Agent Note 可以进入归档。归档变更会移动完整的英文、中文和伴随记录三个文件，保留 `Status: implemented`，在两种语言的文件中紧接该状态行插入相同的 `Archived: YYYY-MM-DD` 行，重新记录伴随记录，并修复或删除入站链接。归档时只允许对内容做这些更改。
 
-封存后，每组归档文件都永久冻结。禁止编辑、翻译、重新格式化、更新、移动或删除，也不得将其视为当前行为的权威依据。文档门禁会跳过归档源文件，包括其中的出站链接；当活跃文档有意引用历史时，仍可链接到归档 Agent Note。[`verify-archived-agent-notes`](../../scripts/verify-archived-agent-notes.ts) 强制执行封闭的类别目录树、完整的三文件配对、归档元数据、伴随记录 hash，以及仅追加的冻结内容 manifest（元数据清单）。[归档政策 Agent Note](implemented/process/2026-07-26-frozen-agent-note-archive.md) 记录了设计依据。
+封存后，每组归档文件都永久冻结。禁止编辑、翻译、重新格式化、更新、移动或删除，也不得将其视为当前行为的权威依据。归档源文件不参与编辑维护和不断演进的门禁；当活跃文档有意引用历史时，仍可链接到归档 Agent Note。自动化归档校验器将在后续切片中回归；在此之前，repository-layout 测试固定生命周期目录树。[归档政策 Agent Note](implemented/process/2026-07-26-frozen-agent-note-archive.md) 记录了设计依据。
 
 ## 何时需要写一份
 
@@ -57,7 +59,7 @@
 
 ## 文件格式
 
-每份活跃 Agent Note 遵循统一的文件内格式，由 `pnpm run verify-agent-note-format`（[scripts/verify-agent-note-format.ts](../../scripts/verify-agent-note-format.ts)，`doc-sync`（文档同步门禁）的一环）强制执行；该格式的设计动机及其否决的替代方案见[统一格式 Agent Note](implemented/process/2026-07-05-uniform-agent-note-format.md)。归档记录保留封存时的格式，并增加上述归档日期行。
+每份活跃 Agent Note 遵循统一的文件内格式；repository-layout 测试（`pnpm run test:layout`）强制执行其中可机器检查的基础项——`# Agent Note: ` 标题、空白的第二行、`Status:` 与生命周期的一致性，以及「曾考虑的替代方案」章节（或格式规范之前的标记）——其余格式按本文件手工执行。该格式的设计动机及其否决的替代方案见[冻结树中的统一格式 Agent Note](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md)。归档记录保留封存时的格式，并增加上述归档日期行。
 
 ### 头部块
 
@@ -69,7 +71,7 @@
 Status: <status>
 ```
 
-后跟一个空行。`Status:` 的值有三种形式，且必须与文件所在的生命周期文件夹一致——门禁会交叉检查：
+后跟一个空行。`Status:` 的值有三种形式，且必须与文件所在的生命周期文件夹一致——repository-layout 测试会交叉检查：
 
 - `Status: proposed`
 - `Status: implemented`
@@ -104,7 +106,7 @@ Status: <status>
 ## Consequences
 ```
 
-`## Decision` 以现在时态描述已交付的现实，整个文件按 [implemented/AGENTS.md](implemented/AGENTS.md) 的要求与之保持同步。`## Consequences` 记录权衡的代价**与**收益。提案阶段的标题在此属于规格用语，门禁会拒绝它们：`## Proposal`、`## Plan`、`## Migration plan` 和 `## Acceptance criteria` 不得出现在 implemented Agent Note 中（原因见 [slop 检查清单](../../docs/AGENTS.md)）。`## Testing`、`## Deferred` 或 `## Related` 章节在陈述现在时态的事实时是允许的。
+`## Decision` 以现在时态描述已交付的现实，整个文件按 [implemented/AGENTS.md](implemented/AGENTS.md) 的要求与之保持同步。`## Consequences` 记录权衡的代价**与**收益。提案阶段的标题在此属于规格用语，格式规则会拒绝它们：`## Proposal`、`## Plan`、`## Migration plan` 和 `## Acceptance criteria` 不得出现在 implemented Agent Note 中（原因见[散文标准技能](../skills/dsh-prose-standard/SKILL.md)）。`## Testing`、`## Deferred` 或 `## Related` 章节在陈述现在时态的事实时是允许的。
 
 #### `rejected/`
 
@@ -114,7 +116,7 @@ Status: <status>
 
 每份 Agent Note 都必须包含 `## Alternatives considered` 章节：每个真实的替代方案及其落选原因，每个替代方案用一个加粗引导的段落，或对争议较大的替代方案用 `### Why not <X>?` 子节。记录决策时不记录它击败了什么，就是在邀请反复争论——这正是 Agent Note 旨在防止的问题。
 
-替代方案是记录下来的，不是凭空编造的。日期早于 2026-07-05 且替代方案无法从记录中重建的 Agent Note，用以下精确注释代替该章节，门禁仅对格式规范之前的文件接受此注释：
+替代方案是记录下来的，不是凭空编造的。日期早于 2026-07-05 且替代方案无法从记录中重建的 Agent Note，用以下精确注释代替该章节——repository-layout 测试接受该标记作为章节的替代：
 
 ```markdown
 <!-- agent-note-format: alternatives-not-recorded (pre-format Agent Note) -->
@@ -122,8 +124,8 @@ Status: <status>
 
 ### 在生命周期之间移动
 
-将文件在生命周期文件夹之间移动意味着在同一个变更中更新 `Status:` 行并满足目标文件夹的骨架要求——否则门禁会失败。具体而言，`proposed/` → `implemented/` 将 `## Proposal` 改写为现在时态的 `## Decision`，将 `## Acceptance criteria` 和 `## Risks` 折入 `## Consequences`（或折入一个现在时态的 `## Testing`/`## Verification` 章节，用于描述现在锁定该行为的内容），并用实际交付的内容替换计划——也就是将 [implemented/AGENTS.md](implemented/AGENTS.md) 所要求的改写变成可机械检查的规则。`proposed/` → `rejected/` 仅在 `Status:` 行添加原因并冻结文件。
+将文件在生命周期文件夹之间移动意味着在同一个变更中更新 `Status:` 行并满足目标文件夹的骨架要求——否则 repository-layout 测试会失败。具体而言，`proposed/` → `implemented/` 将 `## Proposal` 改写为现在时态的 `## Decision`，将 `## Acceptance criteria` 和 `## Risks` 折入 `## Consequences`（或折入一个现在时态的 `## Testing`/`## Verification` 章节，用于描述现在锁定该行为的内容），并用实际交付的内容替换计划——也就是将 [implemented/AGENTS.md](implemented/AGENTS.md) 所要求的改写变成可机械检查的规则。`proposed/` → `rejected/` 仅在 `Status:` 行添加原因并冻结文件。
 
 ### 中文对侧文件
 
-`.zh.md` 对侧文件按 [i18n 约定](../../docs/i18n/README.md)逐章节与其英文对侧文件保持相同结构；机器检查的头部标记（`# Agent Note: ` 和 `Status:` 行）保持英文原样不翻译。格式门禁跳过 `.zh.md` 文件；配对门禁检查它们的一致性。
+`.zh.md` 对侧文件逐章节与其英文对侧文件保持相同结构；机器检查的头部标记（`# Agent Note: ` 和 `Status:` 行）保持英文原样不翻译。双语配对记录在三文件组中的 `.i18n.yaml` 一致性记录里：编辑任一侧后，应在同一变更中同步另一侧，并手工重新记录两侧 blob hash（对每个文件执行 `git hash-object`，再更新记录）。repository-layout 测试跳过 `.zh.md` 文件；一致性记录承载配对信息。

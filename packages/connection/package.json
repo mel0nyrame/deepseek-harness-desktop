@@ -1,0 +1,14 @@
+{
+  "name": "@dsh-desktop/connection",
+  "version": "0.1.0",
+  "description": "Desktop IPC connection provider: implements the existing Client/Host connection contracts over a validated, context-isolated preload bridge with no general Node.js or Electron access in the renderer.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}

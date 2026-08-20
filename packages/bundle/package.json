@@ -1,0 +1,14 @@
+{
+  "name": "@dsh-desktop/bundle",
+  "version": "0.1.0",
+  "description": "Desktop bundle and profile bootstrap: composes the `desktop` profile over the official base and Web bundles, mounts desktop-owned plugins, and creates/validates/repairs product-owned profile entries while preserving user overlays.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/cordis": "4.0.1"
+  }
+}
