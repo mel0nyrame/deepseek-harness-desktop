@@ -141,9 +141,9 @@ Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因�
 
 `desktop` profile 仍由插件组合。`packages/bundle/cordis.patch.yml` 禁用浏览器启动、WebServer、Web runtime、浏览器 client modules 与官方 Web connection，并挂载官方 native directory-picker provider 以及 desktop 自有的 connection、native 和 UI provider。profile bootstrap 校验嵌入组件版本，发布包提供的 profile module fallback 把同一应用闭包暴露给 workspace 外的 profile，应用启动时无需安装包。
 
-`runtime/runtime-manifest.json` 与 `scripts/assemble-runtime.ts` 从 `@dsh-desktop/shell` 组装，除 official DSH 与原生制品外还核验 shell 和 bundle 入口，并把部署副本中的 `workspace:*` specifier 实化为已安装 desktop 包版本，同时不修改源码 manifest。`tests/desktop-runtime.e2e.test.ts` 在该组装闭包上启动真实 Electron 应用，创建 Session，观察运行真实 bash／PTY 路径的有序录制模型回合并显示 `TERMINAL_OK` 与 `DONE`，从 Session history 重建输入和工具结果，证明 DSH child 没有 TCP listener，并核验正常退出、启动中退出以及连续两次配置启动失败后的静止状态。启动页与 tracer 状态页使用桌面生命周期页面的居中系统字体层级；背景材质仍由 issue #69 的原生窗口任务负责。聚焦的 supervisor 与进程树测试钉住 readiness timeout、无效配置、意外退出、一次受控重启、SIGTERM／SIGKILL 进程树清扫及 terminate-and-join 行为。真实 macOS 进程测试覆盖优雅清理、强制升级、重挂的根进程组后代、存活 PTY，以及从退出前快照恢复独立进程组 PTY。
+`runtime/runtime-manifest.json` 与 `scripts/assemble-runtime.ts` 从 `@dsh-desktop/shell` 组装，除 official DSH 与原生制品外还核验 shell 和 bundle 入口，并把部署副本中的 `workspace:*` specifier 实化为已安装 desktop 包版本，同时不修改源码 manifest。`tests/desktop-runtime.e2e.test.ts` 在该组装闭包上启动真实 Electron 应用，创建 Session，观察运行真实 bash／PTY 路径的有序录制模型回合并显示 `TERMINAL_OK` 与 `DONE`，从 Session history 重建输入和工具结果，证明 DSH child 没有 TCP listener，并核验正常退出、启动中退出以及连续两次配置启动失败后的静止状态。在 `DSH_DESKTOP_PROCESS_EVIDENCE=1` 下，E2E 记录每个自有 root／descendant 的 PID 与 `lstart`，并在 Electron 退出后断言它们都不再存活；原始 keyless tracer 记录 DSH root，启动中退出场景记录启动 root，连续两次配置失败场景记录两代 root。启动页与 tracer 状态页使用桌面生命周期页面的居中系统字体层级；背景材质仍由 issue #69 的原生窗口任务负责。聚焦的 supervisor 与进程树测试钉住 readiness timeout、无效配置、意外退出、一次受控重启、SIGTERM／SIGKILL 进程树清扫及 terminate-and-join 行为。真实 macOS 进程测试覆盖优雅清理、强制升级、重挂的根进程组后代、存活 PTY，以及从退出前快照恢复独立进程组 PTY。
 
-Issue #67 的验收结果已在 macOS arm64 上通过 `pnpm run check` 记录：typecheck、lint、全部 workspace build，以及 11 个文件中的全部 71 个测试均通过。该次运行包含聚焦的 supervisor 与进程树套件、五场景真实 macOS 进程测试，以及三场景真实组合 Electron E2E。
+Issue #67 的验收结果已在 macOS arm64 上通过 `pnpm run check` 记录：typecheck、lint、全部 workspace build，以及 12 个文件中的全部 75 个测试均通过。该次运行包含聚焦的 supervisor、renderer-policy 与进程树套件、五场景真实 macOS 进程测试，以及三场景真实组合 Electron E2E。
 
 问题 #1 与 #2 已通过开发路径交付第一个垂直切片：
 

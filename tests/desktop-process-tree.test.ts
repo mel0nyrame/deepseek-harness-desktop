@@ -41,6 +41,7 @@ describe('POSIX desktop process-tree ladder', () => {
     const tree = ladder(TABLE)
     const snapshot = tree.snapshot(400)
 
+    expect(snapshot.root).toMatchObject({ pid: 400, started: 'Fri Aug 14 12:00:01 2026' })
     expect(snapshot.owned.map(entry => entry.pid).toSorted((a, b) => a - b)).toEqual([
       401, 402, 404, 405, 407,
     ])

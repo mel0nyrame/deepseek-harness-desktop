@@ -19,6 +19,7 @@ class FakeChild extends EventEmitter implements DshChild {
   signalCode: NodeJS.Signals | null = null
   readonly signals: NodeJS.Signals[] = []
   readonly messages: DesktopParentMessage[] = []
+  sendError: Error | undefined
 
   constructor(pid: number) {
     super()
@@ -27,7 +28,7 @@ class FakeChild extends EventEmitter implements DshChild {
 
   send(message: unknown, callback?: (error: Error | null) => void): boolean {
     this.messages.push(message as DesktopParentMessage)
-    callback?.(null)
+    callback?.(this.sendError ?? null)
     return this.connected
   }
 
@@ -223,6 +224,53 @@ describe('desktop DSH supervisor', () => {
     }
   })
 
+  it('sweeps descendants and closes streams when the root never reports exit', async () => {
+    vi.useFakeTimers()
+    try {
+      const child = new FakeChild(110)
+      const descendant: ProcessTreeEntry = {
+        pid: 210,
+        pgid: 210,
+        started: 'Tue Aug 25 20:00:00 2026',
+        command: 'detached terminal child',
+      }
+      const snapshot: ProcessTreeSnapshot = {
+        rootPid: 110,
+        rootPresent: true,
+        owned: [descendant],
+      }
+      let alive = true
+      const tree: ProcessTreeLadder = {
+        snapshot: vi.fn(() => snapshot),
+        signalGroups: vi.fn(() => { alive = false }),
+        survivors: vi.fn(() => alive ? [descendant] : []),
+      }
+      const supervisor = new DshSupervisor(() => child, {
+        startupTimeoutMs: 100,
+        shutdownTimeoutMs: 10,
+        tree,
+        treeGraceMs: 10,
+      })
+      const starting = supervisor.start(validOptions())
+      child.ready()
+      await starting
+      const streamEvents: string[] = []
+      supervisor.onStream(message => { streamEvents.push(message.type) })
+      supervisor.subscribe('stuck-root-stream', 'mux')
+
+      const stopping = supervisor.stop()
+      const failed = expect(stopping).rejects.toThrow('did not exit within 10ms')
+      await vi.advanceTimersByTimeAsync(25)
+      await failed
+
+      expect(tree.signalGroups).toHaveBeenCalledWith([descendant], 'SIGTERM')
+      expect(tree.survivors(snapshot)).toEqual([])
+      expect(streamEvents).toEqual(['stream-error', 'stream-end'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('sweeps snapshotted descendants before publishing an unexpected exit', async () => {
     const child = new FakeChild(106)
     const descendant: ProcessTreeEntry = {
@@ -339,5 +387,35 @@ describe('desktop DSH supervisor', () => {
       expect.any(Error),
     )
     logged.mockRestore()
+  })
+
+  it('terminates a late subscription when the child IPC channel has closed', async () => {
+    const child = new FakeChild(111)
+    const supervisor = new DshSupervisor(() => child, { tree: inertTree() })
+    const starting = supervisor.start(validOptions())
+    child.ready()
+    await starting
+    child.exit(9)
+    const received: string[] = []
+    supervisor.onStream(message => { received.push(message.type) })
+
+    expect(() => { supervisor.subscribe('late-stream', 'mux') }).not.toThrow()
+
+    expect(received).toEqual(['stream-error', 'stream-end'])
+  })
+
+  it('terminates a subscription when IPC reports an asynchronous send failure', async () => {
+    const child = new FakeChild(112)
+    const supervisor = new DshSupervisor(() => child, { tree: inertTree() })
+    const starting = supervisor.start(validOptions())
+    child.ready()
+    await starting
+    const received: string[] = []
+    supervisor.onStream(message => { received.push(message.type) })
+    child.sendError = new Error('broken pipe')
+
+    expect(() => { supervisor.subscribe('failed-stream', 'mux') }).not.toThrow()
+
+    expect(received).toEqual(['stream-error', 'stream-end'])
   })
 })

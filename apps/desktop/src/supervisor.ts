@@ -61,6 +61,7 @@ export interface SupervisorOptions {
   readonly tree?: ProcessTreeLadder
   readonly treeGraceMs?: number
   readonly treeSnapshotMs?: number
+  readonly onProcessSnapshot?: (snapshot: ProcessTreeSnapshot) => void
 }
 
 interface Deferred<T> {
@@ -130,6 +131,7 @@ function mergeSnapshots(
   return {
     rootPid: current.rootPid,
     rootPresent: current.rootPresent,
+    ...((current.root ?? previous.root) === undefined ? {} : { root: current.root ?? previous.root }),
     owned: [...owned.values()],
   }
 }
@@ -172,6 +174,7 @@ export class DshSupervisor {
   private readonly tree: ProcessTreeLadder | undefined
   private readonly treeGraceMs: number
   private readonly treeSnapshotMs: number
+  private readonly onProcessSnapshot: ((snapshot: ProcessTreeSnapshot) => void) | undefined
   private child: DshChild | undefined
   private launchOptions: DshSpawnOptions | undefined
   private stopping: Promise<void> | undefined
@@ -195,6 +198,7 @@ export class DshSupervisor {
     this.tree = options.tree ?? createProcessTreeLadder()
     this.treeGraceMs = options.treeGraceMs ?? DEFAULT_TREE_GRACE_MS
     this.treeSnapshotMs = options.treeSnapshotMs ?? DEFAULT_TREE_SNAPSHOT_MS
+    this.onProcessSnapshot = options.onProcessSnapshot
   }
 
   /** Validate, spawn, and wait until the `desktop` profile is active. */
@@ -240,7 +244,11 @@ export class DshSupervisor {
   subscribe(id: string, stream: DesktopStream): void {
     if (this.subscriptions.has(id)) throw new Error(`duplicate desktop subscription id ${id}`)
     this.subscriptions.set(id, stream)
-    this.send({ type: 'subscribe', id, stream })
+    try {
+      this.send({ type: 'subscribe', id, stream })
+    } catch (error) {
+      this.terminateSubscription(id, error instanceof Error ? error : new Error(String(error)))
+    }
   }
 
   /** Forward one renderer acknowledgement to the Host child. */
@@ -437,6 +445,11 @@ export class DshSupervisor {
           this.pending.delete(message.id)
           pending.reject(new Error(`desktop DSH child IPC send failed: ${error.message}`))
         }
+      } else if (message.type === 'subscribe') {
+        this.terminateSubscription(
+          message.id,
+          new Error(`desktop DSH child IPC send failed: ${error.message}`),
+        )
       }
     })
     if (!accepted && !child.connected) throw new Error('desktop DSH child IPC channel is closed')
@@ -461,6 +474,12 @@ export class DshSupervisor {
     }
   }
 
+  private terminateSubscription(id: string, error: Error): void {
+    if (!this.subscriptions.delete(id)) return
+    this.notifyStream({ type: 'stream-error', id, message: error.message })
+    this.notifyStream({ type: 'stream-end', id })
+  }
+
   private notifyStream(message: DesktopChildMessage): void {
     for (const listener of new Set(this.streamListeners)) {
       try {
@@ -482,7 +501,10 @@ export class DshSupervisor {
   private refreshSnapshot(pid: number): void {
     try {
       const current = this.tree?.snapshot(pid)
-      if (current !== undefined) this.snapshot = mergeSnapshots(this.snapshot, current)
+      if (current !== undefined) {
+        this.snapshot = mergeSnapshots(this.snapshot, current)
+        this.onProcessSnapshot?.(this.snapshot)
+      }
     } catch (error) {
       console.error('[desktop-supervisor] process-tree snapshot failed:', error)
     }
@@ -511,17 +533,28 @@ export class DshSupervisor {
       }
       child.on('exit', onExit)
     })
+    let rootExitError: Error | undefined
     if (child.exitCode === null && child.signalCode === null) {
       child.kill('SIGTERM')
       if (!await this.waitForExit(exited)) {
         child.kill('SIGKILL')
         if (!await this.waitForExit(exited)) {
-          throw new Error(`desktop DSH child did not exit within ${String(this.shutdownTimeoutMs)}ms`)
+          rootExitError = new Error(
+            `desktop DSH child did not exit within ${String(this.shutdownTimeoutMs)}ms`,
+          )
         }
       }
     }
-    await this.terminateCurrentTree()
+    let treeError: Error | undefined
+    try {
+      await this.terminateCurrentTree()
+    } catch (error) {
+      treeError = error instanceof Error ? error : new Error(String(error))
+    }
     this.failResources(new Error('desktop DSH child stopped'))
+    const errors = [rootExitError, treeError].filter((error): error is Error => error !== undefined)
+    if (errors.length === 1) throw errors[0]
+    if (errors.length > 1) throw new AggregateError(errors, 'desktop DSH shutdown did not reach quiescence')
   }
 
   private async terminateCurrentTree(): Promise<void> {

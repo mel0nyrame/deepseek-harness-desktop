@@ -27,13 +27,17 @@ function electronExecutable(): string {
 }
 
 function launch(home: string, args: readonly string[]): ReturnType<typeof spawnSync> {
+  const env: NodeJS.ProcessEnv = {
+    ...scrubRuntimeEnvironment(process.env),
+    DSH_HOME: home,
+    DSH_DESKTOP_RUNTIME_ROOT: RUNTIME,
+    DSH_DESKTOP_PROCESS_EVIDENCE: '1',
+  }
+  // This test launches the real Electron app, not an ELECTRON_RUN_AS_NODE child.
+  delete env.ELECTRON_RUN_AS_NODE
   return spawnSync(electronExecutable(), [RUNTIME, ...args], {
     cwd: home,
-    env: {
-      ...scrubRuntimeEnvironment(process.env),
-      DSH_HOME: home,
-      DSH_DESKTOP_RUNTIME_ROOT: RUNTIME,
-    },
+    env,
     encoding: 'utf8',
     timeout: 180_000,
   })
@@ -43,11 +47,48 @@ function textOutput(value: string | Buffer | null): string {
   return typeof value === 'string' ? value : value?.toString('utf8') ?? ''
 }
 
-function ownedProcesses(home: string): string {
-  return execFileSync('/bin/ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8' })
-    .split('\n')
-    .filter(line => line.includes(home))
-    .join('\n')
+interface ProcessIdentity {
+  readonly pid: number
+  readonly started: string
+}
+
+function processIdentities(result: ReturnType<typeof spawnSync>): ProcessIdentity[] {
+  const prefix = 'DESKTOP_PROCESS_IDENTITY '
+  const identities = new Map<string, ProcessIdentity>()
+  for (const line of `${textOutput(result.stdout)}\n${textOutput(result.stderr)}`.split('\n')) {
+    if (!line.startsWith(prefix)) continue
+    const value = JSON.parse(line.slice(prefix.length)) as ProcessIdentity
+    if (!Number.isSafeInteger(value.pid) || value.pid <= 0 || value.started === '') {
+      throw new Error(`invalid desktop process identity: ${line}`)
+    }
+    identities.set(`${String(value.pid)}\0${value.started}`, value)
+  }
+  return [...identities.values()]
+}
+
+function liveIdentities(identities: readonly ProcessIdentity[]): ProcessIdentity[] {
+  return identities.filter((identity) => {
+    try {
+      const output = execFileSync('/bin/ps', [
+        '-p', String(identity.pid), '-o', 'lstart=', '-o', 'stat=',
+      ], {
+        encoding: 'utf8',
+      }).trim()
+      const state = output.startsWith(identity.started)
+        ? output.slice(identity.started.length).trim()
+        : ''
+      return state !== '' && !state.startsWith('Z')
+    } catch (error) {
+      if ((error as { status?: unknown }).status === 1) return false
+      throw error
+    }
+  })
+}
+
+function expectQuiescent(result: ReturnType<typeof spawnSync>, minimumIdentities = 1): void {
+  const identities = processIdentities(result)
+  expect(identities.length).toBeGreaterThanOrEqual(minimumIdentities)
+  expect(liveIdentities(identities)).toEqual([])
 }
 
 beforeAll(() => {
@@ -88,7 +129,7 @@ describe('integrated Electron runtime', () => {
     expect(width).toBeGreaterThanOrEqual(900)
     expect(height).toBeGreaterThanOrEqual(640)
     expect(png.byteLength).toBeGreaterThan(20_000)
-    expect(ownedProcesses(home)).toBe('')
+    expectQuiescent(result)
   }, 180_000)
 
   it('joins a child when Electron quits during startup', () => {
@@ -98,7 +139,7 @@ describe('integrated Electron runtime', () => {
 
     expect(result.error).toBeUndefined()
     expect(result.status, textOutput(result.stderr)).toBe(0)
-    expect(ownedProcesses(home)).toBe('')
+    expectQuiescent(result)
   }, 30_000)
 
   it('restarts once after configuration failure and leaves no owned process', () => {
@@ -113,6 +154,6 @@ describe('integrated Electron runtime', () => {
     expect(result.status).toBe(1)
     expect(textOutput(result.stderr)).toContain('initial child generation failed; restarting once')
     expect(textOutput(result.stderr)).toContain('startup failed')
-    expect(ownedProcesses(home)).toBe('')
+    expectQuiescent(result, 2)
   }, 30_000)
 })

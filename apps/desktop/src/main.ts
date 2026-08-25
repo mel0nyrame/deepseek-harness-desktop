@@ -11,7 +11,8 @@ import {
   type DesktopChildMessage,
 } from '@dsh-desktop/connection'
 import { desktopWindowWebPreferences } from '@dsh-desktop/connection/preload'
-import { DshSupervisor } from './supervisor.js'
+import { DshSupervisor, type SupervisorOptions } from './supervisor.js'
+import { isTrustedRendererUrl } from './renderer-policy.js'
 import {
   parseTracerInvocation,
   prepareTracerProfile,
@@ -19,6 +20,7 @@ import {
 } from './tracer.js'
 
 const shellRoot = resolve(import.meta.dirname, '..')
+const rendererPath = join(shellRoot, 'renderer.html')
 let supervisor: DshSupervisor | undefined
 let shutdownComplete = false
 let shutdown: Promise<void> | undefined
@@ -72,6 +74,24 @@ function belongsToWindow(
   return !window.isDestroyed()
     && event.sender === window.webContents
     && event.senderFrame === window.webContents.mainFrame
+    && isTrustedRendererUrl(event.senderFrame.url, rendererPath)
+}
+
+function processEvidenceObserver(): SupervisorOptions['onProcessSnapshot'] {
+  if (process.env.DSH_DESKTOP_PROCESS_EVIDENCE !== '1') return undefined
+  const reported = new Set<string>()
+  return (snapshot) => {
+    for (const processIdentity of [snapshot.root, ...snapshot.owned]) {
+      if (processIdentity === undefined) continue
+      const key = `${String(processIdentity.pid)}\0${processIdentity.started}`
+      if (reported.has(key)) continue
+      reported.add(key)
+      console.log(`DESKTOP_PROCESS_IDENTITY ${JSON.stringify({
+        pid: processIdentity.pid,
+        started: processIdentity.started,
+      })}`)
+    }
+  }
 }
 
 function installCarrier(runtime: DshSupervisor, window: BrowserWindow): () => void {
@@ -229,7 +249,10 @@ async function run(): Promise<void> {
     )
   }
 
-  const runtime = new DshSupervisor()
+  const observeProcesses = processEvidenceObserver()
+  const runtime = new DshSupervisor(undefined, observeProcesses === undefined
+    ? {}
+    : { onProcessSnapshot: observeProcesses })
   supervisor = runtime
   const options = {
     executable: process.execPath,
@@ -254,9 +277,15 @@ async function run(): Promise<void> {
     backgroundColor: '#090d18',
     webPreferences: desktopWindowWebPreferences(join(shellRoot, 'lib', 'preload.cjs')),
   })
+  const preventUnknownNavigation = (event: Electron.Event, url: string): void => {
+    if (!isTrustedRendererUrl(url, rendererPath)) event.preventDefault()
+  }
+  window.webContents.on('will-navigate', preventUnknownNavigation)
+  window.webContents.on('will-redirect', preventUnknownNavigation)
+  window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   const disposeCarrier = installCarrier(runtime, window)
   window.on('closed', disposeCarrier)
-  await window.loadFile(join(shellRoot, 'renderer.html'), {
+  await window.loadFile(rendererPath, {
     query: tracer === undefined ? {} : { tracer: '1' },
   })
   if (tracer !== undefined) {

@@ -14,6 +14,7 @@ export interface ProcessTreeEntry {
 export interface ProcessTreeSnapshot {
   readonly rootPid: number
   readonly rootPresent: boolean
+  readonly root?: ProcessTreeEntry
   readonly owned: readonly ProcessTreeEntry[]
 }
 
@@ -78,6 +79,7 @@ export class PosixProcessTreeLadder implements ProcessTreeLadder {
     return {
       rootPid,
       rootPresent: root !== undefined && !root.state.startsWith('Z'),
+      ...(root === undefined ? {} : { root }),
       owned: [...owned.values()],
     }
   }
