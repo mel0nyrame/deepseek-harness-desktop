@@ -27,6 +27,12 @@
             "prebuilds/darwin-x64/pty.node",
             "prebuilds/darwin-x64/spawn-helper"
           ]
+        },
+        "linux-x64": {
+          "package": "node-pty",
+          "artifacts": [
+            "prebuilds/linux-x64/pty.node"
+          ]
         }
       }
     },
@@ -43,6 +49,12 @@
           "package": "@koromix/koffi-darwin-x64",
           "artifacts": [
             "darwin_x64/koffi.node"
+          ]
+        },
+        "linux-x64": {
+          "package": "@koromix/koffi-linux-x64",
+          "artifacts": [
+            "linux_x64/koffi.node"
           ]
         }
       }

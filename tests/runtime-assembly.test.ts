@@ -38,8 +38,24 @@ describe('published DSH runtime', () => {
         '@deepseek-ai/dsh': { version: '0.1.0-rc.8', entrypoints: ['lib/bin.js'] },
       },
       platformDependencies: {
-        'node-pty': { version: '1.2.0-beta.15' },
-        koffi: { version: '3.1.0' },
+        'node-pty': {
+          version: '1.2.0-beta.15',
+          targets: {
+            'linux-x64': {
+              package: 'node-pty',
+              artifacts: ['prebuilds/linux-x64/pty.node'],
+            },
+          },
+        },
+        koffi: {
+          version: '3.1.0',
+          targets: {
+            'linux-x64': {
+              package: '@koromix/koffi-linux-x64',
+              artifacts: ['linux_x64/koffi.node'],
+            },
+          },
+        },
       },
       build: {
         packageManager: 'pnpm@11.7.0',
@@ -141,7 +157,11 @@ describe('published DSH runtime', () => {
 
   it('launches the assembled CLI through Electron-compatible Node behavior', () => {
     const electronPackage = path.join(ROOT, 'apps/desktop/node_modules/electron')
-    const electron = path.join(electronPackage, 'dist/Electron.app/Contents/MacOS/Electron')
+    const electronPathFile = path.join(electronPackage, 'path.txt')
+    if (!fs.existsSync(electronPathFile)) {
+      execFileSync(process.execPath, [path.join(electronPackage, 'install.js')], { cwd: ROOT, env: CLEAN_ENV })
+    }
+    const electron = path.join(electronPackage, 'dist', fs.readFileSync(electronPathFile, 'utf8').trim())
     if (!fs.existsSync(electron)) {
       execFileSync(process.execPath, [path.join(electronPackage, 'install.js')], { cwd: ROOT, env: CLEAN_ENV })
     }

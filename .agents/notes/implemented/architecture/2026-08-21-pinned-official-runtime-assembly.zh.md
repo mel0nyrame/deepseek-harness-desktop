@@ -12,7 +12,7 @@ Status: implemented
 
 提交的 `runtime/runtime-manifest.json` 是嵌入式运行时的机器可读权威。它记录 DSH 版本、上游源码提交、官方入口包及文件、目标平台原生产物、受控补丁与可复现构建输入。根 lockfile 记录完整的已发布闭包；`scripts/assemble-runtime.ts` 将该闭包装配到被忽略的 `.artifacts` 目录的直接子目录，并拒绝不安全输出、入口缺失、版本漂移、不支持的平台、原生产物缺失、未声明补丁与 `workspace:` 依赖。装配子进程不会收到含凭据的环境变量。
 
-首个运行时以 `@deepseek-ai/dsh@0.1.0-rc.8` 为官方入口。`node-pty@1.2.0-beta.15`、其按架构区分的 addon 与 `spawn-helper`，以及 `koffi@3.1.0` 都是显式平台依赖。node-pty 补丁随摘要、理由、上游引用、测试归属与删除条件一起提交。Electron 43.4.0 通过 `ELECTRON_RUN_AS_NODE=1` 运行 CLI；后续阶段会把生成闭包作为真实应用资源嵌入安装包。
+首个运行时以 `@deepseek-ai/dsh@0.1.0-rc.8` 为官方入口。`node-pty@1.2.0-beta.15`、其按架构区分的 addon 与 macOS `spawn-helper`，以及 `koffi@3.1.0` 都是显式的 macOS 和 Linux x64 平台依赖。node-pty 补丁随摘要、理由、上游引用、测试归属与删除条件一起提交。Electron 43.4.0 通过 `ELECTRON_RUN_AS_NODE=1` 运行 CLI；后续阶段会把生成闭包作为真实应用资源嵌入安装包。
 
 ## Verification
 

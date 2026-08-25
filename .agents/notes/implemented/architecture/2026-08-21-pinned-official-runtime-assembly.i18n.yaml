@@ -2,7 +2,7 @@ version: 1
 files:
   en:
     path: 2026-08-21-pinned-official-runtime-assembly.md
-    blob: 96a694fa62b3a5d0603f7e46ed405a2b63fbf363
+    blob: bf50e2c606e23caf717b1b0bb2b66544ede1c644
   zh:
     path: 2026-08-21-pinned-official-runtime-assembly.zh.md
-    blob: 58a15c4a9f950bd2c2a3897149c99272950f6094
+    blob: c3ab3835b49e57c95b6cefbfd380b5e1a5c86bba

@@ -12,7 +12,7 @@ The desktop application needs the complete official DSH runtime without building
 
 The committed `runtime/runtime-manifest.json` is the machine-readable authority for the embedded runtime. It records the DSH release, upstream source commit, official entry packages and files, target-specific native artifacts, controlled patches, and reproducible build inputs. The root lockfile records the complete published closure, while `scripts/assemble-runtime.ts` deploys that closure into a direct child of the ignored `.artifacts` directory and rejects unsafe outputs, missing entries, version drift, unsupported platforms, missing native artifacts, undeclared patches, and `workspace:` dependencies. Assembly subprocesses do not receive credential-bearing environment variables.
 
-The first runtime uses `@deepseek-ai/dsh@0.1.0-rc.8` as its official entry. `node-pty@1.2.0-beta.15`, its architecture-specific addon and `spawn-helper`, and `koffi@3.1.0` are explicit platform dependencies. The node-pty patch is committed with its digest, rationale, upstream reference, test owner, and deletion condition. Electron 43.4.0 runs the CLI with `ELECTRON_RUN_AS_NODE=1`; packaging embeds the generated closure as real application resources in a later stage.
+The first runtime uses `@deepseek-ai/dsh@0.1.0-rc.8` as its official entry. `node-pty@1.2.0-beta.15`, its architecture-specific addon and macOS `spawn-helper`, and `koffi@3.1.0` are explicit macOS and Linux x64 platform dependencies. The node-pty patch is committed with its digest, rationale, upstream reference, test owner, and deletion condition. Electron 43.4.0 runs the CLI with `ELECTRON_RUN_AS_NODE=1`; packaging embeds the generated closure as real application resources in a later stage.
 
 ## Verification
 
