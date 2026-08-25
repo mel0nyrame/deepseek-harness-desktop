@@ -137,6 +137,14 @@ Electron 的 `dialog.showOpenDialog` 没有程序化关闭或中止接口，因�
 
 ## 实施状态
 
+解耦后的 workspace 现在已经交付集成运行时 tracer bullet。`apps/desktop` 是生产部署根与 Electron 生命周期 owner：编译后的主进程通过 Electron 可执行文件的 Node 模式 fork 精确发布的 `@deepseek-ai/dsh` CLI，经 desktop IPC 载体等待真实 `host.describe` 往返，路由 sandboxed preload 桥，并在正常退出、启动中退出、启动失败和受控重启时 join 自己持有的进程树。shell 不持有第二套 Cordis 或 agent runtime。
+
+`desktop` profile 仍由插件组合。`packages/bundle/cordis.patch.yml` 禁用浏览器启动、WebServer、Web runtime、浏览器 client modules 与官方 Web connection，并挂载官方 native directory-picker provider 以及 desktop 自有的 connection、native 和 UI provider。profile bootstrap 校验嵌入组件版本，发布包提供的 profile module fallback 把同一应用闭包暴露给 workspace 外的 profile，应用启动时无需安装包。
+
+`runtime/runtime-manifest.json` 与 `scripts/assemble-runtime.ts` 从 `@dsh-desktop/shell` 组装，除 official DSH 与原生制品外还核验 shell 和 bundle 入口，并把部署副本中的 `workspace:*` specifier 实化为已安装 desktop 包版本，同时不修改源码 manifest。`tests/desktop-runtime.e2e.test.ts` 在该组装闭包上启动真实 Electron 应用，创建 Session，观察运行真实 bash／PTY 路径的有序录制模型回合并显示 `TERMINAL_OK` 与 `DONE`，从 Session history 重建输入和工具结果，证明 DSH child 没有 TCP listener，并核验正常退出、启动中退出以及连续两次配置启动失败后的静止状态。聚焦的 supervisor 测试钉住 readiness timeout、无效配置、意外退出、一次受控重启、SIGTERM／SIGKILL 进程树清扫及 terminate-and-join 行为。
+
+Issue #67 的验收结果已在 macOS arm64 上通过 `pnpm run check` 记录：typecheck、lint、全部 workspace build，以及九个文件中的全部 62 个测试均通过。该次运行包含聚焦的 supervisor suite 与三个场景的真实组合 Electron E2E。
+
 问题 #1 与 #2 已通过开发路径交付第一个垂直切片：
 
 - 可复用的 Client Connection 载体契约（[`carrier-contract.client.ts`](../../../../legacy/packages/client/connection/tests/carrier-contract.client.ts)）锁定了 unary、反向响应、mux 流和 host 流语义，以及就绪、顺序、取消、畸形消息、断连和订阅生命周期行为；HTTP/WebSocket 载体和新的 Electron 载体均原样通过该契约。

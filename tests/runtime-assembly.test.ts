@@ -132,8 +132,11 @@ describe('published DSH runtime', () => {
     expect(result.stderr).toContain('Refusing to replace unsafe runtime output')
   })
 
-  it('assembles every declared entrypoint without source trees', () => {
-    expect(fs.existsSync(path.join(ROOT, 'upstream/package.json'))).toBe(false)
+  it('assembles every declared entrypoint without source dependencies', () => {
+    const workspace = parse(fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8')) as {
+      packages?: string[]
+    }
+    expect(workspace.packages?.some(pattern => pattern.includes('upstream'))).toBe(false)
     execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['run', 'runtime:assemble', '--', '--output', OUTPUT], {
       cwd: ROOT,
       env: { ...CLEAN_ENV, CI: 'true' },
@@ -141,8 +144,11 @@ describe('published DSH runtime', () => {
     })
     const value = manifest()
     for (const [name, entry] of Object.entries(value.entryPackages)) {
+      const packageRoot = name === '@dsh-desktop/shell' ? OUTPUT : path.join(OUTPUT, 'node_modules', name)
+      const relativeToSource = path.relative(path.join(ROOT, 'upstream'), fs.realpathSync(packageRoot))
+      expect(relativeToSource === '..' || relativeToSource.startsWith(`..${path.sep}`)).toBe(true)
       for (const entrypoint of entry.entrypoints) {
-        expect(fs.existsSync(path.join(OUTPUT, 'node_modules', name, entrypoint))).toBe(true)
+        expect(fs.existsSync(path.join(packageRoot, entrypoint))).toBe(true)
       }
     }
     const target = `${process.platform}-${process.arch}`

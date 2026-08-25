@@ -8,7 +8,15 @@
   disabled: true
 - id: client-hmr
   disabled: true
+- id: directory-picker
+  disabled: true
+- id: modules
+  disabled: true
+- id: connection
+  disabled: true
 - insert:
+    - id: desktop-directory-picker
+      name: '@deepseek-ai/dsh-host-directory-picker-native'
     - id: desktop-connection
       name: '@dsh-desktop/connection'
     - id: desktop-native

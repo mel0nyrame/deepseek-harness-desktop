@@ -137,6 +137,14 @@ Child-process isolation prevents Host failures from taking down Electron main, b
 
 ## Implementation status
 
+The decoupled workspace now ships the integrated runtime tracer bullet. `apps/desktop` is the production deploy root and Electron lifecycle owner: its compiled main process forks the exact published `@deepseek-ai/dsh` CLI through the Electron executable in Node mode, waits for a real `host.describe` round trip over the desktop IPC carrier, routes the sandboxed preload bridge, and joins the owned process tree on normal quit, startup quit, startup failure, and controlled restart. The shell does not own a second Cordis or agent runtime.
+
+The `desktop` profile remains plugin-composed. `packages/bundle/cordis.patch.yml` disables browser startup, WebServer, Web runtime, browser client modules, and the official Web connection; it mounts the official native directory-picker provider and the desktop-owned connection, native, and UI providers. Profile bootstrap validates the embedded versions, and the published profile-module fallback exposes that exact application closure to the out-of-tree profile without installing packages at application startup.
+
+`runtime/runtime-manifest.json` and `scripts/assemble-runtime.ts` assemble from `@dsh-desktop/shell`, verify the shell and bundle entrypoints alongside official DSH and native artifacts, and materialize copied `workspace:*` specifiers to the installed desktop package versions without mutating source manifests. `tests/desktop-runtime.e2e.test.ts` launches the real Electron application over that assembled closure, creates a Session, observes an ordered recorded model turn that runs the real bash/PTY path and displays `TERMINAL_OK` plus `DONE`, reconstructs the input and tool result from Session history, proves the DSH child has no TCP listener, and verifies quiescence after normal quit, quit during startup, and a twice-failed configuration startup. Focused supervisor tests pin readiness timeout, invalid configuration, unexpected exit, one controlled restart, SIGTERM/SIGKILL process-tree cleanup, and terminate-and-join behavior.
+
+Issue #67 acceptance was recorded on macOS arm64 with `pnpm run check`: typecheck, lint, every workspace build, and all 62 tests in nine files passed. That run includes the focused supervisor suite and the three-scenario real-composition Electron E2E.
+
 Issues #1 and #2 shipped the first vertical slice through the development path:
 
 - The reusable Client Connection carrier contract ([`carrier-contract.client.ts`](../../../../legacy/packages/client/connection/tests/carrier-contract.client.ts)) locks unary, reverse-response, mux-stream, and host-stream semantics plus readiness, ordering, cancellation, malformed-message, disconnect, and subscription-lifetime behavior; both the HTTP/WebSocket carrier and the new Electron carrier pass it unchanged.
