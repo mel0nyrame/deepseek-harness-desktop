@@ -38,9 +38,33 @@ importers:
       '@deepseek-ai/cordis':
         specifier: 4.0.1
         version: 4.0.1(@deepseek-ai/cordis-plugin-include@1.0.6)(@deepseek-ai/cordis-plugin-loader@1.0.2)
+      '@deepseek-ai/cordis-plugin-loader':
+        specifier: 1.0.2
+        version: 1.0.2(@deepseek-ai/cordis@4.0.1)(node-addon-require-builtin@0.1.5)
       '@deepseek-ai/dsh':
         specifier: 0.1.0-rc.8
         version: 0.1.0-rc.8(91dd418d886f7ce71975c2c780d46f54)
+      '@deepseek-ai/dsh-app-boot':
+        specifier: 0.1.0-rc.8
+        version: 0.1.0-rc.8(3f7b9427fdd0d9933a654a9a1ecf4964)
+      '@deepseek-ai/dsh-base':
+        specifier: 0.1.0-rc.8
+        version: 0.1.0-rc.8(2cf42249c7b708a889de920156a4437d)
+      '@deepseek-ai/dsh-web-app':
+        specifier: 0.1.0-rc.8
+        version: 0.1.0-rc.8(7a4f5ffefd91e800e0571b7ab61e46bd)
+      '@dsh-desktop/connection':
+        specifier: workspace:*
+        version: link:../connection
+      '@dsh-desktop/native':
+        specifier: workspace:*
+        version: link:../native
+      '@dsh-desktop/ui':
+        specifier: workspace:*
+        version: link:../ui
+      jsonc-parser:
+        specifier: 3.3.1
+        version: 3.3.1
       koffi:
         specifier: 3.1.0
         version: 3.1.0
@@ -3306,6 +3330,9 @@ packages:
   json-schema-typed@8.0.2:
     resolution: {integrity: sha512-fQhoXdcvc3V28x7C7BMs4P5+kNlgUURe2jmUT1T//oBRMDrqy1QPelJimwZGo7Hg9VPV3EQV5Bnq4hbFy2vetA==}
 
+  jsonc-parser@3.3.1:
+    resolution: {integrity: sha512-HUgH65KyejrUFPvHFPbqOY0rsFip3Bo5wb4ngvdi1EpCYWUQDC5V+Y7mZws+DLkr4M//zQJoanu1SP+87Dv1oQ==}
+
   jwa@2.0.1:
     resolution: {integrity: sha512-hRF04fqJIP8Abbkq5NKGN0Bbr3JxlQ+qhZufXVr0DvujKy93ZCbXZMHDL4EOtodSbCWxOqR8MS1tXA5hwqCXDg==}
 
@@ -3989,7 +4016,7 @@ snapshots:
       '@aws-sdk/types': 3.974.4
       '@smithy/core': 3.33.2
       '@smithy/fetch-http-handler': 5.7.2
-      '@smithy/node-http-handler': 4.7.3
+      '@smithy/node-http-handler': 4.11.2
       '@smithy/types': 4.17.2
       tslib: 2.8.1
 
@@ -7516,6 +7543,8 @@ snapshots:
   json-schema-traverse@1.0.0: {}
 
   json-schema-typed@8.0.2: {}
+
+  jsonc-parser@3.3.1: {}
 
   jwa@2.0.1:
     dependencies:
