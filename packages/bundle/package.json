@@ -9,6 +9,22 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1"
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/cordis-plugin-loader": "1.0.2",
+    "@deepseek-ai/dsh": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-app-boot": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-base": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-web-app": "0.1.0-rc.8",
+    "@dsh-desktop/connection": "workspace:*",
+    "@dsh-desktop/native": "workspace:*",
+    "@dsh-desktop/ui": "workspace:*",
+    "jsonc-parser": "3.3.1",
+    "koffi": "3.1.0",
+    "node-pty": "1.2.0-beta.15"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
   }
 }
