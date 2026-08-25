@@ -14,6 +14,8 @@
     "lint": "oxlint . --ignore-pattern 'upstream/**' --ignore-pattern 'legacy/**'",
     "test": "vitest run",
     "test:layout": "vitest run tests/repository-layout.test.ts",
+    "runtime:assemble": "node scripts/assemble-runtime.ts",
+    "test:runtime": "vitest run tests/runtime-assembly.test.ts",
     "check": "pnpm run typecheck && pnpm run lint && pnpm run test"
   },
   "devDependencies": {
