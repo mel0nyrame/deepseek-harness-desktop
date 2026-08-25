@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "dshVersion": "0.1.0-rc.8",
+  "upstreamCommit": "141eb6fef83422698aef7a981029e843e8161534",
+  "entryPackages": {
+    "@deepseek-ai/dsh": {
+      "version": "0.1.0-rc.8",
+      "entrypoints": [
+        "lib/bin.js"
+      ]
+    }
+  },
+  "platformDependencies": {
+    "node-pty": {
+      "version": "1.2.0-beta.15",
+      "targets": {
+        "darwin-arm64": {
+          "package": "node-pty",
+          "artifacts": [
+            "prebuilds/darwin-arm64/pty.node",
+            "prebuilds/darwin-arm64/spawn-helper"
+          ]
+        },
+        "darwin-x64": {
+          "package": "node-pty",
+          "artifacts": [
+            "prebuilds/darwin-x64/pty.node",
+            "prebuilds/darwin-x64/spawn-helper"
+          ]
+        },
+        "linux-x64": {
+          "package": "node-pty",
+          "artifacts": [
+            "prebuilds/linux-x64/pty.node"
+          ]
+        }
+      }
+    },
+    "koffi": {
+      "version": "3.1.0",
+      "targets": {
+        "darwin-arm64": {
+          "package": "@koromix/koffi-darwin-arm64",
+          "artifacts": [
+            "darwin_arm64/koffi.node"
+          ]
+        },
+        "darwin-x64": {
+          "package": "@koromix/koffi-darwin-x64",
+          "artifacts": [
+            "darwin_x64/koffi.node"
+          ]
+        },
+        "linux-x64": {
+          "package": "@koromix/koffi-linux-x64",
+          "artifacts": [
+            "linux_x64/koffi.node"
+          ]
+        }
+      }
+    }
+  },
+  "patches": [
+    {
+      "package": "node-pty",
+      "version": "1.2.0-beta.15",
+      "file": "patches/node-pty@1.2.0-beta.15.patch",
+      "sha256": "b40ae545608897914bd25fb009c97eeac478c34e8a910298ddcb01b746534bb0",
+      "rationale": "Allow the embedded Electron carrier to supply the spawn helper from an explicit filesystem path.",
+      "upstream": "https://github.com/microsoft/node-pty/issues/826",
+      "removeWhen": "An official node-pty release supports a non-sibling spawn-helper path.",
+      "tests": [
+        "tests/runtime-assembly.test.ts"
+      ]
+    }
+  ],
+  "build": {
+    "packageManager": "pnpm@11.7.0",
+    "lockfile": "pnpm-lock.yaml",
+    "assemblyScript": "scripts/assemble-runtime.ts",
+    "output": ".artifacts/runtime",
+    "electron": {
+      "version": "43.4.0",
+      "runAsNode": true
+    },
+    "lockfileSha256": "a305cddbca053596c1f4c2fa95dfe706cb49ec1457d0041cfa9ccaecc05d1d28"
+  }
+}
