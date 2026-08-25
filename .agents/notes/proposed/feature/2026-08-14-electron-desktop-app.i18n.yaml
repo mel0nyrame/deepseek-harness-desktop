@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-08-14-electron-desktop-app.md: ea86555e4feaa46dd2c4eb2d84844652345a58b1
-2026-08-14-electron-desktop-app.zh.md: f5f09bd5df871a30754eb8f7f417779f6c45e668
+2026-08-14-electron-desktop-app.md: 5fbeb5c88c47433c1e463fcfdaca9858b6d90ab6
+2026-08-14-electron-desktop-app.zh.md: 7633213c2159d4c54eb24e0b7ac16f5239ad5c9b

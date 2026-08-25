@@ -99,6 +99,27 @@ export function parseDesktopParentMessage(value: unknown): DesktopParentMessage 
   return undefined
 }
 
+/** Parse one notification arriving from the Host child process. */
+export function parseDesktopChildMessage(value: unknown): DesktopChildMessage | undefined {
+  if (!isRecord(value) || typeof value.type !== 'string' || !isId(value.id)) return undefined
+  if (value.type === 'response') {
+    const response = parseDesktopBridgeResponse(value)
+    return response === undefined ? undefined : { type: 'response', id: value.id, ...response }
+  }
+  if (value.type === 'request-error' || value.type === 'stream-error') {
+    return typeof value.message === 'string'
+      ? { type: value.type, id: value.id, message: value.message }
+      : undefined
+  }
+  if (value.type === 'stream-open' || value.type === 'stream-end') {
+    return { type: value.type, id: value.id }
+  }
+  if (value.type === 'stream-message') {
+    return { type: 'stream-message', id: value.id, message: value.message }
+  }
+  return undefined
+}
+
 /** Parse one stream notification using the subscription's logical stream schema. */
 export function parseDesktopStreamEvent(
   value: unknown,

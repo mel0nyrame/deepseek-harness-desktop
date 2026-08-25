@@ -3,6 +3,22 @@
   "dshVersion": "0.1.0-rc.8",
   "upstreamCommit": "141eb6fef83422698aef7a981029e843e8161534",
   "entryPackages": {
+    "@dsh-desktop/shell": {
+      "version": "0.1.0",
+      "entrypoints": [
+        "lib/main.js",
+        "lib/preload.cjs",
+        "lib/renderer.js",
+        "renderer.html"
+      ]
+    },
+    "@dsh-desktop/bundle": {
+      "version": "0.1.0",
+      "entrypoints": [
+        "lib/index.js",
+        "cordis.patch.yml"
+      ]
+    },
     "@deepseek-ai/dsh": {
       "version": "0.1.0-rc.8",
       "entrypoints": [
@@ -97,6 +113,6 @@
       "version": "43.4.0",
       "runAsNode": true
     },
-    "lockfileSha256": "54310a57687ca9d6c8ea766231cc9bd2755997162ebe6afe968f139d9bc2e1ac"
+    "lockfileSha256": "0c6017642978db16a25b4063dd43607d9a66d7d6a6e55e07c04262943bb88347"
   }
 }

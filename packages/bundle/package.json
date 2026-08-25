@@ -5,6 +5,24 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "files": [
+    "lib",
+    "cordis.patch.yml"
+  ],
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./lib/index.js"
+    },
+    "./profile-bootstrap": {
+      "types": "./src/profile-bootstrap.ts",
+      "default": "./lib/profile-bootstrap.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json"
+  },
   "engines": {
     "node": ">=24.0.0"
   },

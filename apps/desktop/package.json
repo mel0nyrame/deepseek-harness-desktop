@@ -5,10 +5,25 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "main": "./lib/main.js",
+  "files": [
+    "lib",
+    "renderer.html"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && esbuild src/preload.ts --bundle --platform=node --format=cjs --external:electron --outfile=lib/preload.cjs && esbuild src/renderer.ts --bundle --platform=browser --format=esm --outfile=lib/renderer.js"
+  },
   "engines": {
     "node": ">=24.0.0"
   },
   "devDependencies": {
+    "esbuild": "0.28.2",
     "electron": "43.4.0"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-app-boot": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-llm-replay": "0.1.0-rc.8",
+    "@dsh-desktop/bundle": "workspace:*",
+    "@dsh-desktop/connection": "workspace:*"
   }
 }

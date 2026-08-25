@@ -34,21 +34,52 @@ for (const [packageVersion, file] of Object.entries(patchedDependencies)) {
 }
 removeRuntimeOutput(output)
 execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
-  '--filter', '@dsh-desktop/bundle', 'deploy', '--prod', '--legacy',
+  '--filter', '@dsh-desktop/shell', 'deploy', '--prod', '--legacy',
   '--config.node-linker=hoisted', output,
 ], { cwd: ROOT, env: subprocessEnvironment, stdio: 'inherit' })
 execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['install'], {
   cwd: ROOT, env: subprocessEnvironment, stdio: 'inherit',
 })
 
+function packageRoot(name: string): string {
+  return name === '@dsh-desktop/shell' ? output : path.join(output, 'node_modules', name)
+}
+
 function packageManifest(name: string): Record<string, unknown> {
-  return JSON.parse(fs.readFileSync(path.join(output, 'node_modules', name, 'package.json'), 'utf8')) as Record<string, unknown>
+  return JSON.parse(fs.readFileSync(path.join(packageRoot(name), 'package.json'), 'utf8')) as Record<string, unknown>
+}
+
+const runtimePackagePaths = [
+  path.join(output, 'package.json'),
+  ...fs.readdirSync(path.join(output, 'node_modules'), { recursive: true, encoding: 'utf8' })
+    .filter(file => file.endsWith('package.json'))
+    .map(file => path.join(output, 'node_modules', file)),
+]
+for (const packagePath of runtimePackagePaths) {
+  const value = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as Record<string, unknown>
+  let changed = false
+  for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
+    const dependencies = value[section]
+    if (typeof dependencies !== 'object' || dependencies === null) continue
+    for (const [name, specifier] of Object.entries(dependencies as Record<string, unknown>)) {
+      if (!String(specifier).startsWith('workspace:')) continue
+      const installed = packageManifest(name)
+      if (typeof installed.version !== 'string') throw new Error(`Workspace package has no version: ${name}`)
+      ;(dependencies as Record<string, unknown>)[name] = installed.version
+      changed = true
+    }
+  }
+  if (changed) {
+    const replacement = `${packagePath}.desktop-runtime`
+    fs.writeFileSync(replacement, `${JSON.stringify(value, undefined, 2)}\n`)
+    fs.renameSync(replacement, packagePath)
+  }
 }
 for (const [name, entry] of Object.entries(manifest.entryPackages)) {
   const installed = packageManifest(name)
   if (installed.version !== entry.version) throw new Error(`Runtime version drift for ${name}: expected ${entry.version}, found ${String(installed.version)}`)
   for (const relative of entry.entrypoints) {
-    if (!fs.existsSync(path.join(output, 'node_modules', name, relative))) throw new Error(`Missing runtime entrypoint: ${name}/${relative}`)
+    if (!fs.existsSync(path.join(packageRoot(name), relative))) throw new Error(`Missing runtime entrypoint: ${name}/${relative}`)
   }
 }
 for (const [name, dependency] of Object.entries(manifest.platformDependencies)) {
@@ -63,9 +94,7 @@ for (const [name, dependency] of Object.entries(manifest.platformDependencies)) 
     if (!fs.existsSync(path.join(output, 'node_modules', targetDependency.package, relative))) throw new Error(`Missing platform artifact: ${targetDependency.package}/${relative}`)
   }
 }
-for (const file of fs.readdirSync(path.join(output, 'node_modules'), { recursive: true, encoding: 'utf8' })) {
-  if (!file.endsWith('package.json')) continue
-  const packagePath = path.join(output, 'node_modules', file)
+for (const packagePath of runtimePackagePaths) {
   const value = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as Record<string, unknown>
   if (typeof value.name === 'string' && value.name.startsWith('@deepseek-ai/dsh') && value.version !== manifest.dshVersion) {
     throw new Error(`Official DSH version drift for ${value.name}: expected ${manifest.dshVersion}, found ${String(value.version)}`)

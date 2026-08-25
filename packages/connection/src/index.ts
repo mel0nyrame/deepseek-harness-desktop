@@ -21,6 +21,11 @@ import {
 } from './protocol.js'
 
 export type { DesktopChildMessage, DesktopParentMessage } from './protocol.js'
+export {
+  parseDesktopBridgeRequest,
+  parseDesktopChildMessage,
+  parseDesktopParentMessage,
+} from './protocol.js'
 
 /** Stable Host plugin name shared with the Client bundle row. */
 export const name = 'desktop-connection'
