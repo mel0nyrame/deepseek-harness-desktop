@@ -1,6 +1,17 @@
 import type { Context } from '@deepseek-ai/cordis'
 
-export { DESKTOP_COMPONENTS, DESKTOP_PROFILE_BUNDLES, bootstrapDesktopProfile, composeDesktopEntries } from './profile-bootstrap.js'
+export {
+  DESKTOP_COMPONENTS,
+  DESKTOP_PROFILE_BUNDLES,
+  bootstrapDesktopProfile,
+  composeDesktopProfile,
+} from './profile-bootstrap.js'
+export type {
+  BootstrapOptions,
+  BootstrapResult,
+  DesktopProfileComposition,
+  DesktopProfileCompositionOptions,
+} from './profile-bootstrap.js'
 
 export const name = '@dsh-desktop/bundle'
 

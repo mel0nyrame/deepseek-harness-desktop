@@ -10,9 +10,13 @@ The desktop product needs one stable profile assembled from embedded official an
 
 ## Decision
 
-The desktop bundle owns the ordered product prefix in the `desktop` profile: `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, and `@dsh-desktop/bundle`. It also records the exact embedded component versions under `dsh.desktop.components`. Bootstrap validates every component before any write, creates missing profile support files, and repairs only these product-owned fields. Bundles outside the owned prefix, dependencies, other manifest keys, and an existing `cordis.patch.yml` remain user-owned.
+The desktop bundle owns the ordered product prefix in the `desktop` profile: `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, and `@dsh-desktop/bundle`. It also records the exact embedded component versions under `dsh.desktop.components` and keeps the Loader's `cordis.yml` composition root empty. Bootstrap validates every component before any write, creates missing profile support files, and repairs only this product-owned state. Bundles outside the owned prefix, dependencies, other manifest keys, and an existing `cordis.patch.yml` remain user-owned.
 
-The desktop bundle patch disables browser-owned startup rows and appends desktop connection, native, and UI providers. `composeDesktopEntries()` applies the published base and Web patches plus the desktop patch through the official profile composer, making the effective Loader entry tree observable without loading plugins.
+The desktop bundle patch disables browser-owned startup rows and appends desktop connection, native, and UI providers. `composeDesktopProfile()` resolves the generated manifest and each embedded bundle through the published profile loader, then returns both the effective Loader entries and a config dump produced by the boot-equivalent patch algorithm. Application lifecycle wiring remains with the tracer-bullet integration slice; the bundle owns the bootstrap operation and composition policy it calls.
+
+## Verification
+
+`pnpm exec vitest run tests/profile-bootstrap.test.ts` passes all eleven focused bootstrap and real-composition checks, and the workspace passes `pnpm run typecheck`.
 
 ## Alternatives considered
 
@@ -24,4 +28,4 @@ The desktop bundle patch disables browser-owned startup rows and appends desktop
 
 ## Consequences
 
-A fresh home can be initialized entirely from embedded packages, and repeated valid bootstrap performs no manifest write. Malformed JSON remains untouched with a path-specific diagnostic; unresolved or incompatible components are named before profile creation. Focused tests cover creation, idempotence, repair, preservation, malformed state, component failures, and the ordered real composed entry tree.
+A fresh home can be initialized entirely from embedded packages, and repeated valid bootstrap performs no write. Malformed JSON and a non-object manifest remain untouched with a path-specific diagnostic; unresolved or incompatible components are named before profile creation. Focused tests cover creation, idempotence, repair, user-owned JSON bytes, malformed state, component failures, and the ordered profile-loader composition and config dump.

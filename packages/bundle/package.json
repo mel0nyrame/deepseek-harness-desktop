@@ -16,7 +16,8 @@
     "@deepseek-ai/dsh-web-app": "0.1.0-rc.8",
     "@dsh-desktop/connection": "workspace:*",
     "@dsh-desktop/native": "workspace:*",
-    "@dsh-desktop/ui": "workspace:*"
+    "@dsh-desktop/ui": "workspace:*",
+    "jsonc-parser": "3.3.1"
   },
   "dsh": {
     "bundle": {
