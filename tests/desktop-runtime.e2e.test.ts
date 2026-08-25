@@ -106,7 +106,7 @@ afterAll(() => {
   for (const directory of temporaryDirectories) rmSync(directory, { recursive: true, force: true })
 })
 
-describe('integrated Electron runtime', () => {
+describe.skipIf(process.platform !== 'darwin')('integrated Electron runtime', () => {
   it('renders one ordered keyless terminal turn over the real embedded DSH child', () => {
     const home = temporary('dsh-desktop-e2e-home-')
     const frames = temporary('dsh-desktop-e2e-frames-')
