@@ -44,6 +44,7 @@ describe('desktop profile composition', () => {
     expect(ids.indexOf('connection')).toBeGreaterThan(ids.indexOf('webserver'))
     expect(ids.slice(-3)).toEqual(['desktop-connection', 'desktop-native', 'desktop-ui'])
     expect(entries.find(entry => entry.id === 'webserver')?.disabled).toBe(true)
+    expect(entries.find(entry => entry.id === 'connection')?.disabled).not.toBe(true)
     expect(dump).toContain('# == @deepseek-ai/dsh-base')
     expect(dump).toContain('# == @dsh-desktop/bundle')
     expect(dump.indexOf('id: timer')).toBeLessThan(dump.indexOf('id: desktop-connection'))

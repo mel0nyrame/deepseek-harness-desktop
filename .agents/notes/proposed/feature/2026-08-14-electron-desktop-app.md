@@ -88,6 +88,8 @@ Release validation installs or mounts each architecture's signed artifact, passe
 
 The current architecture already names Electron IPC as the intended non-Web carrier and keeps browser-safe protocol types separate from the Node Host. The desktop work should deepen that existing connection module rather than add a parallel desktop protocol.
 
+The independently shipped connection-provider structure is recorded by the [desktop IPC connection-provider decision](../../implemented/architecture/2026-08-25-desktop-ipc-connection-provider.md). This proposal continues to own application supervision, renderer asset delivery, native reverse actions, installed-application acceptance, and release evidence.
+
 The first vertical prototype is deliberately narrow: launch the bundled DSH child, complete its readiness handshake, create one Session, execute one terminal command, stream the result, and quit with full process cleanup. Native-module loading, helper placement, code signing, and quit semantics must be proven in this prototype before broader window chrome or installer work proceeds.
 
 The desktop shell is a product assembly, not a new capability seam. If system integration later needs multiple implementations, the variability belongs behind a small Host-facing interface with Electron and test adapters; it does not belong in the agent loop.

@@ -5,10 +5,29 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./client": "./src/client.ts",
+    "./carrier": "./src/carrier.ts",
+    "./preload": "./src/preload.ts",
+    "./package.json": "./package.json"
+  },
   "engines": {
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1"
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-client-connection": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-host-apiproxy": "0.1.0-rc.8"
+  },
+  "dsh": {
+    "client": {
+      "inject": [],
+      "external": [
+        "@deepseek-ai/dsh-client-connection/client"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
   }
 }

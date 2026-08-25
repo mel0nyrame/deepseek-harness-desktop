@@ -12,7 +12,7 @@ Status: implemented
 
 桌面组合包拥有 `desktop` 配置中的有序产品前缀：`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与 `@dsh-desktop/bundle`。它还在 `dsh.desktop.components` 下记录内嵌组件的精确版本，并保持 Loader 的 `cordis.yml` 组合根为空。引导程序在写入前验证所有组件，创建缺失的配置支持文件，并且只修复这些产品所有状态。产品前缀之外的组合包、依赖项、其他清单键，以及已有的 `cordis.patch.yml` 均归用户所有。
 
-桌面组合包补丁禁用浏览器所有的启动条目，并追加桌面连接、原生能力与 UI 提供方。`composeDesktopProfile()` 通过已发布的 profile loader 解析生成的 manifest 与每个内嵌组合包，再返回有效 Loader 条目及由等同启动路径的 patch 算法生成的配置 dump。应用生命周期接线仍由 tracer-bullet 集成阶段负责；组合包拥有接线方调用的引导操作与组合策略。
+桌面组合包补丁禁用浏览器所有的启动条目，并追加桌面连接、原生能力与 UI 提供方。官方 Connection 条目保留在模块图中，作为[桌面 IPC 提供方](2026-08-25-desktop-ipc-connection-provider.md)所需的浏览器模块供应者；没有 WebServer 时，它的 Host 插件保持未解析，由桌面提供方拥有 `ctx.connection`。`composeDesktopProfile()` 通过已发布的 profile loader 解析生成的 manifest 与每个内嵌组合包，再返回有效 Loader 条目及由等同启动路径的 patch 算法生成的配置 dump。应用生命周期接线仍由 tracer-bullet 集成阶段负责；组合包拥有接线方调用的引导操作与组合策略。
 
 ## Verification
 
