@@ -135,6 +135,34 @@ function assertNoTcpListener(pid: number): void {
   console.log('TRACER_OK no-loopback-listener')
 }
 
+async function assertTracerLayout(window: BrowserWindow): Promise<void> {
+  const matches = await window.webContents.executeJavaScript(`(() => {
+    const main = document.querySelector('main')
+    const title = document.querySelector('h1')
+    const message = document.querySelector('#status')
+    if (!(main instanceof HTMLElement) || !(title instanceof HTMLElement)
+      || !(message instanceof HTMLElement)) return false
+    const bounds = main.getBoundingClientRect()
+    const mainStyle = getComputedStyle(main)
+    const titleStyle = getComputedStyle(title)
+    const messageStyle = getComputedStyle(message)
+    const bodyStyle = getComputedStyle(document.body)
+    return title.textContent === 'DeepSeek Harness'
+      && Math.abs(bounds.left + bounds.width / 2 - innerWidth / 2) <= 1
+      && Math.abs(bounds.top + bounds.height / 2 - innerHeight / 2) <= 1
+      && bodyStyle.fontFamily.includes('-apple-system')
+      && mainStyle.textAlign === 'center'
+      && mainStyle.backgroundColor === 'rgba(0, 0, 0, 0)'
+      && Math.abs(parseFloat(titleStyle.fontSize) - 21.6) <= 0.1
+      && titleStyle.fontWeight === '600'
+      && titleStyle.marginBottom === '16px'
+      && messageStyle.fontSize === '16px'
+      && messageStyle.lineHeight === '24px'
+  })()`) as unknown
+  if (matches !== true) throw new Error('desktop tracer did not use the centered system status layout')
+  console.log('TRACER_LAYOUT centered-system-status')
+}
+
 async function captureTracer(window: BrowserWindow, tracer: TracerInvocation): Promise<void> {
   let previous = ''
   let frame = 0
@@ -144,6 +172,7 @@ async function captureTracer(window: BrowserWindow, tracer: TracerInvocation): P
     if (typeof state === 'string' && state !== previous) {
       previous = state
       console.log(`TRACER_STATE ${state}`)
+      if (state === 'starting') await assertTracerLayout(window)
       if (tracer.framesDir !== undefined) {
         mkdirSync(tracer.framesDir, { recursive: true })
         const image = await window.webContents.capturePage()

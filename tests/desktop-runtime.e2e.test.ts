@@ -75,6 +75,7 @@ describe('integrated Electron runtime', () => {
     expect(result.error).toBeUndefined()
     expect(result.status, textOutput(result.stderr)).toBe(0)
     expect(textOutput(result.stdout)).toContain('TRACER_OK no-loopback-listener')
+    expect(textOutput(result.stdout)).toContain('TRACER_LAYOUT centered-system-status')
     expect(textOutput(result.stdout)).toContain('TRACER_STATE complete')
     expect(textOutput(result.stdout)).toMatch(/TRACER_VISIBLE terminal-result \d+ bright pixel/)
     expect(textOutput(result.stdout)).toContain('TRACER_OK terminal-session')

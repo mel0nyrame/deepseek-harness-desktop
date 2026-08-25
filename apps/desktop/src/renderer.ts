@@ -29,6 +29,7 @@ function render(state: string, message: string): void {
   document.body.dataset.state = state
   status.textContent = state === 'complete' ? 'Integrated runtime ready' : 'Running integrated runtime tracer…'
   result.textContent = message
+  result.hidden = false
 }
 
 function toolResultText(events: readonly Frame[]): string {
