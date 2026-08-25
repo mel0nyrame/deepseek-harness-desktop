@@ -8,6 +8,10 @@
 
 *.pdf binary
 
+# Generated pnpm patch lines may legitimately contain upstream tab indentation;
+# do not reinterpret those payload bytes as whitespace errors in the outer diff.
+patches/@deepseek-ai__dsh-client-connection@0.1.0-rc.8.patch -whitespace
+
 # Pairing records are generated from the three confirmed owner-blob pairs.
 # The worktree-local installer registers the fail-closed driver command.
 *.i18n.yaml merge=dsh-translation-pairing

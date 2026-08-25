@@ -72,6 +72,20 @@
       "tests": [
         "tests/runtime-assembly.test.ts"
       ]
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-connection",
+      "version": "0.1.0-rc.8",
+      "file": "patches/@deepseek-ai__dsh-client-connection@0.1.0-rc.8.patch",
+      "sha256": "348ced8d8f44995c9da47db1b058f5d93e1761e0f3e6b36dab8d138a12773fc0",
+      "rationale": "Expose transport-neutral Client factories and a Host channel registrar so the desktop provider can implement the published connection contracts without WebServer.",
+      "upstream": "https://github.com/deepseek-ai/deepseek-harness/tree/141eb6fef83422698aef7a981029e843e8161534/packages/client/connection/src",
+      "removeWhen": "An exact published @deepseek-ai/dsh-client-connection release exposes equivalent Client transport factories and a Host channel registrar.",
+      "tests": [
+        "tests/connection-carrier.test.ts",
+        "tests/connection-host.test.ts",
+        "tests/connection-composition.test.ts"
+      ]
     }
   ],
   "build": {
@@ -83,6 +97,6 @@
       "version": "43.4.0",
       "runAsNode": true
     },
-    "lockfileSha256": "5406bc0b220fc6b3bd9803212a6b5bef05f4a3f5d93687ac9abb62c756c372b2"
+    "lockfileSha256": "54310a57687ca9d6c8ea766231cc9bd2755997162ebe6afe968f139d9bc2e1ac"
   }
 }

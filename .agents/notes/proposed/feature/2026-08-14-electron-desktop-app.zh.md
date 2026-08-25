@@ -88,6 +88,8 @@ macOS GUI 验收针对真实 Electron 窗口运行，并按仓库 GUI 策略记�
 
 当前架构已经把 Electron IPC 指定为预期的非 Web carrier，并将浏览器安全协议类型与 Node Host 分离。桌面工作应深化现有连接模块，而不是增加平行的桌面协议。
 
+独立交付的 connection provider 结构由[桌面 IPC connection provider 决策](../../implemented/architecture/2026-08-25-desktop-ipc-connection-provider.md)记录。本提案继续拥有应用监督、renderer 资源交付、原生反向操作、安装态应用验收与发布证据。
+
 第一个纵向原型刻意保持窄范围：启动内置 DSH 子进程、完成就绪握手、创建一个 Session、执行一条终端命令、流式传输结果，并在退出时完整清理进程。原生模块加载、helper 放置、代码签名和退出语义必须在此原型中得到证明，之后才能扩展窗口 chrome 或安装器工作。
 
 桌面 shell 是一种产品组装，不是新的能力 seam。如果系统集成以后需要多种实现，可变部分应位于一个小型 Host-facing 接口后，由 Electron 和测试 adapter 实现；它不属于 agent loop。

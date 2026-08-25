@@ -1,0 +1,230 @@
+diff --git a/lib/client.js b/lib/client.js
+index a109e1f18a8d86b7f4f67111f2074cc98b322ab9..6862ab3f33d5c36bd41aa1ade869f21b9feddd25 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -10199,10 +10199,11 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 		const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/;
+ 		const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/;
+ 		/**
+-		* Create the browser-backed generic RPC caller.
++		* Create a generic RPC caller over one fetch-shaped transport.
++		* @param fetcher - physical unary transport.
+ 		* @returns caller that owns request correlation and response-envelope validation.
+ 		*/
+-		function createWebConnectionRpc() {
++		function createFetchConnectionRpc(fetcher) {
+ 			return { async call(channel, endpoint, payload, signal) {
+ 				assertTarget(channel, endpoint);
+ 				const rpcId = RpcId(randomUuid());
+@@ -10212,7 +10213,7 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 					method: endpoint,
+ 					payload
+ 				};
+-				const response = await globalThis.fetch(new URL(`${channel}/${endpoint}`, resolveBase()), {
++				const response = await fetcher(new URL(`${channel}/${endpoint}`, resolveBase()), {
+ 					method: "POST",
+ 					headers: { "content-type": "application/json" },
+ 					body: JSON.stringify(message),
+@@ -10224,6 +10225,9 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 				return full.result;
+ 			} };
+ 		}
++		function createWebConnectionRpc() {
++			return createFetchConnectionRpc(globalThis.fetch);
++		}
+ 		function resolveBase() {
+ 			const location = globalThis.location;
+ 			return location?.origin !== void 0 && location.origin !== "null" ? location.origin : INTERNAL_BASE;
+@@ -10253,15 +10257,8 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 		//#region lib/types/client/index.js
+ 		/** Required services (none — this is the wire root). */
+ 		const inject = [];
+-		/**
+-		* Client plugin body: pick the api by page mode and provide ctx.connection.
+-		* @param ctx - client cordis context.
+-		*/
+-		function apply(ctx) {
+-			const pageLocation = typeof location === "undefined" ? void 0 : location;
+-			const fixtureClient = pageLocation !== void 0 && new URLSearchParams(pageLocation.search).has("fixture") ? new FixtureApiClient() : void 0;
+-			const api = fixtureClient ?? new WebApiClient();
+-			const rpc = fixtureClient?.rpc ?? createWebConnectionRpc();
++		/** Build the official Client connection handle over a replaceable physical transport. */
++		function createConnectionHandle(transport) {
+ 			let started = false;
+ 			let description;
+ 			const descriptionListeners = /* @__PURE__ */ new Set();
+@@ -10274,23 +10271,19 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 					console.error("[web-runtime] host-description listener threw:", error);
+ 				}
+ 			};
+-			const handle = {
+-				api,
+-				isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname),
++			return {
++				...transport,
+ 				hostDescription: {
+ 					getSnapshot: () => description,
+ 					subscribe: (listener) => {
+ 						descriptionListeners.add(listener);
+-						return () => {
+-							descriptionListeners.delete(listener);
+-						};
++						return () => { descriptionListeners.delete(listener); };
+ 					}
+ 				},
+-				rpc,
+ 				start(sinks, config) {
+ 					if (started) throw new Error("connection: the stream loop is already owned by another consumer");
+ 					started = true;
+-					const controller = new ConnectionController(api, {
++					const controller = new ConnectionController(transport.api, {
+ 						...sinks,
+ 						onConnected: (next) => {
+ 							publishDescription(next);
+@@ -10309,12 +10302,29 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
+ 					} };
+ 				}
+ 			};
++		}
++		/**
++		* Client plugin body: pick the api by page mode and provide ctx.connection.
++		* @param ctx - client cordis context.
++		*/
++		function apply(ctx) {
++			const pageLocation = typeof location === "undefined" ? void 0 : location;
++			const fixtureClient = pageLocation !== void 0 && new URLSearchParams(pageLocation.search).has("fixture") ? new FixtureApiClient() : void 0;
++			const api = fixtureClient ?? new WebApiClient();
++			const rpc = fixtureClient?.rpc ?? createWebConnectionRpc();
++			const handle = createConnectionHandle({
++				api,
++				isLoopback: pageLocation === void 0 || isLoopbackHostname(pageLocation.hostname),
++				rpc
++			});
+ 			ctx.provide("connection", handle);
+ 		}
+ 		//#endregion
+ 		exports.AbstractApiClient = AbstractApiClient;
+ 		exports.RpcId = RpcId;
+ 		exports.apply = apply;
++		exports.createConnectionHandle = createConnectionHandle;
++		exports.createFetchConnectionRpc = createFetchConnectionRpc;
+ 		exports.inject = inject;
+ 		exports.transportError = transportError;
+ 		return module.exports;
+diff --git a/lib/index.js b/lib/index.js
+index acf1cde68b31a9ecba9aff74db58c7f4537d7a29..fd60ff5b5da4a8033b19f41731871ce8203b1183 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -205,15 +205,18 @@ const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/;
+ /** Host Connection service whose channel registrations belong to the caller fiber. */
+ var HostConnectionService = class extends Service {
+ 	trustedHosts;
++	registrar;
+ 	interceptors = /* @__PURE__ */ new Map();
+ 	/**
+ 	* Provide the Host half over the active HTTP server.
+ 	* @param ctx - owning Connection plugin context.
+ 	* @param trustedHosts - deployment authorities accepted by trusted-host channels.
++	* @param registrar - optional physical channel adapter; omitted keeps WebServer registration.
+ 	*/
+-	constructor(ctx, trustedHosts) {
++	constructor(ctx, trustedHosts, registrar) {
+ 		super(ctx, "connection");
+ 		this.trustedHosts = trustedHosts;
++		this.registrar = registrar;
+ 	}
+ 	/** Generic channel registry scoped to the Context reading this service. */
+ 	get rpc() {
+@@ -240,6 +243,7 @@ var HostConnectionService = class extends Service {
+ 	}
+ 	register(owner, channel, handler, options) {
+ 		assertChannel(channel);
++		if (this.registrar !== void 0) return owner.effect(() => this.registrar.register(channel, rpcFetchHandler(channel, handler), options.authority), `client-connection: ${channel} rpc channel`);
+ 		const trustedHosts = options.authority === "loopback" ? [] : this.trustedHosts;
+ 		const fetchHandler = rpcFetchHandler(channel, handler);
+ 		const route = {
+diff --git a/lib/types/client/index.d.ts b/lib/types/client/index.d.ts
+index c2f2cb5c380a40b755f91de695d1da787bca49e2..1bafce048eb948d6dc70a30dce3f97f096f70548 100644
+--- a/lib/types/client/index.d.ts
++++ b/lib/types/client/index.d.ts
+@@ -46,6 +46,19 @@ export interface ConnectionHandle {
+         stop(): void;
+     };
+ }
++/** Physical aspects consumed by the transport-neutral Client connection. */
++export interface ConnectionTransport {
++    readonly api: IApiClient;
++    readonly rpc: ClientConnectionRpc;
++    readonly isLoopback: boolean;
++}
++/**
++ * Build the official Client connection handle over a replaceable physical transport.
++ * @param transport - unary, stream, and logical RPC aspects supplied by one carrier.
++ * @returns one single-owner connection handle with official readiness and reconnect behavior.
++ */
++export declare function createConnectionHandle(transport: ConnectionTransport): ConnectionHandle;
++export { createFetchConnectionRpc } from './rpc.ts';
+ /**
+  * Client plugin body: pick the api by page mode and provide ctx.connection.
+  * @param ctx - client cordis context.
+diff --git a/lib/types/client/rpc.d.ts b/lib/types/client/rpc.d.ts
+index f6af7ba0f86cd4e2d4db76f4e67667dd270ff1d5..2a5759aae71593ba07703f5264846b3201c972af 100644
+--- a/lib/types/client/rpc.d.ts
++++ b/lib/types/client/rpc.d.ts
+@@ -1,5 +1,11 @@
+ /** Browser caller for generic Connection unary RPC channels. */
+ import type { ClientConnectionRpc } from '../rpc.ts';
++/**
++ * Create a generic RPC caller over one fetch-shaped transport.
++ * @param fetcher - physical unary transport.
++ * @returns caller that owns request correlation and response-envelope validation.
++ */
++export declare function createFetchConnectionRpc(fetcher: typeof fetch): ClientConnectionRpc;
+ /**
+  * Create the browser-backed generic RPC caller.
+  * @returns caller that owns request correlation and response-envelope validation.
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+index 58a76c517883b2f1749ed858caeab5c24afabd4a..98eb115a3e9c4b856eeae69429c9ff551883ae03 100644
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -2,7 +2,7 @@
+ import type { Context } from '@deepseek-ai/cordis';
+ import z from '@deepseek-ai/schemastery';
+ export type { ConnectionRpcAuthority, ConnectionRpcEndpointMatcher, ConnectionRpcHandler, ConnectionRpcHandlerOptions, HostConnectionHandle, HostConnectionRpc, } from './rpc.ts';
+-export { HostConnectionService } from './rpc-host.ts';
++export { HostConnectionService, type ConnectionChannelRegistrar } from './rpc-host.ts';
+ export { API_PATH, HOST_EVENTS_PATH, MUX_EVENTS_PATH } from './api-path.ts';
+ /** Stable Cordis plugin name. */
+ export declare const name = "client-connection";
+diff --git a/lib/types/rpc-host.d.ts b/lib/types/rpc-host.d.ts
+index 09df9d7b0ef45ac220dfbd2b520265e5ab4f4b2b..64187b33b70c33715b9202db63606f389e7aa240 100644
+--- a/lib/types/rpc-host.d.ts
++++ b/lib/types/rpc-host.d.ts
+@@ -8,16 +8,26 @@ declare module '@deepseek-ai/cordis' {
+         connection: HostConnectionHandle;
+     }
+ }
++/** Physical registration of one transport-neutral RPC channel. */
++export interface ConnectionChannelRegistrar {
++    /**
++     * Mount one fetch-shaped channel with its authority policy.
++     * @returns disposer that removes the physical registration.
++     */
++    register(channel: string, handler: FetchHandler, authority: 'trusted-host' | 'loopback'): () => void | Promise<void>;
++}
+ /** Host Connection service whose channel registrations belong to the caller fiber. */
+ export declare class HostConnectionService extends Service implements HostConnectionHandle {
+     private readonly trustedHosts;
++    private readonly registrar;
+     private readonly interceptors;
+     /**
+      * Provide the Host half over the active HTTP server.
+      * @param ctx - owning Connection plugin context.
+      * @param trustedHosts - deployment authorities accepted by trusted-host channels.
++     * @param registrar - optional physical channel adapter; omitted keeps WebServer registration.
+      */
+-    constructor(ctx: Context, trustedHosts: readonly string[]);
++    constructor(ctx: Context, trustedHosts: readonly string[], registrar?: ConnectionChannelRegistrar);
+     /** Generic channel registry scoped to the Context reading this service. */
+     get rpc(): HostConnectionRpc;
+     /**
