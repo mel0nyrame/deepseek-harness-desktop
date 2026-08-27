@@ -7,7 +7,12 @@ import { pathToFileURL } from 'node:url'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Context } from '../packages/bundle/node_modules/@deepseek-ai/cordis/lib/types/index.d.ts'
 import type { ConnectionHandle, ConnectionTransport } from '../packages/connection/src/carrier.js'
-import type { DesktopChildEndpoint, DesktopChildMessage } from '../packages/connection/src/index.js'
+import type {
+  DesktopCapabilityValue,
+  DesktopChildEndpoint,
+  DesktopChildMessage,
+} from '../packages/connection/src/index.js'
+import { parseDesktopCapabilityRequest } from '../packages/connection/src/index.js'
 import { createDesktopPreload, type ContextBridgeLike, type IpcRendererLike } from '../packages/connection/src/preload.js'
 
 interface OfficialClientExports {
@@ -21,10 +26,22 @@ interface HostPluginExports {
   }
 }
 
+interface PickerModuleExports {
+  default: new (ctx: Context) => { capability(): { kind: string } }
+}
+
+interface GatewayModuleExports {
+  readonly name: string
+  readonly inject: string[]
+  apply(ctx: Context): void
+}
+
 const bundleRequire = createRequire(new URL('../packages/bundle/package.json', import.meta.url))
 const bundleAnchor = new URL('../packages/bundle/package.json', import.meta.url).href
 const hostPluginUrl = pathToFileURL(bundleRequire.resolve('@dsh-desktop/connection')).href
 const clientPluginUrl = pathToFileURL(bundleRequire.resolve('@dsh-desktop/connection/client')).href
+const pickerModuleUrl = pathToFileURL(bundleRequire.resolve('@dsh-desktop/native')).href
+const gatewayModuleUrl = pathToFileURL(bundleRequire.resolve('@dsh-desktop/native/gateway')).href
 const { boot } = bundleRequire('@deepseek-ai/dsh-app-boot') as {
   boot(
     binName: string,
@@ -34,6 +51,11 @@ const { boot } = bundleRequire('@deepseek-ai/dsh-app-boot') as {
     bareModuleBaseUrl: string,
   ): Promise<Context>
 }
+const officialGateway = bundleRequire('@deepseek-ai/dsh-host-apiproxy') as {
+  ApiProxyService: { inject: readonly string[] }
+}
+
+let officialClientImports = 0
 
 async function loadOfficialClientExports(): Promise<OfficialClientExports> {
   let exports: OfficialClientExports | undefined
@@ -48,7 +70,8 @@ async function loadOfficialClientExports(): Promise<OfficialClientExports> {
     },
   })
   const entry = new URL('../packages/connection/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js', import.meta.url)
-  await import(`${entry.href}?connection-composition`)
+  officialClientImports += 1
+  await import(`${entry.href}?connection-composition-${String(officialClientImports)}`)
   if (exports === undefined) throw new Error('official Client bundle did not register')
   return exports
 }
@@ -57,7 +80,32 @@ class RelayEndpoint extends EventEmitter implements DesktopChildEndpoint {
   connected = true
   relay: ((message: DesktopChildMessage) => void) | undefined
 
+  /** Scripted main-side settlements, consumed in request order. */
+  readonly scriptedSettlements: Array<DesktopCapabilityValue | { readonly error: string }> = []
+  readonly capabilityRequests: Array<{ readonly id: string; readonly action: string }> = []
+  holdCapabilityRequests = false
+
   send(message: DesktopChildMessage, callback?: (error: Error | null) => void): boolean {
+    if (typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'capability-request') {
+      const parsed = parseDesktopCapabilityRequest(message)
+      if (parsed === undefined) throw new Error('composition relay received an invalid capability request')
+      this.capabilityRequests.push({ id: parsed.id, action: parsed.action })
+      if (this.holdCapabilityRequests) {
+        callback?.(null)
+        return true
+      }
+      const settlement = this.scriptedSettlements.shift()
+      if (settlement === undefined) throw new Error(`no scripted settlement for ${parsed.action}`)
+      queueMicrotask(() => {
+        if ('error' in settlement) {
+          this.emit('message', { type: 'capability-error', id: parsed.id, message: settlement.error })
+        } else {
+          this.emit('message', { type: 'capability-response', id: parsed.id, ...settlement })
+        }
+      })
+      callback?.(null)
+      return true
+    }
     this.relay?.(message)
     callback?.(null)
     return true
@@ -223,6 +271,137 @@ it('boots real Client and Host connection plugins over IPC without WebServer or 
   }
   expect(endpoint.listenerCount('message')).toBe(0)
   expect(activeNetworkListeners()).toEqual(before)
+})
+
+it('composes the desktop picker and gateway over the real stack with shell-side answers', async () => {
+  const nativeChannelInternals = await import(new URL('../packages/native/lib/channel.js', import.meta.url).href) as {
+    internals: { endpoint: DesktopChildEndpoint }
+  }
+  const pickerModule = await import(pickerModuleUrl) as PickerModuleExports
+  const gatewayModule = await import(gatewayModuleUrl) as GatewayModuleExports
+  const hostPlugin = await import(hostPluginUrl) as HostPluginExports
+  // The desktop gateway mirrors the official gateway's service prerequisites.
+  expect([...gatewayModule.inject]).toEqual([...officialGateway.ApiProxyService.inject])
+
+  const endpoint = new RelayEndpoint()
+  const previousNativeEndpoint = nativeChannelInternals.internals.endpoint
+  nativeChannelInternals.internals.endpoint = endpoint
+  const previousHostEndpoint = hostPlugin.internals.endpoint
+  hostPlugin.internals.endpoint = endpoint
+  let host: Awaited<ReturnType<typeof boot>> | undefined
+  const fixture = mkdtempSync(join(tmpdir(), 'dsh-native-loader-'))
+  const hostConfigPath = join(fixture, 'native-host.cordis.yml')
+  writeFileSync(hostConfigPath, [
+    '- id: desktop-picker',
+    '  name: cordis:desktop-picker',
+    '- id: desktop-gateway',
+    '  name: cordis:desktop-gateway',
+    '- id: desktop-connection',
+    '  name: cordis:desktop-connection',
+    '',
+  ].join('\n'))
+
+  try {
+    host = await boot('desktop-native-composition', hostConfigPath, undefined, (hostContext) => {
+      for (const [name, value] of Object.entries({
+        agentDefaultModel: {
+          currentSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-v4-flash' }),
+          saveSelection: () => Promise.resolve(),
+        },
+        agents: {},
+        attachments: {},
+        llm: {},
+        sessions: {},
+        subagents: {},
+        sessionQuery: {},
+        tools: {},
+        userQuestions: {
+          // createApiProxy registers its question provider eagerly; the stub
+          // records nothing because these tests ask no questions.
+          registerProvider: () => () => {},
+        },
+        workspaceRegistry: {},
+      })) {
+        hostContext.provide(name, value as never)
+      }
+      const pickerBootstrap = {
+        name: 'desktop-picker',
+        inject: [] as string[],
+        apply(pickerContext: Context): void {
+          void new pickerModule.default(pickerContext)
+        },
+      }
+      hostContext.loader.builtins['desktop-picker']
+        = hostContext.loader.unwrapExports(pickerBootstrap) ?? pickerBootstrap
+      hostContext.loader.builtins['desktop-gateway'] = gatewayModule
+      hostContext.loader.builtins['desktop-connection'] = hostPlugin
+    }, bundleAnchor)
+
+    const api = host.get('apiProxy') as unknown
+    expect(typeof api).toBe('object')
+
+    endpoint.scriptedSettlements.push({ kind: 'path', path: '/Users/mac/workspaces/composed' })
+
+    const ipc = new RelayIpc(endpoint)
+    const contextBridge: ContextBridgeLike = { exposeInMainWorld() {} }
+    const preload = createDesktopPreload(contextBridge, ipc)
+    globalThis.dshDesktop = preload.bridge
+
+    const official = await loadOfficialClientExports()
+    const clientPlugin = await import(clientPluginUrl)
+    clientPlugin.internals.createConnectionHandle = official.createConnectionHandle
+    clientPlugin.internals.createFetchConnectionRpc = official.createFetchConnectionRpc
+    const clientConfigPath = join(fixture, 'native-client.cordis.yml')
+    writeFileSync(clientConfigPath, '- id: desktop-connection\n  name: cordis:desktop-client-connection\n')
+    let client: Awaited<ReturnType<typeof boot>> | undefined
+    try {
+      client = await boot('desktop-native-client', clientConfigPath, undefined, (clientContext) => {
+        clientContext.loader.builtins['desktop-client-connection']
+          = clientContext.loader.unwrapExports(clientPlugin) ?? clientPlugin
+      }, bundleAnchor)
+      const connection = client.get('connection') as unknown as ConnectionHandle
+
+      await expect(connection.api.host.pickDirectory({})).resolves.toMatchObject({
+        result: { ok: true, value: { path: '/Users/mac/workspaces/composed' } },
+      })
+
+      // Browse-only methods stay hidden behind the native capability contract.
+      await expect(connection.api.host.listDirectory({})).resolves.toMatchObject({
+        result: { ok: false, error: { code: 'directory-picker-unavailable' } },
+      })
+
+      endpoint.scriptedSettlements.push({ kind: 'opened' })
+      await expect(connection.api.host.openPath({ path: '/tmp/report.pdf' })).resolves.toMatchObject({
+        result: { ok: true, value: { opened: true } },
+      })
+
+      endpoint.scriptedSettlements.push({ error: 'shell handoff refused' })
+      await expect(connection.api.host.openPath({ path: '/tmp/mystery.bin' })).resolves.toMatchObject({
+        result: {
+          ok: false,
+          error: { message: expect.stringContaining('path open failed: shell handoff refused') },
+        },
+      })
+
+      expect(endpoint.capabilityRequests).toHaveLength(3)
+
+      endpoint.holdCapabilityRequests = true
+      const pendingOpen = connection.api.host.openPath({ path: '/tmp/held.pdf' })
+      await host?.fiber.dispose()
+      await expect(pendingOpen).resolves.toMatchObject({
+        result: { ok: false, error: { code: 'cancelled' } },
+      })
+    } finally {
+      await client?.fiber.dispose()
+      preload.dispose()
+      globalThis.dshDesktop = undefined
+    }
+  } finally {
+    nativeChannelInternals.internals.endpoint = previousNativeEndpoint
+    hostPlugin.internals.endpoint = previousHostEndpoint
+    await host?.fiber.dispose()
+    rmSync(fixture, { recursive: true, force: true })
+  }
 })
 
 function activeNetworkListeners(): string[] {

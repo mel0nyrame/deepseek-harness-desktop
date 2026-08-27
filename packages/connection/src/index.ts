@@ -20,9 +20,16 @@ import {
   type DesktopParentMessage,
 } from './protocol.js'
 
-export type { DesktopChildMessage, DesktopParentMessage } from './protocol.js'
+export type {
+  DesktopCapabilityAction,
+  DesktopCapabilityValue,
+  DesktopChildMessage,
+  DesktopParentMessage,
+} from './protocol.js'
 export {
   parseDesktopBridgeRequest,
+  parseDesktopCapabilityRequest,
+  parseDesktopCapabilityResponse,
   parseDesktopChildMessage,
   parseDesktopParentMessage,
 } from './protocol.js'

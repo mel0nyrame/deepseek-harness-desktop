@@ -124,8 +124,37 @@ async function runTracer(): Promise<void> {
   }
 }
 
+async function runNativeJourney(): Promise<void> {
+  const params = new URLSearchParams(location.search)
+  const expectedPick = params.get('pick')
+  const expectedOpen = params.get('open')
+  if (expectedPick === null || expectedOpen === null) throw new Error('native journey query is incomplete')
+
+  render('starting', `Selecting ${expectedPick}`)
+  const picked = await unary('host.pickDirectory', {})
+  if (picked['path'] !== expectedPick) {
+    throw new Error(`host.pickDirectory returned ${JSON.stringify(picked['path'] ?? null)} instead of the requested directory`)
+  }
+  document.body.dataset.state = 'picked'
+  if (result !== null) {
+    result.textContent = `NATIVE_PICK ${expectedPick}`
+    result.hidden = false
+  }
+
+  await new Promise(resolve => setTimeout(resolve, 50))
+  render('opening', `Opening ${expectedOpen}`)
+  const opened = await unary('host.openPath', { path: expectedOpen })
+  if (opened['opened'] !== true) throw new Error('host.openPath did not confirm the native handoff')
+
+  render('complete', `NATIVE_PICK ${expectedPick}\nNATIVE_OPENED ${expectedOpen}`)
+}
+
 if (new URLSearchParams(location.search).get('tracer') === '1') {
   void runTracer().catch((error: unknown) => {
+    render('failed', error instanceof Error ? error.message : String(error))
+  })
+} else if (new URLSearchParams(location.search).get('tracer') === 'native') {
+  void runNativeJourney().catch((error: unknown) => {
     render('failed', error instanceof Error ? error.message : String(error))
   })
 } else {

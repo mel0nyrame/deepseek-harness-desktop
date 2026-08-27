@@ -2,6 +2,7 @@ import { fork, type ChildProcess } from 'node:child_process'
 import { isAbsolute, join } from 'node:path'
 import {
   parseDesktopChildMessage,
+  type DesktopCapabilityValue,
   type DesktopChildMessage,
   type DesktopParentMessage,
 } from '@dsh-desktop/connection'
@@ -9,6 +10,12 @@ import type {
   DesktopBridgeResponse,
   DesktopStream,
 } from '@dsh-desktop/connection/carrier'
+
+/** One Host-initiated native action awaiting the desktop shell's settlement. */
+export type DesktopNativeAction = Extract<DesktopChildMessage, { type: 'capability-request' }>
+
+/** Electron-main operating-system adapter for Host-initiated native actions. */
+export type DesktopNativeActionHandler = (request: DesktopNativeAction, signal: AbortSignal) => Promise<DesktopCapabilityValue>
 import {
   createProcessTreeLadder,
   type ProcessTreeLadder,
@@ -187,6 +194,15 @@ export class DshSupervisor {
   private readonly pending = new Map<string, Deferred<DesktopBridgeResponse>>()
   private readonly subscriptions = new Map<string, DesktopStream>()
   private readonly streamListeners = new Set<(message: DesktopChildMessage) => void>()
+  private readonly activeNativeActions = new Map<string, {
+    readonly owner: DshChild
+    readonly handler: DesktopNativeActionHandler
+    readonly controller: AbortController
+    readonly done: Promise<void>
+    readonly resolveDone: () => void
+  }>()
+  private resourceFailure: Promise<void> | undefined
+  private nativeActionHandler: DesktopNativeActionHandler | undefined
 
   constructor(
     spawnChild: SpawnDshChild = spawnDshChild,
@@ -268,6 +284,24 @@ export class DshSupervisor {
     return () => { this.streamListeners.delete(listener) }
   }
 
+  /**
+   * Install the operating-system adapter that settles Host-initiated native
+   * actions; survives child restarts and is removed only by the disposer.
+   */
+  onNativeActions(handler: DesktopNativeActionHandler): () => void {
+    this.nativeActionHandler = handler
+    let disposed = false
+    return () => {
+      if (disposed || this.nativeActionHandler !== handler) return
+      disposed = true
+      this.nativeActionHandler = undefined
+      for (const action of this.activeNativeActions.values()) {
+        if (action.handler !== handler) continue
+        action.controller.abort(new Error('desktop native action handler was removed'))
+      }
+    }
+  }
+
   /** Stop and join the current generation, then start one replacement. */
   async restart(): Promise<DshReady> {
     const options = this.launchOptions
@@ -306,7 +340,9 @@ export class DshSupervisor {
     const onMessage = (message: unknown): void => { this.handleMessage(message) }
     const onError = (error: Error): void => {
       settleFailure(error)
-      this.failResources(error)
+      void this.failResources(error).catch(cleanupError => {
+        console.error('[desktop-supervisor] resource cleanup failed:', cleanupError)
+      })
       if (this.ready) void this.stop()
     }
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
@@ -318,6 +354,11 @@ export class DshSupervisor {
       cleanupStartup()
       const controlled = this.stopping !== undefined
       if (this.child === child) this.child = undefined
+      for (const action of this.activeNativeActions.values()) {
+        if (action.owner === child) {
+          action.controller.abort(new Error('desktop DSH child stopped'))
+        }
+      }
       const exitError = this.startupFailure ?? new Error(
         `desktop DSH child exited before readiness (code ${String(code)}, signal ${String(signal)})`,
       )
@@ -342,9 +383,11 @@ export class DshSupervisor {
           },
         )
       }
-      this.failResources(new Error(
+      void this.failResources(new Error(
         `desktop DSH child exited (code ${String(code)}, signal ${String(signal)})`,
-      ))
+      )).catch(cleanupError => {
+        console.error('[desktop-supervisor] resource cleanup failed:', cleanupError)
+      })
       if (this.ready && !controlled) {
         void cleaned.then(
           () => { this.publishUnexpectedExit({ code, signal }) },
@@ -429,9 +472,62 @@ export class DshSupervisor {
       }
       return
     }
+    if (message.type === 'capability-request') {
+      this.dispatchNativeAction(message)
+      return
+    }
     if (!this.subscriptions.has(message.id)) return
     if (message.type === 'stream-end') this.subscriptions.delete(message.id)
     this.notifyStream(message)
+  }
+
+  /** Settle one Host-initiated native action exactly once through the OS adapter. */
+  private dispatchNativeAction(request: DesktopNativeAction): void {
+    const owner = this.child
+    if (owner === undefined || !owner.connected) return
+    const reply = (message: Extract<DesktopParentMessage, { type: 'capability-response' | 'capability-error' }>): void => {
+      try {
+        if (!owner.connected) throw new Error('desktop DSH child IPC channel is closed')
+        owner.send(message)
+      } catch (error) {
+        console.error('[desktop-supervisor] native action reply delivery failed:', error)
+      }
+    }
+    if (this.activeNativeActions.has(request.id)) {
+      reply({ type: 'capability-error', id: request.id, message: 'duplicate native action id' })
+      return
+    }
+    const handler = this.nativeActionHandler
+    if (handler === undefined) {
+      reply({ type: 'capability-error', id: request.id, message: 'no desktop native action handler is installed' })
+      return
+    }
+    const actionDone = deferred<void>()
+    const action = {
+      owner,
+      handler,
+      controller: new AbortController(),
+      done: actionDone.promise,
+      resolveDone: () => { actionDone.resolve() },
+    }
+    this.activeNativeActions.set(request.id, action)
+    void (async () => {
+      try {
+        const value = await handler(request, action.controller.signal)
+        reply({ type: 'capability-response', id: request.id, ...value })
+      } catch (error) {
+        reply({
+          type: 'capability-error',
+          id: request.id,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        action.resolveDone()
+        if (this.activeNativeActions.get(request.id) === action) {
+          this.activeNativeActions.delete(request.id)
+        }
+      }
+    })()
   }
 
   private send(message: DesktopParentMessage): void {
@@ -463,7 +559,23 @@ export class DshSupervisor {
     }
   }
 
-  private failResources(error: Error): void {
+  private async failResources(error: Error): Promise<void> {
+    if (this.resourceFailure !== undefined) return await this.resourceFailure
+    const cleanup = this.failResourcesNow(error)
+    this.resourceFailure = cleanup
+    try {
+      await cleanup
+    } finally {
+      if (this.resourceFailure === cleanup) this.resourceFailure = undefined
+    }
+  }
+
+  private async failResourcesNow(error: Error): Promise<void> {
+    const nativeActions = [...this.activeNativeActions.values()]
+    for (const [id, action] of this.activeNativeActions) {
+      action.controller.abort(error)
+      this.activeNativeActions.delete(id)
+    }
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
     const ids = [...this.subscriptions.keys()]
@@ -472,6 +584,22 @@ export class DshSupervisor {
       this.notifyStream({ type: 'stream-error', id, message: error.message })
       this.notifyStream({ type: 'stream-end', id })
     }
+    await this.waitForNativeActions(nativeActions)
+  }
+
+  private async waitForNativeActions(actions: readonly { readonly done: Promise<void> }[]): Promise<void> {
+    if (actions.length === 0) return
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const completed = await Promise.race([
+      Promise.all(actions.map(action => action.done)).then(() => true),
+      new Promise<false>(resolve => {
+        timeout = setTimeout(() => { resolve(false) }, this.shutdownTimeoutMs)
+      }),
+    ])
+    if (timeout !== undefined) clearTimeout(timeout)
+    if (!completed) throw new Error(
+      `desktop native actions did not settle within ${String(this.shutdownTimeoutMs)}ms (${String(actions.length)} action${actions.length === 1 ? '' : 's'})`,
+    )
   }
 
   private terminateSubscription(id: string, error: Error): void {
@@ -521,6 +649,7 @@ export class DshSupervisor {
     const child = this.child
     if (child === undefined) {
       await this.terminateCurrentTree()
+      await this.failResources(new Error('desktop DSH child stopped'))
       return
     }
     if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
@@ -551,7 +680,7 @@ export class DshSupervisor {
     } catch (error) {
       treeError = error instanceof Error ? error : new Error(String(error))
     }
-    this.failResources(new Error('desktop DSH child stopped'))
+    await this.failResources(new Error('desktop DSH child stopped'))
     const errors = [rootExitError, treeError].filter((error): error is Error => error !== undefined)
     if (errors.length === 1) throw errors[0]
     if (errors.length > 1) throw new AggregateError(errors, 'desktop DSH shutdown did not reach quiescence')

@@ -14,12 +14,17 @@
   disabled: true
 - id: connection
   disabled: true
+# The official gateway spawns native open commands inside the DSH child; the
+# desktop product hands paths to Electron main instead (one ApiProxy over the
+# official factory with only the opener injected).
+- id: api-gateway
+  disabled: true
 - insert:
     - id: desktop-directory-picker
-      name: '@deepseek-ai/dsh-host-directory-picker-native'
+      name: '@dsh-desktop/native'
+    - id: desktop-api-gateway
+      name: '@dsh-desktop/native/gateway'
     - id: desktop-connection
       name: '@dsh-desktop/connection'
-    - id: desktop-native
-      name: '@dsh-desktop/native'
     - id: desktop-ui
       name: '@dsh-desktop/ui'

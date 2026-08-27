@@ -14,5 +14,7 @@ The application icon lives at [`build/icon.svg`](build/icon.svg) (source) and
 identity: their content, names, and locations are preserved across the
 decoupling and must not be renamed, moved, or replaced.
 
-Implementation of the shell lands with the integrated tracer bullet
-(decoupling 5/10); until then this package declares the role and its boundary.
+The shell's native directory chooser and path-opening handoff are implemented
+through the desktop-owned capability providers and the supervised child IPC
+reverse-request path. The integrated tracer exercises this boundary against a
+real assembled runtime.

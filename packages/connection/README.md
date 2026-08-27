@@ -10,7 +10,13 @@ and one live Host stream; acknowledgements pace each source after delivery.
 
 The preload adapter exposes only `dshDesktop`, uses fixed Electron IPC channel
 names, validates calls and stream frames, and requires a sandboxed renderer
-with Node integration disabled and context isolation enabled. The Host plugin
+with Node integration disabled and context isolation enabled.
+
+The protocol also carries the desktop native-capability leg used by
+`@dsh-desktop/native`: `capability-request` travels from the Host child to
+Electron main, which answers `capability-response` or `capability-error`;
+paths are validated absolute strings before dispatch, and the gateway layer of
+that provider owns every correlation. The Host plugin
 registers the existing `ctx.connection` service without a WebServer or network
 listener.
 
