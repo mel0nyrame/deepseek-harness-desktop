@@ -427,9 +427,9 @@ function capabilityReply(child: FakeChild): Extract<DesktopParentMessage, { type
 }
 
 describe('desktop DSH supervisor native actions', () => {
-  async function started(pid = 201): Promise<{ supervisor: DshSupervisor; child: FakeChild }> {
+  async function started(pid = 201, options: ConstructorParameters<typeof DshSupervisor>[1] = {}): Promise<{ supervisor: DshSupervisor; child: FakeChild }> {
     const child = new FakeChild(pid)
-    const supervisor = new DshSupervisor(() => child, { tree: inertTree() })
+    const supervisor = new DshSupervisor(() => child, { tree: inertTree(), ...options })
     const starting = supervisor.start(validOptions())
     child.ready()
     await starting
@@ -513,6 +513,19 @@ describe('desktop DSH supervisor native actions', () => {
     expect(handlerFinished).toBe(true)
     expect(child.messages.filter(message => message.type === 'capability-response'
       || message.type === 'capability-error')).toHaveLength(0)
+  })
+
+  it('bounds shutdown when a native adapter ignores cancellation', async () => {
+    const { supervisor, child } = await started(213, { shutdownTimeoutMs: 10 })
+    supervisor.onNativeActions(async () => {
+      await new Promise<void>(resolve => { setTimeout(resolve, 50) })
+      return { kind: 'opened' }
+    })
+    child.emit('message', { type: 'capability-request', id: 'stuck-1', action: 'pick-directory' })
+    const stopping = supervisor.stop()
+    child.exit(null, 'SIGTERM')
+    await expect(stopping).rejects.toThrow('desktop native actions did not settle within')
+    await new Promise(resolve => { setTimeout(resolve, 60) })
   })
 
   it('answers without a handler and after the disposer removes it', async () => {

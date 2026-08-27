@@ -340,7 +340,9 @@ export class DshSupervisor {
     const onMessage = (message: unknown): void => { this.handleMessage(message) }
     const onError = (error: Error): void => {
       settleFailure(error)
-      void this.failResources(error)
+      void this.failResources(error).catch(cleanupError => {
+        console.error('[desktop-supervisor] resource cleanup failed:', cleanupError)
+      })
       if (this.ready) void this.stop()
     }
     const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
@@ -383,7 +385,9 @@ export class DshSupervisor {
       }
       void this.failResources(new Error(
         `desktop DSH child exited (code ${String(code)}, signal ${String(signal)})`,
-      ))
+      )).catch(cleanupError => {
+        console.error('[desktop-supervisor] resource cleanup failed:', cleanupError)
+      })
       if (this.ready && !controlled) {
         void cleaned.then(
           () => { this.publishUnexpectedExit({ code, signal }) },
@@ -580,7 +584,22 @@ export class DshSupervisor {
       this.notifyStream({ type: 'stream-error', id, message: error.message })
       this.notifyStream({ type: 'stream-end', id })
     }
-    await Promise.all(nativeActions.map(action => action.done))
+    await this.waitForNativeActions(nativeActions)
+  }
+
+  private async waitForNativeActions(actions: readonly { readonly done: Promise<void> }[]): Promise<void> {
+    if (actions.length === 0) return
+    let timeout: ReturnType<typeof setTimeout> | undefined
+    const completed = await Promise.race([
+      Promise.all(actions.map(action => action.done)).then(() => true),
+      new Promise<false>(resolve => {
+        timeout = setTimeout(() => { resolve(false) }, this.shutdownTimeoutMs)
+      }),
+    ])
+    if (timeout !== undefined) clearTimeout(timeout)
+    if (!completed) throw new Error(
+      `desktop native actions did not settle within ${String(this.shutdownTimeoutMs)}ms (${String(actions.length)} action${actions.length === 1 ? '' : 's'})`,
+    )
   }
 
   private terminateSubscription(id: string, error: Error): void {

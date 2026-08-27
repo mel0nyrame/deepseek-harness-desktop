@@ -14,7 +14,7 @@ desktop profile 直接组合了官方 `@deepseek-ai/dsh-host-directory-picker-na
 - **路径打开**由 `@dsh-desktop/native/gateway` 提供：它通过已发布的 `createApiProxy` 工厂挂载 `ctx.apiProxy`，只注入 `openPath` 闭包；因为存在 opener，`canOpenPath` 无需额外配置即为 true，其余 gateway 域保持官方行为。其导出的 `inject` 在加载时复制 `ApiProxyService.inject`，上游前置服务变化会原样继承。desktop bundle patch 停用 `api-gateway`（其默认 opener 会在 child 内派生命令）并插入该条目。
 - **wire 族**：`capability-request` 从 child 发往 parent；`capability-response`/`capability-error` 反向返回。消息形状放在 `@dsh-desktop/connection` 的 protocol 模块里、与既有 request/stream 词表并列，两个方向各有一个校验解析器（`parseDesktopCapabilityRequest`/`parseDesktopCapabilityResponse`）。路径字段必须绝对、无 NUL 且上限 4,096 个 UTF-8 字节。
 - **Electron main 保持为操作系统适配器**，入口是 `DshSupervisor.onNativeActions(handler)`：生产安装 `dialog.showOpenDialog(window, …)` 与 `shell.openPath`；适配器跨 child generation 存活，窗口关闭时由 disposer 移除。并发重复 id 立即回 `duplicate native action id`；未安装 handler 时以类型化错误答复而非悬挂。
-- handler 移除与 supervisor shutdown 会取消该 handler 或 child 所拥有的全部 action，并等待每个 handler Promise 完成后才结束 teardown；即使 child 先退出，原生 action 清理也能达到 quiescence。
+- handler 移除与 supervisor shutdown 会取消该 handler 或 child 所拥有的全部 action，并在配置的 shutdown 上限内等待 handler Promise。原生适配器通常会在上限前完成；不可取消的 Electron 操作不会永久阻塞应用退出，其迟到结算仍会被丢弃。
 - **关联所有权**位于两条 provider row 共享的 Host 侧 channel（每个 endpoint 一个实例，通过 Cordis effect 引用计数）。每条结算路径先移除自身关联，因此迟到或重复的 shell 回复永远无法复活已完成的请求；abort 以同样的本地移除表达（Electron 无法编程取消对话框）；disconnect/disposal 会一次性拒绝所有存活调用方。`openTextFile` 有意保留官方 child 实现：它是受支持的命令交接，没有需要接管的对话框交互。
 - **renderer 没有任何新增面**：preload surface、bridge 方法、stream 种类或 capability 命名空间都不暴露给 renderer；反向腿只存在于捆绑 child 与 main 之间。
 - **Web 部署不受影响**：`@dsh-desktop/native` 不导入任何 Electron API，只被 desktop bundle patch 挂载，组件版本在嵌入式闭包中被钉住；web profile 继续组合官方 auto/native/browse picker 行。
