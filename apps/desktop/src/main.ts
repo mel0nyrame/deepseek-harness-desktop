@@ -245,9 +245,11 @@ function shellNativeActionHandler(window: BrowserWindow): DesktopNativeActionHan
         title: 'Select Workspace Directory',
         properties: ['openDirectory', 'createDirectory'],
       })
+      if (signal.aborted) throw signal.reason
       return { kind: 'path', path: outcome.canceled ? null : outcome.filePaths[0] ?? null }
     }
     const failure = await shell.openPath(request.path)
+    if (signal.aborted) throw signal.reason
     if (failure !== '') throw new Error(`desktop shell could not open the path: ${failure}`)
     return { kind: 'opened' }
   }

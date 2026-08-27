@@ -469,8 +469,9 @@ describe('desktop DSH supervisor native actions', () => {
 
   it('answers duplicate concurrent ids without invoking the handler twice', async () => {
     const { supervisor, child } = await started()
-    const releases: Array<() => void> = []
-    const handler = vi.fn(() => new Promise<never>(() => { releases.push(() => undefined) }))
+    const handler = vi.fn((_request, signal: AbortSignal) => new Promise<never>((_resolve, reject) => {
+      signal.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+    }))
     supervisor.onNativeActions(handler)
 
     child.emit('message', { type: 'capability-request', id: 'dup-1', action: 'pick-directory' })
@@ -479,26 +480,37 @@ describe('desktop DSH supervisor native actions', () => {
 
     expect(handler).toHaveBeenCalledTimes(1)
     expect(capabilityReply(child)).toEqual({ type: 'capability-error', id: 'dup-1', message: 'duplicate native action id' })
+    const stopping = supervisor.stop()
+    child.exit(null, 'SIGTERM')
+    await stopping
   })
 
   it('aborts in-flight native actions when the supervisor stops', async () => {
     const { supervisor, child } = await started(204)
+    let handlerStarted = false
     let aborted = false
+    let handlerFinished = false
     supervisor.onNativeActions(async (_request, signal) => {
-      await new Promise<void>((resolve) => {
-        if (signal.aborted) { aborted = true; resolve(); return }
-        signal.addEventListener('abort', () => { aborted = true; resolve() }, { once: true })
-      })
-      throw signal.reason
+      handlerStarted = true
+      try {
+        await new Promise<void>((resolve) => {
+          if (signal.aborted) { aborted = true; resolve(); return }
+          signal.addEventListener('abort', () => { aborted = true; resolve() }, { once: true })
+        })
+        throw signal.reason
+      } finally {
+        handlerFinished = true
+      }
     })
 
     child.emit('message', { type: 'capability-request', id: 'shutdown-1', action: 'pick-directory' })
-    await vi.waitFor(() => { expect(aborted).toBe(false) })
+    await vi.waitFor(() => { expect(handlerStarted).toBe(true) })
     const stopping = supervisor.stop()
     child.exit(null, 'SIGTERM')
     await stopping
 
     expect(aborted).toBe(true)
+    expect(handlerFinished).toBe(true)
     expect(child.messages.filter(message => message.type === 'capability-response'
       || message.type === 'capability-error')).toHaveLength(0)
   })
@@ -526,6 +538,28 @@ describe('desktop DSH supervisor native actions', () => {
     child.emit('message', { type: 'capability-request', id: 'unserved-3', action: 'pick-directory' })
     await vi.waitFor(() => { expect(child.messages.length).toBeGreaterThan(totalAfterDisposal) })
     expect(child.messages.at(-1)).toMatchObject({ type: 'capability-error', id: 'unserved-3' })
+  })
+
+  it('aborts an in-flight action when its handler is removed', async () => {
+    const { supervisor, child } = await started(212)
+    let aborted = false
+    const disposer = supervisor.onNativeActions(async (_request, signal) => {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) { aborted = true; resolve(); return }
+        signal.addEventListener('abort', () => { aborted = true; resolve() }, { once: true })
+      })
+      throw signal.reason
+    })
+    child.emit('message', { type: 'capability-request', id: 'removed-1', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(aborted).toBe(false) })
+    disposer()
+    await vi.waitFor(() => { expect(aborted).toBe(true) })
+    await vi.waitFor(() => {
+      expect(child.messages.at(-1)).toMatchObject({ type: 'capability-error', id: 'removed-1' })
+    })
+    const stopping = supervisor.stop()
+    child.exit(null, 'SIGTERM')
+    await stopping
   })
 
   it('drops malformed capability requests without replying', async () => {
@@ -599,7 +633,10 @@ describe('desktop DSH supervisor native actions', () => {
     await initial
 
     let settle!: (value: { kind: 'path'; path: null }) => void
-    supervisor.onNativeActions(() => new Promise(resolve => { settle = resolve }))
+    supervisor.onNativeActions((_request, signal) => new Promise((resolve, reject) => {
+      settle = resolve
+      signal.addEventListener('abort', () => { reject(signal.reason) }, { once: true })
+    }))
     first.emit('message', { type: 'capability-request', id: 'old-generation', action: 'pick-directory' })
 
     const restarting = supervisor.restart()

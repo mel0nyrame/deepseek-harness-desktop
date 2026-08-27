@@ -394,6 +394,7 @@ it('composes the desktop picker and gateway over the real stack with shell-side 
     } finally {
       await client?.fiber.dispose()
       preload.dispose()
+      globalThis.dshDesktop = undefined
     }
   } finally {
     nativeChannelInternals.internals.endpoint = previousNativeEndpoint
@@ -401,7 +402,6 @@ it('composes the desktop picker and gateway over the real stack with shell-side 
     await host?.fiber.dispose()
     rmSync(fixture, { recursive: true, force: true })
   }
-  globalThis.dshDesktop = undefined
 })
 
 function activeNetworkListeners(): string[] {
