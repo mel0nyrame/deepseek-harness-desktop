@@ -25,10 +25,10 @@ desktop profile 直接组合了官方 `@deepseek-ai/dsh-host-directory-picker-na
 ## Verification
 
 - 单元（`tests/desktop-native.test.ts`，15 例）：pick/open 关联、绝对路径校验、错误呈现、畸形结算丢弃、含“结算后再来”的取消尝试、断连扇出、异步 send 失败、共享 channel listener 生命周期、provider 映射、不匹配结算拒绝与 provider 销毁。
-- Supervisor（`tests/desktop-supervisor.test.ts`，+6）：路由、重复 id、缺失/可移除 handler、畸形请求静默、跨 generation 的适配器持久化与不可投递回复的遏制。
+- Supervisor（`tests/desktop-supervisor.test.ts`，+8）：路由、重复 id、缺失/可移除 handler、畸形请求静默、shutdown 取消、跨 generation 的适配器持久化、不可投递回复遏制与复用 id 隔离。
 - 真实组合（`tests/connection-composition.test.ts` 第二例）：官方 Client bundle 与真实 `createApiProxy` 经 relay 运行，脚本化的 main 回答证明 pick 成功、native capability 门控下的 `directory-picker-unavailable`、open 成功与 open 失败映射（`path open failed: …`）；`inject` 与 `ApiProxyService.inject` 相等被钉住。
 - 打包 darwin E2E（`tests/desktop-runtime.e2e.test.ts`）：对装配运行时执行上述 tracer-native 旅程。
-- workspace typecheck、oxlint、构建与全量 vitest 通过；新增依赖后重录了 runtime lockfile digest。
+- workspace typecheck、oxlint、聚焦 vitest 与非 runtime 测试通过；本地全量 suite 未完成，因为 runtime assemble 的安装/部署阶段长时间无输出后被终止。新增依赖后重录了 runtime lockfile digest。
 
 ## 已考虑的替代方案
 

@@ -15,7 +15,7 @@ import type {
 export type DesktopNativeAction = Extract<DesktopChildMessage, { type: 'capability-request' }>
 
 /** Electron-main operating-system adapter for Host-initiated native actions. */
-export type DesktopNativeActionHandler = (request: DesktopNativeAction) => Promise<DesktopCapabilityValue>
+export type DesktopNativeActionHandler = (request: DesktopNativeAction, signal: AbortSignal) => Promise<DesktopCapabilityValue>
 import {
   createProcessTreeLadder,
   type ProcessTreeLadder,
@@ -194,7 +194,10 @@ export class DshSupervisor {
   private readonly pending = new Map<string, Deferred<DesktopBridgeResponse>>()
   private readonly subscriptions = new Map<string, DesktopStream>()
   private readonly streamListeners = new Set<(message: DesktopChildMessage) => void>()
-  private readonly activeNativeActions = new Map<string, DshChild>()
+  private readonly activeNativeActions = new Map<string, {
+    readonly owner: DshChild
+    readonly controller: AbortController
+  }>()
   private nativeActionHandler: DesktopNativeActionHandler | undefined
 
   constructor(
@@ -341,8 +344,11 @@ export class DshSupervisor {
       cleanupStartup()
       const controlled = this.stopping !== undefined
       if (this.child === child) this.child = undefined
-      for (const [id, owner] of this.activeNativeActions) {
-        if (owner === child) this.activeNativeActions.delete(id)
+      for (const [id, action] of this.activeNativeActions) {
+        if (action.owner === child) {
+          action.controller.abort(new Error('desktop DSH child stopped'))
+          this.activeNativeActions.delete(id)
+        }
       }
       const exitError = this.startupFailure ?? new Error(
         `desktop DSH child exited before readiness (code ${String(code)}, signal ${String(signal)})`,
@@ -485,10 +491,11 @@ export class DshSupervisor {
       reply({ type: 'capability-error', id: request.id, message: 'no desktop native action handler is installed' })
       return
     }
-    this.activeNativeActions.set(request.id, owner)
+    const action = { owner, controller: new AbortController() }
+    this.activeNativeActions.set(request.id, action)
     void (async () => {
       try {
-        const value = await handler(request)
+        const value = await handler(request, action.controller.signal)
         reply({ type: 'capability-response', id: request.id, ...value })
       } catch (error) {
         reply({
@@ -497,7 +504,9 @@ export class DshSupervisor {
           message: error instanceof Error ? error.message : String(error),
         })
       } finally {
-        this.activeNativeActions.delete(request.id)
+        if (this.activeNativeActions.get(request.id) === action) {
+          this.activeNativeActions.delete(request.id)
+        }
       }
     })()
   }
@@ -532,6 +541,10 @@ export class DshSupervisor {
   }
 
   private failResources(error: Error): void {
+    for (const [id, action] of this.activeNativeActions) {
+      action.controller.abort(error)
+      this.activeNativeActions.delete(id)
+    }
     for (const pending of this.pending.values()) pending.reject(error)
     this.pending.clear()
     const ids = [...this.subscriptions.keys()]

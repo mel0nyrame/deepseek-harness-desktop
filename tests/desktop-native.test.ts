@@ -3,6 +3,8 @@ import { createRequire } from 'node:module'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   parseDesktopCapabilityRequest,
+  parseDesktopCapabilityResponse,
+  parseDesktopChildMessage,
   parseDesktopParentMessage,
 } from '../packages/connection/src/protocol.js'
 import type {
@@ -62,6 +64,16 @@ function owned(endpoint: ShellEndpoint): ReturnType<typeof createNativeActionCha
 }
 
 describe('desktop native action channel', () => {
+  it('enforces protocol path boundaries including UTF-8 bytes and NULs', () => {
+    const exact = `/${'a'.repeat(4_095)}`
+    expect(parseDesktopCapabilityRequest({ type: 'capability-request', id: 'exact', action: 'open-path', path: exact })).toBeDefined()
+    expect(parseDesktopCapabilityRequest({ type: 'capability-request', id: 'over', action: 'open-path', path: `${exact}a` })).toBeUndefined()
+    expect(parseDesktopCapabilityRequest({ type: 'capability-request', id: 'nul', action: 'open-path', path: '/tmp/\0x' })).toBeUndefined()
+    expect(parseDesktopCapabilityResponse({ type: 'capability-response', id: 'cancel', kind: 'path', path: null })).toEqual({
+      type: 'capability-response', id: 'cancel', kind: 'path', path: null,
+    })
+    expect(parseDesktopChildMessage({ type: 'capability-request', id: 'relative', action: 'open-path', path: 'tmp/x' })).toBeUndefined()
+  })
   it('correlates one pick-directory request with its path settlement', async () => {
     const endpoint = new ShellEndpoint()
     const channel = owned(endpoint)

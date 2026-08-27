@@ -237,7 +237,8 @@ async function startRuntime(runtime: DshSupervisor, options: Parameters<DshSuper
  * the default-application handoff. Renderer-facing code never sees these APIs.
  */
 function shellNativeActionHandler(window: BrowserWindow): DesktopNativeActionHandler {
-  return async (request) => {
+  return async (request, signal) => {
+    if (signal.aborted) throw signal.reason
     if (request.action === 'pick-directory') {
       if (window.isDestroyed()) return { kind: 'path', path: null }
       const outcome = await dialog.showOpenDialog(window, {
@@ -254,9 +255,12 @@ function shellNativeActionHandler(window: BrowserWindow): DesktopNativeActionHan
 
 /** Deterministic dialog/shell replacement used only by the native tracer journey. */
 function tracerNativeActionHandler(pickedDirectory: string): DesktopNativeActionHandler {
-  return async (request) => request.action === 'pick-directory'
+  return async (request, signal) => {
+    if (signal.aborted) throw signal.reason
+    return request.action === 'pick-directory'
     ? { kind: 'path', path: pickedDirectory }
     : { kind: 'opened' }
+  }
 }
 
 async function run(): Promise<void> {

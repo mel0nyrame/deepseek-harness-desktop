@@ -481,6 +481,28 @@ describe('desktop DSH supervisor native actions', () => {
     expect(capabilityReply(child)).toEqual({ type: 'capability-error', id: 'dup-1', message: 'duplicate native action id' })
   })
 
+  it('aborts in-flight native actions when the supervisor stops', async () => {
+    const { supervisor, child } = await started(204)
+    let aborted = false
+    supervisor.onNativeActions(async (_request, signal) => {
+      await new Promise<void>((resolve) => {
+        if (signal.aborted) { aborted = true; resolve(); return }
+        signal.addEventListener('abort', () => { aborted = true; resolve() }, { once: true })
+      })
+      throw signal.reason
+    })
+
+    child.emit('message', { type: 'capability-request', id: 'shutdown-1', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(aborted).toBe(false) })
+    const stopping = supervisor.stop()
+    child.exit(null, 'SIGTERM')
+    await stopping
+
+    expect(aborted).toBe(true)
+    expect(child.messages.filter(message => message.type === 'capability-response'
+      || message.type === 'capability-error')).toHaveLength(0)
+  })
+
   it('answers without a handler and after the disposer removes it', async () => {
     const { supervisor, child } = await started(202)
     const firstId = 'orphan-1'
@@ -590,5 +612,37 @@ describe('desktop DSH supervisor native actions', () => {
     settle({ kind: 'path', path: null })
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(second.messages.length).toBe(before)
+  })
+
+  it('does not let an old handler remove a reused id from the new generation', async () => {
+    const first = new FakeChild(210)
+    const second = new FakeChild(211)
+    const spawn = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const supervisor = new DshSupervisor(spawn, { startupTimeoutMs: 100, tree: inertTree() })
+    const initial = supervisor.start(validOptions())
+    first.ready()
+    await initial
+
+    const releases: Array<() => void> = []
+    supervisor.onNativeActions((_request, signal) => new Promise((resolve, reject) => {
+      signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+      releases.push(() => resolve({ kind: 'path', path: null }))
+    }))
+    first.emit('message', { type: 'capability-request', id: 'reused-id', action: 'pick-directory' })
+    const restarting = supervisor.restart()
+    first.exit(null, 'SIGTERM')
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(2) })
+    second.ready()
+    await restarting
+
+    second.emit('message', { type: 'capability-request', id: 'reused-id', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(releases).toHaveLength(2) })
+    releases[0]?.()
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(second.messages.filter(message => message.type === 'capability-response')).toHaveLength(0)
+    releases[1]?.()
+    await vi.waitFor(() => {
+      expect(second.messages.filter(message => message.type === 'capability-response')).toHaveLength(1)
+    })
   })
 })

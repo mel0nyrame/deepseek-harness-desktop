@@ -83,12 +83,17 @@ class RelayEndpoint extends EventEmitter implements DesktopChildEndpoint {
   /** Scripted main-side settlements, consumed in request order. */
   readonly scriptedSettlements: Array<DesktopCapabilityValue | { readonly error: string }> = []
   readonly capabilityRequests: Array<{ readonly id: string; readonly action: string }> = []
+  holdCapabilityRequests = false
 
   send(message: DesktopChildMessage, callback?: (error: Error | null) => void): boolean {
     if (typeof message === 'object' && message !== null && (message as { type?: unknown }).type === 'capability-request') {
       const parsed = parseDesktopCapabilityRequest(message)
       if (parsed === undefined) throw new Error('composition relay received an invalid capability request')
       this.capabilityRequests.push({ id: parsed.id, action: parsed.action })
+      if (this.holdCapabilityRequests) {
+        callback?.(null)
+        return true
+      }
       const settlement = this.scriptedSettlements.shift()
       if (settlement === undefined) throw new Error(`no scripted settlement for ${parsed.action}`)
       queueMicrotask(() => {
@@ -379,6 +384,13 @@ it('composes the desktop picker and gateway over the real stack with shell-side 
       })
 
       expect(endpoint.capabilityRequests).toHaveLength(3)
+
+      endpoint.holdCapabilityRequests = true
+      const pendingOpen = connection.api.host.openPath({ path: '/tmp/held.pdf' })
+      await host?.fiber.dispose()
+      await expect(pendingOpen).resolves.toMatchObject({
+        result: { ok: false, error: { code: 'cancelled' } },
+      })
     } finally {
       await client?.fiber.dispose()
       preload.dispose()

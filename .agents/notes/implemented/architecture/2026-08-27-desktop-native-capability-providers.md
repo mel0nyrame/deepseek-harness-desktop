@@ -25,10 +25,10 @@ The desktop profile composed the official `@deepseek-ai/dsh-host-directory-picke
 ## Verification
 
 - Unit (`tests/desktop-native.test.ts`, 15 cases): pick/open correlation, absolute-path validation, error surfacing, malformed settlement drops, cancellation including post-settlement revival attempts, disconnect fan-out, async send failures, shared-channel listener lifetime, provider mapping, mismatched-settlement rejection, and provider disposal.
-- Supervisor (`tests/desktop-supervisor.test.ts`, +6): routing, duplicate ids, missing/removable handler, malformed-request silence, adapter persistence across generations with contained undeliverable replies.
+- Supervisor (`tests/desktop-supervisor.test.ts`, +8): routing, duplicate ids, missing/removable handler, malformed-request silence, shutdown abort, adapter persistence across generations with contained undeliverable replies, and reused-id isolation.
 - Real composition (`tests/connection-composition.test.ts`, second case): official Client bundle and real `createApiProxy` over the relay, scripted main answers proving pick success, `directory-picker-unavailable` under the native capability gate, open success, and mapped open failure (`path open failed: …`); `inject` equality with `ApiProxyService.inject` is pinned.
 - Packaged darwin E2E (`tests/desktop-runtime.e2e.test.ts`): the tracer-native journey above against the assembled runtime.
-- Workspace typecheck, oxlint, builds, and the full vitest suite pass; the runtime lockfile digest was re-recorded after dependency additions.
+- Workspace typecheck, oxlint, focused vitest suites, and non-runtime tests pass; the full suite's runtime assembly was not completed in the local environment because its install/deploy phase produced no output and was terminated. The runtime lockfile digest was re-recorded after dependency additions.
 
 ## Alternatives considered
 
