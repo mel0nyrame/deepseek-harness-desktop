@@ -4,26 +4,59 @@ import { dirname, isAbsolute, join } from 'node:path'
 export { TERMINAL_TRACER_PROMPT } from './tracer-contract.js'
 
 /** Deterministic keyless tracer inputs parsed from the Electron command line. */
-export interface TracerInvocation {
-  readonly replayFile: string
-  readonly framesDir?: string
+export type TracerInvocation =
+  | {
+    /** One ordered keyless terminal turn through the real bundled child. */
+    readonly kind: 'terminal'
+    readonly replayFile: string
+    readonly framesDir?: string
+  }
+  | {
+    /** Native directory selection plus path opening over the full desktop stack. */
+    readonly kind: 'native'
+    readonly pickedDirectory: string
+    readonly openedPath: string
+    readonly framesDir?: string
+  }
+
+function parseFramesDir(argv: readonly string[]): string | undefined {
+  const framesIndex = argv.indexOf('--frames-dir')
+  const framesDir = framesIndex < 0 ? undefined : argv[framesIndex + 1]
+  if (framesDir === undefined) return undefined
+  if (!isAbsolute(framesDir)) throw new Error('desktop tracer --frames-dir must be absolute')
+  return framesDir
 }
 
 /** Parse and validate the optional integrated-runtime tracer invocation. */
 export function parseTracerInvocation(argv: readonly string[]): TracerInvocation | undefined {
+  const nativeIndex = argv.indexOf('--tracer-native')
   const marker = argv.indexOf('--tracer')
-  if (marker < 0) return undefined
+  if (nativeIndex < 0 && marker < 0) return undefined
+  const framesDir = parseFramesDir(argv)
+  const withFramesDir = (): { framesDir?: string } => framesDir === undefined ? {} : { framesDir }
+
+  if (nativeIndex >= 0) {
+    const pickedDirectory = argv[nativeIndex + 1]
+    if (pickedDirectory === undefined || !isAbsolute(pickedDirectory)) {
+      throw new Error('desktop native tracer requires an absolute --tracer-native directory')
+    }
+    if (!existsSync(pickedDirectory)) {
+      throw new Error(`desktop native tracer directory does not exist: ${pickedDirectory}`)
+    }
+    const openIndex = argv.indexOf('--tracer-open-path')
+    const openedPath = openIndex < 0 ? pickedDirectory : argv[openIndex + 1]
+    if (openedPath === undefined || !isAbsolute(openedPath) || !existsSync(openedPath)) {
+      throw new Error('desktop native tracer requires an existing absolute --tracer-open-path')
+    }
+    return { kind: 'native', pickedDirectory, openedPath, ...withFramesDir() }
+  }
+
   const replayIndex = argv.indexOf('--replay-file')
   const replayFile = replayIndex < 0 ? undefined : argv[replayIndex + 1]
   if (replayFile === undefined || !isAbsolute(replayFile) || !existsSync(replayFile)) {
     throw new Error('desktop tracer requires an existing absolute --replay-file')
   }
-  const framesIndex = argv.indexOf('--frames-dir')
-  const framesDir = framesIndex < 0 ? undefined : argv[framesIndex + 1]
-  if (framesDir !== undefined && !isAbsolute(framesDir)) {
-    throw new Error('desktop tracer --frames-dir must be absolute')
-  }
-  return { replayFile, ...(framesDir === undefined ? {} : { framesDir }) }
+  return { kind: 'terminal', replayFile, ...withFramesDir() }
 }
 
 function replayPatch(replayFile: string): string {

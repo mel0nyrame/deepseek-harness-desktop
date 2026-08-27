@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import { healProfilesModuleFallback } from '@deepseek-ai/dsh-app-boot'
 import { bootstrapDesktopProfile } from '@dsh-desktop/bundle/profile-bootstrap'
 import {
@@ -11,7 +11,7 @@ import {
   type DesktopChildMessage,
 } from '@dsh-desktop/connection'
 import { desktopWindowWebPreferences } from '@dsh-desktop/connection/preload'
-import { DshSupervisor, type SupervisorOptions } from './supervisor.js'
+import { DshSupervisor, type SupervisorOptions, type DesktopNativeActionHandler } from './supervisor.js'
 import { isTrustedRendererUrl } from './renderer-policy.js'
 import {
   parseTracerInvocation,
@@ -232,6 +232,33 @@ async function startRuntime(runtime: DshSupervisor, options: Parameters<DshSuper
   }
 }
 
+/**
+ * The real operating-system adapter: one window-attached directory chooser and
+ * the default-application handoff. Renderer-facing code never sees these APIs.
+ */
+function shellNativeActionHandler(window: BrowserWindow): DesktopNativeActionHandler {
+  return async (request) => {
+    if (request.action === 'pick-directory') {
+      if (window.isDestroyed()) return { kind: 'path', path: null }
+      const outcome = await dialog.showOpenDialog(window, {
+        title: 'Select Workspace Directory',
+        properties: ['openDirectory', 'createDirectory'],
+      })
+      return { kind: 'path', path: outcome.canceled ? null : outcome.filePaths[0] ?? null }
+    }
+    const failure = await shell.openPath(request.path)
+    if (failure !== '') throw new Error(`desktop shell could not open the path: ${failure}`)
+    return { kind: 'opened' }
+  }
+}
+
+/** Deterministic dialog/shell replacement used only by the native tracer journey. */
+function tracerNativeActionHandler(pickedDirectory: string): DesktopNativeActionHandler {
+  return async (request) => request.action === 'pick-directory'
+    ? { kind: 'path', path: pickedDirectory }
+    : { kind: 'opened' }
+}
+
 async function run(): Promise<void> {
   const root = runtimeRoot()
   const home = harnessHome()
@@ -241,7 +268,7 @@ async function run(): Promise<void> {
     resolveComponentVersion: packageName => resolveComponentVersion(root, packageName),
   })
   healProfilesModuleFallback(join(root, 'package.json'), home)
-  if (tracer !== undefined) {
+  if (tracer?.kind === 'terminal') {
     prepareTracerProfile(
       home,
       join(root, 'node_modules', '@deepseek-ai', 'dsh-llm-replay'),
@@ -284,9 +311,19 @@ async function run(): Promise<void> {
   window.webContents.on('will-redirect', preventUnknownNavigation)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   const disposeCarrier = installCarrier(runtime, window)
-  window.on('closed', disposeCarrier)
+  const disposeNativeActions = tracer?.kind === 'native'
+    ? runtime.onNativeActions(tracerNativeActionHandler(tracer.pickedDirectory))
+    : runtime.onNativeActions(shellNativeActionHandler(window))
+  window.on('closed', () => {
+    disposeCarrier()
+    disposeNativeActions()
+  })
   await window.loadFile(rendererPath, {
-    query: tracer === undefined ? {} : { tracer: '1' },
+    query: tracer === undefined
+      ? {}
+      : tracer.kind === 'native'
+        ? { tracer: 'native', pick: tracer.pickedDirectory, open: tracer.openedPath }
+        : { tracer: '1' },
   })
   if (tracer !== undefined) {
     window.show()

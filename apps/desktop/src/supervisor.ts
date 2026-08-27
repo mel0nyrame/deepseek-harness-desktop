@@ -2,6 +2,7 @@ import { fork, type ChildProcess } from 'node:child_process'
 import { isAbsolute, join } from 'node:path'
 import {
   parseDesktopChildMessage,
+  type DesktopCapabilityValue,
   type DesktopChildMessage,
   type DesktopParentMessage,
 } from '@dsh-desktop/connection'
@@ -9,6 +10,12 @@ import type {
   DesktopBridgeResponse,
   DesktopStream,
 } from '@dsh-desktop/connection/carrier'
+
+/** One Host-initiated native action awaiting the desktop shell's settlement. */
+export type DesktopNativeAction = Extract<DesktopChildMessage, { type: 'capability-request' }>
+
+/** Electron-main operating-system adapter for Host-initiated native actions. */
+export type DesktopNativeActionHandler = (request: DesktopNativeAction) => Promise<DesktopCapabilityValue>
 import {
   createProcessTreeLadder,
   type ProcessTreeLadder,
@@ -187,6 +194,8 @@ export class DshSupervisor {
   private readonly pending = new Map<string, Deferred<DesktopBridgeResponse>>()
   private readonly subscriptions = new Map<string, DesktopStream>()
   private readonly streamListeners = new Set<(message: DesktopChildMessage) => void>()
+  private readonly activeNativeActions = new Map<string, DshChild>()
+  private nativeActionHandler: DesktopNativeActionHandler | undefined
 
   constructor(
     spawnChild: SpawnDshChild = spawnDshChild,
@@ -268,6 +277,20 @@ export class DshSupervisor {
     return () => { this.streamListeners.delete(listener) }
   }
 
+  /**
+   * Install the operating-system adapter that settles Host-initiated native
+   * actions; survives child restarts and is removed only by the disposer.
+   */
+  onNativeActions(handler: DesktopNativeActionHandler): () => void {
+    this.nativeActionHandler = handler
+    let disposed = false
+    return () => {
+      if (disposed || this.nativeActionHandler !== handler) return
+      disposed = true
+      this.nativeActionHandler = undefined
+    }
+  }
+
   /** Stop and join the current generation, then start one replacement. */
   async restart(): Promise<DshReady> {
     const options = this.launchOptions
@@ -318,6 +341,9 @@ export class DshSupervisor {
       cleanupStartup()
       const controlled = this.stopping !== undefined
       if (this.child === child) this.child = undefined
+      for (const [id, owner] of this.activeNativeActions) {
+        if (owner === child) this.activeNativeActions.delete(id)
+      }
       const exitError = this.startupFailure ?? new Error(
         `desktop DSH child exited before readiness (code ${String(code)}, signal ${String(signal)})`,
       )
@@ -429,9 +455,51 @@ export class DshSupervisor {
       }
       return
     }
+    if (message.type === 'capability-request') {
+      this.dispatchNativeAction(message)
+      return
+    }
     if (!this.subscriptions.has(message.id)) return
     if (message.type === 'stream-end') this.subscriptions.delete(message.id)
     this.notifyStream(message)
+  }
+
+  /** Settle one Host-initiated native action exactly once through the OS adapter. */
+  private dispatchNativeAction(request: DesktopNativeAction): void {
+    const owner = this.child
+    if (owner === undefined || !owner.connected) return
+    const reply = (message: Extract<DesktopParentMessage, { type: 'capability-response' | 'capability-error' }>): void => {
+      try {
+        if (!owner.connected) throw new Error('desktop DSH child IPC channel is closed')
+        owner.send(message)
+      } catch (error) {
+        console.error('[desktop-supervisor] native action reply delivery failed:', error)
+      }
+    }
+    if (this.activeNativeActions.has(request.id)) {
+      reply({ type: 'capability-error', id: request.id, message: 'duplicate native action id' })
+      return
+    }
+    const handler = this.nativeActionHandler
+    if (handler === undefined) {
+      reply({ type: 'capability-error', id: request.id, message: 'no desktop native action handler is installed' })
+      return
+    }
+    this.activeNativeActions.set(request.id, owner)
+    void (async () => {
+      try {
+        const value = await handler(request)
+        reply({ type: 'capability-response', id: request.id, ...value })
+      } catch (error) {
+        reply({
+          type: 'capability-error',
+          id: request.id,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        this.activeNativeActions.delete(request.id)
+      }
+    })()
   }
 
   private send(message: DesktopParentMessage): void {

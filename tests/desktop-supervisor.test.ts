@@ -419,3 +419,176 @@ describe('desktop DSH supervisor', () => {
     expect(received).toEqual(['stream-error', 'stream-end'])
   })
 })
+
+function capabilityReply(child: FakeChild): Extract<DesktopParentMessage, { type: 'capability-response' | 'capability-error' }> | undefined {
+  return child.messages.find(message => message.type === 'capability-response'
+    || message.type === 'capability-error') as
+    Extract<DesktopParentMessage, { type: 'capability-response' | 'capability-error' }> | undefined
+}
+
+describe('desktop DSH supervisor native actions', () => {
+  async function started(pid = 201): Promise<{ supervisor: DshSupervisor; child: FakeChild }> {
+    const child = new FakeChild(pid)
+    const supervisor = new DshSupervisor(() => child, { tree: inertTree() })
+    const starting = supervisor.start(validOptions())
+    child.ready()
+    await starting
+    return { supervisor, child }
+  }
+
+  it('settles a Host-initiated pick through the installed shell adapter', async () => {
+    const { supervisor, child } = await started()
+    let seenRequest: unknown
+    supervisor.onNativeActions(async (request) => {
+      seenRequest = request
+      return { kind: 'path', path: '/Users/mac/picked' }
+    })
+
+    child.emit('message', { type: 'capability-request', id: 'native-1', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(capabilityReply(child)).toBeDefined() })
+
+    expect(seenRequest).toMatchObject({ type: 'capability-request', action: 'pick-directory', id: 'native-1' })
+    expect(capabilityReply(child)).toEqual({ type: 'capability-response', id: 'native-1', kind: 'path', path: '/Users/mac/picked' })
+  })
+
+  it('forwards adapter rejections as capability errors with the open-path target intact', async () => {
+    const { supervisor, child } = await started()
+    supervisor.onNativeActions(async () => {
+      throw new Error('desktop shell could not open the path: missing')
+    })
+
+    child.emit('message', { type: 'capability-request', id: 'open-1', action: 'open-path', path: '/tmp/missing.pdf' })
+    await vi.waitFor(() => { expect(capabilityReply(child)).toBeDefined() })
+
+    expect(capabilityReply(child)).toEqual({
+      type: 'capability-error',
+      id: 'open-1',
+      message: 'desktop shell could not open the path: missing',
+    })
+  })
+
+  it('answers duplicate concurrent ids without invoking the handler twice', async () => {
+    const { supervisor, child } = await started()
+    const releases: Array<() => void> = []
+    const handler = vi.fn(() => new Promise<never>(() => { releases.push(() => undefined) }))
+    supervisor.onNativeActions(handler)
+
+    child.emit('message', { type: 'capability-request', id: 'dup-1', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(handler).toHaveBeenCalledTimes(1) })
+    child.emit('message', { type: 'capability-request', id: 'dup-1', action: 'pick-directory' })
+
+    expect(handler).toHaveBeenCalledTimes(1)
+    expect(capabilityReply(child)).toEqual({ type: 'capability-error', id: 'dup-1', message: 'duplicate native action id' })
+  })
+
+  it('answers without a handler and after the disposer removes it', async () => {
+    const { supervisor, child } = await started(202)
+    const firstId = 'orphan-1'
+
+    child.emit('message', { type: 'capability-request', id: firstId, action: 'pick-directory' })
+    await vi.waitFor(() => { expect(capabilityReply(child)).toBeDefined() })
+    expect(capabilityReply(child)).toEqual({
+      type: 'capability-error',
+      id: firstId,
+      message: 'no desktop native action handler is installed',
+    })
+
+    const messagesBefore = child.messages.length
+    const disposer = supervisor.onNativeActions(async () => ({ kind: 'opened' }))
+    child.emit('message', { type: 'capability-request', id: 'served-2', action: 'open-path', path: '/tmp/a' })
+    await vi.waitFor(() => { expect(child.messages.length).toBeGreaterThan(messagesBefore) })
+    expect(child.messages.at(-1)).toEqual({ type: 'capability-response', id: 'served-2', kind: 'opened' })
+
+    disposer()
+    const totalAfterDisposal = child.messages.length
+    child.emit('message', { type: 'capability-request', id: 'unserved-3', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(child.messages.length).toBeGreaterThan(totalAfterDisposal) })
+    expect(child.messages.at(-1)).toMatchObject({ type: 'capability-error', id: 'unserved-3' })
+  })
+
+  it('drops malformed capability requests without replying', async () => {
+    const { supervisor, child } = await started(203)
+    const handled = vi.fn(async () => ({ kind: 'path' as const, path: '/x' }))
+    supervisor.onNativeActions(handled)
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    for (const malformed of [
+      { type: 'capability-request', id: 'bad-action', action: 'format-disk' },
+      { type: 'capability-request', action: 'pick-directory' },
+      { type: 'capability-request', id: 'relative-path', action: 'open-path', path: 'rel/path' },
+      { type: 'capability-request', id: 'empty-path', action: 'open-path', path: '' },
+    ]) {
+      child.emit('message', malformed)
+    }
+    await new Promise(resolve => setTimeout(resolve, 0))
+
+    expect(child.messages.every(message => !String(message.type).startsWith('capability'))).toBe(true)
+    expect(logged).toHaveBeenCalledWith('[desktop-supervisor] dropped malformed child IPC message')
+    expect(handled).not.toHaveBeenCalled()
+    logged.mockRestore()
+  })
+
+  it('keeps the adapter across generations and contains undeliverable replies', async () => {
+    const first = new FakeChild(206)
+    const second = new FakeChild(207)
+    const spawn = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const supervisor = new DshSupervisor(spawn, { startupTimeoutMs: 100, tree: inertTree() })
+    const initial = supervisor.start(validOptions())
+    first.ready()
+    await initial
+
+    let settleAdapter!: (value: { kind: 'path'; path: null }) => void
+    supervisor.onNativeActions(() => new Promise(resolve => { settleAdapter = resolve }))
+
+    const restarting = supervisor.restart()
+    first.exit(null, 'SIGTERM')
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(2) })
+    second.ready()
+    await restarting
+
+    second.emit('message', { type: 'capability-request', id: 'after-restart-1', action: 'pick-directory' })
+    await vi.waitFor(() => { expect(settleAdapter).toBeDefined() })
+
+    // The OS interaction outlives its generation; settling into a vanished
+    // channel must be contained by the shell's own logging.
+    const delivered = settleAdapter
+    second.exit(null, 'SIGTERM')
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {})
+    try {
+      delivered({ kind: 'path', path: null })
+      await vi.waitFor(() => {
+        expect(logged).toHaveBeenCalledWith(
+          '[desktop-supervisor] native action reply delivery failed:',
+          expect.any(Error),
+        )
+      })
+    } finally {
+      logged.mockRestore()
+    }
+  })
+
+  it('never delivers an old-generation native settlement to a restarted child', async () => {
+    const first = new FakeChild(208)
+    const second = new FakeChild(209)
+    const spawn = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second)
+    const supervisor = new DshSupervisor(spawn, { startupTimeoutMs: 100, tree: inertTree() })
+    const initial = supervisor.start(validOptions())
+    first.ready()
+    await initial
+
+    let settle!: (value: { kind: 'path'; path: null }) => void
+    supervisor.onNativeActions(() => new Promise(resolve => { settle = resolve }))
+    first.emit('message', { type: 'capability-request', id: 'old-generation', action: 'pick-directory' })
+
+    const restarting = supervisor.restart()
+    first.exit(null, 'SIGTERM')
+    await vi.waitFor(() => { expect(spawn).toHaveBeenCalledTimes(2) })
+    second.ready()
+    await restarting
+
+    const before = second.messages.length
+    settle({ kind: 'path', path: null })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(second.messages.length).toBe(before)
+  })
+})

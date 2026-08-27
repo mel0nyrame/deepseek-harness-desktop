@@ -132,6 +132,31 @@ describe.skipIf(process.platform !== 'darwin')('integrated Electron runtime', ()
     expectQuiescent(result)
   }, 180_000)
 
+  it('adopts a directory and opens a path through the full native reverse-request journey', () => {
+    const home = temporary('dsh-desktop-native-home-')
+    const picked = temporary('dsh-desktop-native-picked-')
+    const frames = temporary('dsh-desktop-native-frames-')
+
+    const result = launch(home, [
+      '--tracer-native', picked,
+      '--tracer-open-path', picked,
+      '--frames-dir', frames,
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(result.status, textOutput(result.stderr)).toBe(0)
+    expect(textOutput(result.stdout)).toContain('DESKTOP_CHILD_PID ')
+    expect(textOutput(result.stdout)).toContain('TRACER_OK no-loopback-listener')
+    expect(textOutput(result.stdout)).toContain('TRACER_LAYOUT centered-system-status')
+    for (const state of ['starting', 'picked', 'opening', 'complete']) {
+      expect(textOutput(result.stdout)).toContain(`TRACER_STATE ${state}`)
+    }
+    expect(textOutput(result.stdout)).toMatch(/TRACER_VISIBLE terminal-result \d+ bright pixel/)
+    const completed = readdirSync(frames).find(file => file.endsWith('-complete.png'))
+    expect(completed).toBeDefined()
+    expectQuiescent(result)
+  }, 120_000)
+
   it('joins a child when Electron quits during startup', () => {
     const home = temporary('dsh-desktop-startup-quit-')
 
