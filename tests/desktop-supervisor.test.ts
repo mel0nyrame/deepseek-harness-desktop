@@ -38,6 +38,7 @@ class FakeChild extends EventEmitter implements DshChild {
   }
 
   ready(home = '/tmp/dsh-desktop-supervisor-test'): void {
+    this.emit('message', { type: 'connection-ready' })
     const request = this.messages.find(message => message.type === 'request')
     if (request === undefined || request.body === undefined) throw new Error('readiness request was not sent')
     const envelope = JSON.parse(request.body) as { rpcId: string }
@@ -107,6 +108,7 @@ describe('desktop DSH supervisor', () => {
     })
     const starting = supervisor.start(validOptions())
 
+    expect(child.messages).toEqual([])
     child.ready()
     await expect(starting).resolves.toEqual({
       profile: 'desktop',

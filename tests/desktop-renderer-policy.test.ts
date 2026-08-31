@@ -11,6 +11,9 @@ describe('desktop renderer navigation policy', () => {
 
     expect(isTrustedRendererUrl(url, renderer)).toBe(true)
     expect(isTrustedRendererUrl(`${url}?tracer=1`, renderer)).toBe(true)
+    expect(isTrustedRendererUrl(`${url}?tracer=native&pick=%2Ftmp%2Fpicked&open=%2Ftmp%2Fopened`, renderer)).toBe(true)
+    expect(isTrustedRendererUrl(`${url}?tracer=native&pick=relative&open=%2Ftmp%2Fopened`, renderer)).toBe(false)
+    expect(isTrustedRendererUrl(`${url}?tracer=native&pick=%2Ftmp%2Fpicked`, renderer)).toBe(false)
     expect(isTrustedRendererUrl(`${url}?tracer=0`, renderer)).toBe(false)
     expect(isTrustedRendererUrl(`${url}#unexpected`, renderer)).toBe(false)
     expect(isTrustedRendererUrl(pathToFileURL(resolve(renderer, '..', 'other.html')).href, renderer)).toBe(false)

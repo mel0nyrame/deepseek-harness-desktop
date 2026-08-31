@@ -1,11 +1,13 @@
 /// <reference lib="dom" />
 
 import type { DesktopBridge } from '@dsh-desktop/connection/carrier'
+import type { NativeThemeBridge, RendererSurfaceState } from './native-window.js'
 import { TERMINAL_TRACER_PROMPT } from './tracer-contract.js'
 
 declare global {
   interface Window {
     readonly dshDesktop: DesktopBridge
+    readonly dshNativeTheme: NativeThemeBridge
   }
 }
 
@@ -23,6 +25,17 @@ interface RpcResult {
 
 const status = document.querySelector<HTMLElement>('#status')
 const result = document.querySelector<HTMLElement>('#result')
+
+function applyNativeSurface(state: RendererSurfaceState): void {
+  document.body.dataset.dshAppearance = state.appearance
+  document.body.dataset.dshTransparency = state.transparency
+  document.body.dataset.dshPlatform = state.platform
+  document.body.dataset.dshFullscreen = String(state.fullscreen)
+  document.body.dataset.dshFocused = String(state.focused)
+}
+
+applyNativeSurface(window.dshNativeTheme.getState())
+window.dshNativeTheme.onState(applyNativeSurface)
 
 function render(state: string, message: string): void {
   if (status === null || result === null) throw new Error('desktop tracer document is incomplete')
@@ -131,6 +144,7 @@ async function runNativeJourney(): Promise<void> {
   if (expectedPick === null || expectedOpen === null) throw new Error('native journey query is incomplete')
 
   render('starting', `Selecting ${expectedPick}`)
+  await new Promise(resolve => setTimeout(resolve, 150))
   const picked = await unary('host.pickDirectory', {})
   if (picked['path'] !== expectedPick) {
     throw new Error(`host.pickDirectory returned ${JSON.stringify(picked['path'] ?? null)} instead of the requested directory`)
@@ -141,8 +155,9 @@ async function runNativeJourney(): Promise<void> {
     result.hidden = false
   }
 
-  await new Promise(resolve => setTimeout(resolve, 50))
+  await new Promise(resolve => setTimeout(resolve, 150))
   render('opening', `Opening ${expectedOpen}`)
+  await new Promise(resolve => setTimeout(resolve, 150))
   const opened = await unary('host.openPath', { path: expectedOpen })
   if (opened['opened'] !== true) throw new Error('host.openPath did not confirm the native handoff')
 

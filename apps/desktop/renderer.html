@@ -6,7 +6,7 @@
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
     <title>DeepSeek Harness Desktop</title>
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: light dark; }
       html, body { height: 100%; margin: 0; }
       body {
         display: flex;
@@ -15,6 +15,24 @@
         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         background: #090d18;
         color: #e9efff;
+      }
+      body[data-dsh-appearance='light'] {
+        background: rgba(246, 247, 249, 0.78);
+        color: #172033;
+      }
+      body[data-dsh-appearance='dark'] {
+        background: rgba(9, 13, 24, 0.78);
+        color: #e9efff;
+      }
+      body[data-dsh-transparency='opaque'][data-dsh-appearance='light'] { background: #f6f7f9; }
+      body[data-dsh-transparency='opaque'][data-dsh-appearance='dark'] { background: #090d18; }
+      [data-window-drag-surface] {
+        -webkit-app-region: drag;
+        user-select: none;
+      }
+      [data-native-control-surface] {
+        -webkit-app-region: no-drag;
+        user-select: text;
       }
       main { max-width: 34rem; padding: 2rem; text-align: center; }
       h1 { margin: 0 0 1rem; font-size: 1.35rem; font-weight: 600; }
@@ -31,13 +49,17 @@
         text-align: left;
         white-space: pre-wrap;
       }
+      body[data-dsh-appearance='light'] pre {
+        background: rgba(255, 255, 255, 0.84);
+        color: #126b36;
+      }
     </style>
   </head>
   <body data-state="starting">
-    <main role="status">
+    <main role="status" data-window-drag-surface>
       <h1>DeepSeek Harness</h1>
       <p id="status">Starting the bundled DSH runtime…</p>
-      <pre id="result" hidden></pre>
+      <pre id="result" data-native-control-surface hidden></pre>
     </main>
     <script type="module" src="./lib/renderer.js"></script>
   </body>

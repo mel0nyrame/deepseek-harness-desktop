@@ -13,6 +13,22 @@
       "types": "./src/index.ts",
       "default": "./lib/index.js"
     },
+    "./client": {
+      "types": "./src/client.ts",
+      "default": "./lib/client.js"
+    },
+    "./contract": {
+      "types": "./src/contract.ts",
+      "default": "./lib/contract.js"
+    },
+    "./runtime": {
+      "types": "./src/runtime.ts",
+      "default": "./lib/runtime.js"
+    },
+    "./surface": {
+      "types": "./src/surface.ts",
+      "default": "./lib/surface.js"
+    },
     "./package.json": "./package.json"
   },
   "scripts": {
@@ -22,6 +38,37 @@
     "node": ">=24.0.0"
   },
   "dependencies": {
-    "@deepseek-ai/cordis": "4.0.1"
+    "@deepseek-ai/cordis": "4.0.1",
+    "@deepseek-ai/dsh-client-locale": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-runtime": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-layout": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-settings": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-settings-general": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-slots": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-client-ui-theme": "0.1.0-rc.8",
+    "@deepseek-ai/dsh-settings": "0.1.0-rc.8",
+    "@deepseek-ai/schemastery": "3.18.1",
+    "react": "18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "18.3.31",
+    "react-dom": "18.3.1"
+  },
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-locale",
+        "@deepseek-ai/dsh-client-ui-layout",
+        "@deepseek-ai/dsh-client-ui-settings",
+        "@deepseek-ai/dsh-client-ui-settings-general",
+        "@deepseek-ai/dsh-client-ui-theme"
+      ],
+      "external": [
+        "react"
+      ],
+      "platform": "web",
+      "immediately": true
+    }
   }
 }

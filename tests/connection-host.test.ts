@@ -74,6 +74,7 @@ describe('desktop Host connection provider', () => {
     try {
       expect(mounted.ctx.get('connection')).toBeDefined()
       expect(mounted.ctx.get('webServer')).toBeUndefined()
+      expect(mounted.endpoint.sent).toContainEqual({ type: 'connection-ready' })
       expect(activeNetworkListeners()).toEqual(before)
     } finally {
       await mounted.dispose()
@@ -145,9 +146,10 @@ describe('desktop Host connection provider', () => {
     const mounted = await mount()
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
     try {
+      const sentBeforeMalformedMessage = mounted.endpoint.sent.length
       mounted.endpoint.receive({ type: 'request', id: '', url: 'https://evil.invalid', method: 42 })
       await Promise.resolve()
-      expect(mounted.endpoint.sent).toEqual([])
+      expect(mounted.endpoint.sent).toHaveLength(sentBeforeMalformedMessage)
       expect(warn).toHaveBeenCalledOnce()
     } finally {
       warn.mockRestore()

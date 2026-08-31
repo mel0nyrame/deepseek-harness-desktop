@@ -73,6 +73,7 @@ describe('desktop native action channel', () => {
       type: 'capability-response', id: 'cancel', kind: 'path', path: null,
     })
     expect(parseDesktopChildMessage({ type: 'capability-request', id: 'relative', action: 'open-path', path: 'tmp/x' })).toBeUndefined()
+    expect(parseDesktopChildMessage({ type: 'connection-ready' })).toEqual({ type: 'connection-ready' })
   })
   it('correlates one pick-directory request with its path settlement', async () => {
     const endpoint = new ShellEndpoint()

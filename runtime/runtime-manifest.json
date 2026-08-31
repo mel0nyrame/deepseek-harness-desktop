@@ -102,6 +102,19 @@
         "tests/connection-host.test.ts",
         "tests/connection-composition.test.ts"
       ]
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-layout",
+      "version": "0.1.0-rc.8",
+      "file": "patches/@deepseek-ai__dsh-client-ui-layout@0.1.0-rc.8.patch",
+      "sha256": "155fb0639e530b16f8dbc24b39d96c20faa484f9ded9aa46e18bf6d98c51cc72",
+      "rationale": "Let the desktop shell close the sidebar to zero width, expose stable surface state, and restore its last dragged width without replacing the published layout module.",
+      "upstream": "https://github.com/deepseek-ai/deepseek-harness/tree/141eb6fef83422698aef7a981029e843e8161534/packages/client/ui/layout/src",
+      "removeWhen": "An exact published @deepseek-ai/dsh-client-ui-layout release exposes zero-width collapse, the last expanded width, and stable desktop surface state.",
+      "tests": [
+        "tests/desktop-layout-patch.test.ts",
+        "tests/desktop-ui-client.test.ts"
+      ]
     }
   ],
   "build": {
@@ -113,6 +126,6 @@
       "version": "43.4.0",
       "runAsNode": true
     },
-    "lockfileSha256": "4210b3d4bde1e883dbd57a14b81acbc67c7af5cc910c44047c823fbb1bd81b59"
+    "lockfileSha256": "9803076a57ff72a98dd02fa9789422e029f3d7e1adea10d694dfc30e860555f5"
   }
 }
