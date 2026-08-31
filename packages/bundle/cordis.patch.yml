@@ -10,8 +10,6 @@
   disabled: true
 - id: directory-picker
   disabled: true
-- id: modules
-  disabled: true
 - id: connection
   disabled: true
 # The official gateway spawns native open commands inside the DSH child; the
@@ -26,5 +24,9 @@
       name: '@dsh-desktop/native/gateway'
     - id: desktop-connection
       name: '@dsh-desktop/connection'
+    # The official renderless native client consumes the desktop Host picker
+    # through the unchanged workspaces.pickDirectory contract.
+    - id: desktop-directory-picker-client
+      name: '@deepseek-ai/dsh-client-ui-directory-picker-native'
     - id: desktop-ui
       name: '@dsh-desktop/ui'

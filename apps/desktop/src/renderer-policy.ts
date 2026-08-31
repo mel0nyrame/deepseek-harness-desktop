@@ -7,6 +7,12 @@ export function isTrustedRendererUrl(value: string, rendererPath: string): boole
     const expected = pathToFileURL(rendererPath).href
     const actual = new URL(value)
     if (actual.hash !== '') return false
+    if (actual.protocol === 'dsh:') {
+      return actual.hostname === 'app' && actual.port === ''
+        && actual.username === '' && actual.password === ''
+        && (actual.pathname === '/' || actual.pathname === '/index.html')
+        && actual.search === ''
+    }
     const params = new URLSearchParams(actual.searchParams)
     actual.search = ''
     if (actual.href !== expected) return false

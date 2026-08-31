@@ -4,9 +4,9 @@ import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import {
   AbstractApiClient,
-  RpcId,
   type IApiClient,
-} from '@deepseek-ai/dsh-host-apiproxy'
+} from '@deepseek-ai/dsh-host-apiproxy/client'
+import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api'
 import type {
   ApiProxy,
   HostFrame,

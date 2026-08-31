@@ -12,7 +12,7 @@ Status: implemented
 
 `@dsh-desktop/connection` 是已发布 Client 与 Host connection 约定的桌面 Service Provider。其 Client 适配器只通过继承已发布的 `AbstractApiClient` 来提供基于 IPC 的 fetch 与流。就绪、重连、Host description 发布与通用 RPC 关联仍由已发布 Connection controller 拥有。Host 适配器用 IPC channel registrar 构造已发布的 `HostConnectionService`，并通过已发布的 `toFetchHandler()` gateway 路由 `/api`。
 
-profile 保留官方 Connection 条目，因为它的浏览器 bundle 会向 client module table 提供 `@deepseek-ai/dsh-client-connection/client`。没有 WebServer 时，该条目的 Host 插件保持未解析，不注册路由或 listener。`desktop-connection` 条目把官方 client module 声明为 external，并在两端提供 `ctx.connection`。
+profile 停用官方 Connection 条目，因为它的 Host plugin 依赖 WebServer。桌面 Client build 先放入精确发布的 `@deepseek-ai/dsh-client-connection` 浏览器 factory，再注册桌面 factory；后者的 external 通过已发布 ModuleLoader contract 解析到前者。`desktop-connection` 条目在两端提供 `ctx.connection`，同时不让依赖 WebServer 的官方 Host plugin 进入图。
 
 preload 只导出一个 `dshDesktop` 对象，包含 request、取消、订阅、确认和 stream listener 操作。调用只接受 `dsh://app` authority 与固定 IPC channel。Host 与 preload 会在分发前解析不可信消息形状；stream payload 必须通过已发布的 mux 或 Host schema。Renderer 设置为 `sandbox: true`、`nodeIntegration: false` 与 `contextIsolation: true`。
 
@@ -30,7 +30,7 @@ workspace 补丁只应用于 `@deepseek-ai/dsh-client-connection@0.1.0-rc.8`：
 
 ## Verification
 
-carrier contract 覆盖 unary 成功与业务失败、Client 对 Host request 的响应、独立 mux 与 Host 顺序、就绪、取消、畸形 frame、断连、队列上限、重复订阅生命周期及清理。preload 与 Host 套件覆盖边界校验、固定 channel、提前确认、通用 RPC 注册、同步 stream source 失败与 disposal。真实组合测试通过 app-boot Loader tree 激活实际 Client 与 Host package export，并在内存 Electron relay 上完成 unary、逻辑 RPC 与就绪调用，同时观测不到 WebServer service 或 network listener。
+carrier contract 覆盖 unary 成功与业务失败、Client 对 Host request 的响应、独立 mux 与 Host 顺序、就绪、取消、畸形 frame、断连、队列上限、重复订阅生命周期及清理。preload 与 Host 套件覆盖边界校验、固定 channel、提前确认、通用 RPC 注册、同步 stream source 失败与 disposal。真实组合测试经 ModuleLoader registry 加载装配后的桌面 Client artifact，解析其中预置的已发布 connection factory，再通过内存 Electron relay 在 app-boot Loader tree 中激活实际 Client 与 Host package export，完成 unary、逻辑 RPC 与就绪调用，同时观测不到 WebServer service 或 network listener。
 
 独立 workspace 尚无该组件的单独产物构建。问题 #67 拥有 Electron 与已发布运行时的构建集成；该组件由 workspace typecheck、lint、聚焦测试、全量测试与运行时补丁 manifest 检查门禁。
 

@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from 'electron'
 import { healProfilesModuleFallback } from '@deepseek-ai/dsh-app-boot'
 import { bootstrapDesktopProfile } from '@dsh-desktop/bundle/profile-bootstrap'
 import {
@@ -13,6 +13,8 @@ import {
 import { desktopWindowWebPreferences } from '@dsh-desktop/connection/preload'
 import { DshSupervisor, type SupervisorOptions, type DesktopNativeActionHandler } from './supervisor.js'
 import { isTrustedRendererUrl } from './renderer-policy.js'
+import { createDesktopUiProtocolHandler, DESKTOP_UI_URL } from './ui-protocol.js'
+import { captureOfficialUiEvidence } from './ui-evidence.js'
 import {
   parseTracerInvocation,
   prepareTracerProfile,
@@ -32,6 +34,17 @@ const rendererPath = join(shellRoot, 'renderer.html')
 let supervisor: DshSupervisor | undefined
 let shutdownComplete = false
 let shutdown: Promise<void> | undefined
+
+protocol.registerSchemesAsPrivileged([{
+  scheme: 'dsh',
+  privileges: {
+    standard: true,
+    secure: true,
+    supportFetchAPI: true,
+    corsEnabled: true,
+    codeCache: true,
+  },
+}])
 
 function absoluteDirectory(label: string, value: string): string {
   if (!isAbsolute(value) || !existsSync(value)) throw new Error(`${label} must be an existing absolute path`)
@@ -558,11 +571,14 @@ async function run(): Promise<void> {
     resolveComponentVersion: packageName => resolveComponentVersion(root, packageName),
   })
   healProfilesModuleFallback(join(root, 'package.json'), home)
-  if (tracer?.kind === 'terminal') {
+  if (tracer?.kind === 'terminal' || tracer?.kind === 'ui') {
     prepareTracerProfile(
       home,
       join(root, 'node_modules', '@deepseek-ai', 'dsh-llm-replay'),
       tracer.replayFile,
+      tracer.kind === 'ui'
+        ? { acknowledgeWelcome: true, replayPaceMs: 80 }
+        : {},
     )
   }
 
@@ -594,6 +610,7 @@ async function run(): Promise<void> {
     ...desktopWindowOptions(process.platform),
     webPreferences: desktopWindowWebPreferences(join(shellRoot, 'lib', 'preload.cjs')),
   })
+  protocol.handle('dsh', createDesktopUiProtocolHandler(runtime))
   const preventUnknownNavigation = (event: Electron.Event, url: string): void => {
     if (!isTrustedRendererUrl(url, rendererPath)) event.preventDefault()
   }
@@ -608,21 +625,31 @@ async function run(): Promise<void> {
     platform: process.platform,
     eventIsTrusted: event => belongsToWindow(event as Electron.IpcMainEvent, window),
   })
-  const disposeNativeActions = tracer?.kind === 'native'
+  const disposeNativeActions = tracer?.kind === 'native' || tracer?.kind === 'ui'
     ? runtime.onNativeActions(tracerNativeActionHandler(tracer.pickedDirectory))
     : runtime.onNativeActions(shellNativeActionHandler(window))
   window.on('closed', () => {
+    protocol.unhandle('dsh')
     disposeCarrier()
     disposeNativeTheme()
     disposeNativeActions()
   })
-  await window.loadFile(rendererPath, {
-    query: tracer === undefined
-      ? {}
-      : tracer.kind === 'native'
+  if (tracer === undefined || tracer.kind === 'ui') {
+    await window.loadURL(DESKTOP_UI_URL)
+  } else {
+    await window.loadFile(rendererPath, {
+      query: tracer.kind === 'native'
         ? { tracer: 'native', pick: tracer.pickedDirectory, open: tracer.openedPath }
         : { tracer: '1' },
-  })
+    })
+  }
+  if (tracer?.kind === 'ui') {
+    window.show()
+    await captureOfficialUiEvidence(window, tracer.framesDir, tracer.pickedDirectory)
+    console.log('TRACER_OK official-client-ui')
+    app.quit()
+    return
+  }
   if (tracer !== undefined) {
     window.show()
     await assertTracerLayout(window)
