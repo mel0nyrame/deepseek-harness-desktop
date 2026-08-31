@@ -1,12 +1,32 @@
-import type { Context } from '@deepseek-ai/cordis'
+/** Host contribution for the durable macOS sidebar material preference. */
 
-/**
- * @dsh-desktop/ui — role declaration.
- *
- * enters UI contributions through documented client extension points; implementation lands with the UI slices (decoupling 7-8/10).
- */
+import type { Context } from '@deepseek-ai/cordis'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import z from '@deepseek-ai/schemastery'
+import {
+  DEFAULT_SIDEBAR_GLASS_EFFECT,
+  SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+  type SidebarGlassSettings,
+} from './contract.js'
+
 export const name = '@dsh-desktop/ui'
 
-export function apply(_ctx: Context): void {
-  // No composition yet: this package declares its role and boundary only.
+export {
+  DEFAULT_SIDEBAR_GLASS_EFFECT,
+  SIDEBAR_GLASS_SETTINGS_NAMESPACE,
+  type SidebarGlassSettings,
+} from './contract.js'
+
+export const SidebarGlassSettingsSchema: z<SidebarGlassSettings> = z.object({
+  enabled: z.boolean().default(DEFAULT_SIDEBAR_GLASS_EFFECT),
+})
+
+/** Register the desktop material preference when a settings provider is available. */
+export function apply(ctx: Context): void {
+  ctx.inject(['settings'], (settingsContext) => {
+    settingsContext.settings.register(
+      settingsNamespace(SIDEBAR_GLASS_SETTINGS_NAMESPACE),
+      SidebarGlassSettingsSchema,
+    )
+  })
 }

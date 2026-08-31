@@ -140,6 +140,9 @@ class DesktopHostConnection {
     this.started = true
     this.endpoint.on('message', this.onMessage)
     this.endpoint.on('disconnect', this.onDisconnect)
+    void this.send({ type: 'connection-ready' }).catch(error => {
+      this.reportDeliveryFailure('readiness signal', error)
+    })
   }
 
   /** Stop all work, detach endpoint listeners, and await source cleanup. */

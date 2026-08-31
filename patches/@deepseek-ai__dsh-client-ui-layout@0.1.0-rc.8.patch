@@ -1,0 +1,173 @@
+diff --git a/lib/client.js b/lib/client.js
+index 21d631b9ba840cb804fcd204b05aa130ff16e168..f22a1dc7237673298dc9f4998485ec8e36167235 100644
+--- a/lib/client.js
++++ b/lib/client.js
+@@ -29,10 +29,10 @@ window.__ModuleLoader__.load({
+ 		* @param viewport - available frame width in px.
+ 		* @param sidebar - sidebar width preference in px (0 = closed).
+ 		* @param details - details width preference in px (0 = closed).
+-		* @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
++		* @returns resolved widths; zero means visually closed.
+ 		*/
+ 		function computeColumns(viewport, sidebar, details) {
+-			const s = sidebar === 0 ? 56 : clampWidth(sidebar, 264, 420);
++			const s = sidebar === 0 ? 0 : clampWidth(sidebar, 264, 420);
+ 			const d0 = details === 0 ? 0 : clampWidth(details, 300, 520);
+ 			if (s + d0 + 640 <= viewport) return {
+ 				sidebar: s,
+@@ -218,8 +218,11 @@ window.__ModuleLoader__.load({
+ 			return (0, react_jsx_runtime.jsxs)("div", {
+ 				ref: frameRef,
+ 				className: AppFrame_module_css_default.frame,
+-				style: { gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px` },
+-				"data-sidebar-collapsed": sidebarCollapsed || void 0,
++				style: {
++					gridTemplateColumns: `${cols.sidebar}px minmax(0, 1fr) ${cols.details}px`,
++					"--dsh-sidebar-width": `${cols.sidebar}px`
++				},
++				"data-sidebar-collapsed": String(sidebarCollapsed),
+ 				"data-details-collapsed": cols.details === 0 || void 0,
+ 				"data-dragging": dragging || void 0,
+ 				children: [
+@@ -265,11 +268,11 @@ window.__ModuleLoader__.load({
+ 		* receives the bound actions through the registration's inject hook.
+ 		*/
+ 		/**
+-		* Create the layout panel store handle. The preference IS the width, so
+-		* closing a panel forgets its drag width — reopening restores the contract
+-		* default. Actions are the complete write set: drag writes clamp
++		* Create the layout panel store handle. Closing the sidebar retains its last
++		* dragged width, while the current width uses zero as the closed state.
++		* Actions are the complete write set: drag writes clamp
+ 		* into the panel's contract range and never cross the open/closed line;
+-		* open/close transitions write 0 / the default explicitly. Below the
++		* open/close transitions write zero or the retained width. Below the
+ 		* auto-collapse breakpoint (AppFrame feeds setNarrow) the sidebar toggle
+ 		* flips the narrowExpanded override instead of the preference.
+ 		* @returns the store handle (spec + type + identity + factory in one).
+@@ -278,20 +281,27 @@ window.__ModuleLoader__.load({
+ 			return (0, _deepseek_ai_dsh_client_runtime_client.defineStore)({
+ 				init: () => ({
+ 					sidebar: 280,
++					sidebarLast: 280,
+ 					details: 0,
+ 					narrow: false,
+ 					narrowExpanded: false
+ 				}),
+ 				actions: {
+ 					setSidebar: (d, px) => {
+-						d.sidebar = clampWidth(px, 264, 420);
++						const width = clampWidth(px, 264, 420);
++						d.sidebar = width;
++						d.sidebarLast = width;
+ 					},
+ 					setDetails: (d, px) => {
+ 						d.details = clampWidth(px, 300, 520);
+ 					},
+ 					toggleSidebar: (d) => {
+ 						if (d.narrow) d.narrowExpanded = !d.narrowExpanded;
+-						else d.sidebar = d.sidebar === 0 ? 280 : 0;
++						else if (d.sidebar === 0) d.sidebar = d.sidebarLast;
++						else {
++							d.sidebarLast = d.sidebar;
++							d.sidebar = 0;
++						}
+ 					},
+ 					setNarrow: (d, narrow) => {
+ 						if (d.narrow === narrow) return;
+@@ -322,7 +332,7 @@ window.__ModuleLoader__.load({
+ 			attachPanels(actions) {
+ 				this.#panels = actions;
+ 			}
+-			/** Toggle the sidebar panel (closed ⟷ contract default width). */
++			/** Toggle the sidebar panel (closed ⟷ last dragged width). */
+ 			toggleSidebar() {
+ 				this.#require().toggleSidebar();
+ 			}
+diff --git a/lib/types/client/columns.d.ts b/lib/types/client/columns.d.ts
+index acab06de6b37b158a752c3743dc68335af0124b7..c2fa40514005e6025e63fdd321abc5a3fdbf3af1 100644
+--- a/lib/types/client/columns.d.ts
++++ b/lib/types/client/columns.d.ts
+@@ -4,10 +4,9 @@
+  * details, then auto-closing it (derived zero width — preferred width
+  * preferences are never rewritten, so widening the window restores them).
+  * The sidebar never concedes: its rendered width is always the drag
+- * preference (or the collapsed rail), and center absorbs any remaining
++ * preference (or zero while collapsed), and center absorbs any remaining
+  * deficit as the last resort. Inputs are the layout store's plain width
+- * preferences (0 = closed); a closed sidebar resolves to the fixed
+- * SIDEBAR_COLLAPSED control rail while closed details resolve to zero width.
++ * preferences (0 = closed); closed sidebar and details both resolve to zero width.
+  * The SIDEBAR_AUTO_COLLAPSE breakpoint is consumed by AppFrame, which decides
+  * the effective sidebar preference before solving; the solver itself stays
+  * breakpoint-free.
+@@ -26,8 +25,8 @@ export declare const SIDEBAR_MIN = 264;
+ export declare const SIDEBAR_MAX = 420;
+ /** Sidebar width before any user drag. */
+ export declare const SIDEBAR_DEFAULT = 280;
+-/** Closed-sidebar rail: a 24px icon column between 16px horizontal paddings. */
+-export declare const SIDEBAR_COLLAPSED = 56;
++/** Closed-sidebar width; reveal chrome is contributed through shell.overlay. */
++export declare const SIDEBAR_COLLAPSED = 0;
+ /** Viewport width below which the sidebar auto-collapses to the rail (deepsuite
+  * LG breakpoint); a manual toggle below it re-expands over the squeezed center
+  * (stores.ts narrowExpanded). */
+@@ -54,7 +53,7 @@ export declare function clampWidth(px: number, min: number, max: number): number
+  * @param viewport - available frame width in px.
+  * @param sidebar - sidebar width preference in px (0 = closed).
+  * @param details - details width preference in px (0 = closed).
+- * @returns resolved widths; details 0 means visually closed (never unmounted), while a closed sidebar keeps its compact rail.
++ * @returns resolved widths; zero means visually closed.
+  */
+ export declare function computeColumns(viewport: number, sidebar: number, details: number): Columns;
+ //# sourceMappingURL=columns.d.ts.map
+diff --git a/lib/types/client/service.d.ts b/lib/types/client/service.d.ts
+index e2a1a0cc02f511ac87a6a4bd2d523c34f9e02ae2..412c8276ab49f4bbcbc56c866c123d8ba4c0654f 100644
+--- a/lib/types/client/service.d.ts
++++ b/lib/types/client/service.d.ts
+@@ -19,7 +19,7 @@ export type PanelActions = BoundActions<ReturnType<typeof createLayoutStore>>;
+  * only).
+  */
+ export interface ILayout {
+-    /** Toggle the sidebar panel (closed ⟷ contract default width). */
++    /** Toggle the sidebar panel (closed ⟷ last dragged width). */
+     toggleSidebar(): void;
+     /** Open the details panel (no-op when already open). */
+     openDetails(): void;
+@@ -37,7 +37,7 @@ export declare class LayoutController implements ILayout {
+      * @param actions - bound actions of the entry's layout store instance.
+      */
+     attachPanels(actions: PanelActions): void;
+-    /** Toggle the sidebar panel (closed ⟷ contract default width). */
++    /** Toggle the sidebar panel (closed ⟷ last dragged width). */
+     toggleSidebar(): void;
+     /** Open the details panel (no-op when already open). */
+     openDetails(): void;
+diff --git a/lib/types/client/stores.d.ts b/lib/types/client/stores.d.ts
+index a79da9e4c4d315030b0949450a64c5e42a02204e..c4b432c8284f2b7546aac93bfd457166f98cd5ac 100644
+--- a/lib/types/client/stores.d.ts
++++ b/lib/types/client/stores.d.ts
+@@ -17,6 +17,7 @@ import { type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client';
+  */
+ type LayoutState = {
+     sidebar: number;
++    sidebarLast: number;
+     details: number;
+     narrow: boolean;
+     narrowExpanded: boolean;
+@@ -34,11 +35,11 @@ type LayoutActions = {
+     closeDetails: (draft: LayoutState) => void;
+ };
+ /**
+- * Create the layout panel store handle. The preference IS the width, so
+- * closing a panel forgets its drag width — reopening restores the contract
+- * default. Actions are the complete write set: drag writes clamp
++ * Create the layout panel store handle. Closing the sidebar retains its last
++ * dragged width, while the current width uses zero as the closed state.
++ * Actions are the complete write set: drag writes clamp
+  * into the panel's contract range and never cross the open/closed line;
+- * open/close transitions write 0 / the default explicitly. Below the
++ * open/close transitions write zero or the retained width. Below the
+  * auto-collapse breakpoint (AppFrame feeds setNarrow) the sidebar toggle
+  * flips the narrowExpanded override instead of the preference.
+  * @returns the store handle (spec + type + identity + factory in one).

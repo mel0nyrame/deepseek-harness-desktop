@@ -37,6 +37,7 @@ export type DesktopParentMessage =
 
 /** Host connection notification sent through Electron main to the renderer. */
 export type DesktopChildMessage =
+  | { readonly type: 'connection-ready' }
   | ({ readonly type: 'response'; readonly id: string } & DesktopBridgeResponse)
   | { readonly type: 'request-error'; readonly id: string; readonly message: string }
   | { readonly type: 'stream-open'; readonly id: string }
@@ -166,7 +167,9 @@ export function parseDesktopParentMessage(value: unknown): DesktopParentMessage 
 
 /** Parse one notification arriving from the Host child process. */
 export function parseDesktopChildMessage(value: unknown): DesktopChildMessage | undefined {
-  if (!isRecord(value) || typeof value.type !== 'string' || !isId(value.id)) return undefined
+  if (!isRecord(value) || typeof value.type !== 'string') return undefined
+  if (value.type === 'connection-ready') return { type: 'connection-ready' }
+  if (!isId(value.id)) return undefined
   if (value.type === 'response') {
     const response = parseDesktopBridgeResponse(value)
     return response === undefined ? undefined : { type: 'response', id: value.id, ...response }

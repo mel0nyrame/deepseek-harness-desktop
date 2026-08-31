@@ -325,6 +325,7 @@ export class DshSupervisor {
     this.snapshot = undefined
     const result = deferred<DshReady>()
     let settled = false
+    let readinessRequested = false
     let timeout: ReturnType<typeof setTimeout> | undefined
     const readinessId = 'desktop-readiness'
     const readinessRpcId = 'desktop-readiness-rpc'
@@ -337,7 +338,47 @@ export class DshSupervisor {
       cleanupStartup()
       result.reject(error)
     }
-    const onMessage = (message: unknown): void => { this.handleMessage(message) }
+    const requestReadiness = (): void => {
+      if (settled || readinessRequested) return
+      readinessRequested = true
+      void this.request({
+        type: 'request',
+        id: readinessId,
+        url: 'dsh://app/api/host.describe',
+        method: 'POST',
+        headers: [['content-type', 'application/json']],
+        body: JSON.stringify({
+          type: 'client-request',
+          rpcId: readinessRpcId,
+          method: 'host.describe',
+          payload: {},
+        }),
+      }).then((response) => {
+        if (settled) return
+        try {
+          if (response.status !== 200) throw new Error(`host.describe returned HTTP ${String(response.status)}`)
+          const home = readyHome(response.body, readinessRpcId)
+          if (home === undefined) {
+            throw new Error('host.describe returned an invalid Host description')
+          }
+          const pid = child.pid
+          if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) {
+            throw new Error('desktop DSH child became ready without a valid process id')
+          }
+          settled = true
+          this.ready = true
+          this.refreshSnapshot(pid)
+          cleanupStartup()
+          result.resolve({ profile: 'desktop', pid, home })
+        } catch (error) {
+          settleFailure(error instanceof Error ? error : new Error(String(error)))
+        }
+      }, settleFailure)
+    }
+    const onMessage = (value: unknown): void => {
+      if (parseDesktopChildMessage(value)?.type === 'connection-ready') requestReadiness()
+      this.handleMessage(value)
+    }
     const onError = (error: Error): void => {
       settleFailure(error)
       void this.failResources(error).catch(cleanupError => {
@@ -403,39 +444,6 @@ export class DshSupervisor {
     child.on('error', onError)
     child.on('exit', onExit)
     if (child.pid !== undefined) this.startSnapshotMonitor(child.pid)
-    void this.request({
-      type: 'request',
-      id: readinessId,
-      url: 'dsh://app/api/host.describe',
-      method: 'POST',
-      headers: [['content-type', 'application/json']],
-      body: JSON.stringify({
-        type: 'client-request',
-        rpcId: readinessRpcId,
-        method: 'host.describe',
-        payload: {},
-      }),
-    }).then((response) => {
-      if (settled) return
-      try {
-        if (response.status !== 200) throw new Error(`host.describe returned HTTP ${String(response.status)}`)
-        const home = readyHome(response.body, readinessRpcId)
-        if (home === undefined) {
-          throw new Error('host.describe returned an invalid Host description')
-        }
-        const pid = child.pid
-        if (pid === undefined || !Number.isSafeInteger(pid) || pid <= 0) {
-          throw new Error('desktop DSH child became ready without a valid process id')
-        }
-        settled = true
-        this.ready = true
-        this.refreshSnapshot(pid)
-        cleanupStartup()
-        result.resolve({ profile: 'desktop', pid, home })
-      } catch (error) {
-        settleFailure(error instanceof Error ? error : new Error(String(error)))
-      }
-    }, settleFailure)
     timeout = setTimeout(() => {
       if (settled) return
       this.startupFailure = new Error(
@@ -461,6 +469,7 @@ export class DshSupervisor {
       console.error('[desktop-supervisor] dropped malformed child IPC message')
       return
     }
+    if (message.type === 'connection-ready') return
     if (message.type === 'response' || message.type === 'request-error') {
       const pending = this.pending.get(message.id)
       if (pending === undefined) return

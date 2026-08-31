@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, nativeTheme, shell } from 'electron'
 import { healProfilesModuleFallback } from '@deepseek-ai/dsh-app-boot'
 import { bootstrapDesktopProfile } from '@dsh-desktop/bundle/profile-bootstrap'
 import {
@@ -18,6 +18,14 @@ import {
   prepareTracerProfile,
   type TracerInvocation,
 } from './tracer.js'
+import {
+  desktopWindowOptions,
+  installNativeThemeHost,
+  parseRendererSurfaceState,
+  waitForWindowMove,
+  type RendererSurfaceState,
+  type RendererThemePreference,
+} from './native-window.js'
 
 const shellRoot = resolve(import.meta.dirname, '..')
 const rendererPath = join(shellRoot, 'renderer.html')
@@ -71,10 +79,12 @@ function belongsToWindow(
   event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent,
   window: BrowserWindow,
 ): boolean {
+  const senderFrame = event.senderFrame
   return !window.isDestroyed()
     && event.sender === window.webContents
-    && event.senderFrame === window.webContents.mainFrame
-    && isTrustedRendererUrl(event.senderFrame.url, rendererPath)
+    && senderFrame !== null
+    && senderFrame.parent === null
+    && isTrustedRendererUrl(senderFrame.url, rendererPath)
 }
 
 function processEvidenceObserver(): SupervisorOptions['onProcessSnapshot'] {
@@ -183,6 +193,12 @@ async function assertTracerLayout(window: BrowserWindow): Promise<void> {
   console.log('TRACER_LAYOUT centered-system-status')
 }
 
+async function settleRendererPaint(window: BrowserWindow): Promise<void> {
+  await window.webContents.executeJavaScript(
+    'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
+  )
+}
+
 async function captureTracer(window: BrowserWindow, tracer: TracerInvocation): Promise<void> {
   let previous = ''
   let frame = 0
@@ -192,9 +208,9 @@ async function captureTracer(window: BrowserWindow, tracer: TracerInvocation): P
     if (typeof state === 'string' && state !== previous) {
       previous = state
       console.log(`TRACER_STATE ${state}`)
-      if (state === 'starting') await assertTracerLayout(window)
       if (tracer.framesDir !== undefined) {
         mkdirSync(tracer.framesDir, { recursive: true })
+        if (state === 'complete') await settleRendererPaint(window)
         const image = await window.webContents.capturePage()
         if (state === 'complete') {
           const bitmap = image.toBitmap()
@@ -220,6 +236,274 @@ async function captureTracer(window: BrowserWindow, tracer: TracerInvocation): P
     if (Date.now() > deadline) throw new Error('desktop renderer tracer timed out')
     await new Promise(done => setTimeout(done, 50))
   }
+}
+
+type NativeEvidenceWindowEvent = 'enter-full-screen' | 'leave-full-screen' | 'focus' | 'blur' | 'resize'
+
+function waitForWindowEvent(window: BrowserWindow, event: NativeEvidenceWindowEvent): Promise<void> {
+  const emitter = window as unknown as {
+    once(name: NativeEvidenceWindowEvent, listener: () => void): void
+    off(name: NativeEvidenceWindowEvent, listener: () => void): void
+  }
+  return new Promise((resolveEvent, rejectEvent) => {
+    const remove = (): void => {
+      emitter.off(event, onEvent)
+    }
+    const timeout = setTimeout(() => {
+      remove()
+      rejectEvent(new Error(`desktop native window timed out waiting for ${event}`))
+    }, 15_000)
+    const onEvent = (): void => {
+      clearTimeout(timeout)
+      resolveEvent()
+    }
+    emitter.once(event, onEvent)
+  })
+}
+
+async function waitForThemeSource(preference: RendererThemePreference): Promise<void> {
+  const deadline = Date.now() + 5_000
+  while (nativeTheme.themeSource !== preference) {
+    if (Date.now() > deadline) throw new Error(`desktop native theme did not reach ${preference}`)
+    await new Promise(done => setTimeout(done, 10))
+  }
+}
+
+async function rendererNativeState(window: BrowserWindow): Promise<RendererSurfaceState> {
+  const value = await window.webContents.executeJavaScript('globalThis.dshNativeTheme?.getState()') as unknown
+  const state = parseRendererSurfaceState(value)
+  if (state === undefined) throw new Error('desktop renderer returned invalid native window evidence')
+  return state
+}
+
+async function waitForRendererAppearance(window: BrowserWindow, appearance: 'light' | 'dark'): Promise<void> {
+  const deadline = Date.now() + 5_000
+  for (;;) {
+    const projected = await window.webContents.executeJavaScript(
+      `document.body.dataset.dshAppearance === ${JSON.stringify(appearance)}`,
+    ) as unknown
+    if (projected === true) {
+      await settleRendererPaint(window)
+      return
+    }
+    if (Date.now() > deadline) throw new Error(`desktop renderer did not project ${appearance} appearance`)
+    await new Promise(done => setTimeout(done, 10))
+  }
+}
+
+async function captureNativeFrame(
+  window: BrowserWindow,
+  framesDir: string | undefined,
+  name: string,
+): Promise<void> {
+  if (framesDir === undefined) return
+  mkdirSync(framesDir, { recursive: true })
+  const image = await window.webContents.capturePage()
+  const png = image.toPNG()
+  if (png.length < 20_000) throw new Error(`desktop native evidence frame ${name} is unexpectedly empty`)
+  writeFileSync(join(framesDir, `${name}.png`), png)
+}
+
+interface RendererRegionEvidence {
+  readonly dragRegion: string
+  readonly controlRegion: string
+  readonly dragPoint: { readonly x: number; readonly y: number }
+  readonly controlPoint: { readonly x: number; readonly y: number }
+}
+
+function parseRendererPoint(input: unknown): { x: number; y: number } | undefined {
+  if (typeof input !== 'object' || input === null) return undefined
+  const record = input as Record<string, unknown>
+  return typeof record.x === 'number' && Number.isFinite(record.x)
+    && typeof record.y === 'number' && Number.isFinite(record.y)
+    ? { x: record.x, y: record.y }
+    : undefined
+}
+
+async function rendererRegionEvidence(window: BrowserWindow): Promise<RendererRegionEvidence> {
+  const value = await window.webContents.executeJavaScript(`(() => {
+    const drag = document.querySelector('[data-window-drag-surface]')
+    const control = document.querySelector('[data-native-control-surface]')
+    if (!(drag instanceof HTMLElement) || !(control instanceof HTMLElement)) return null
+    const point = element => {
+      const bounds = element.getBoundingClientRect()
+      return { x: Math.round(bounds.left + bounds.width / 2), y: Math.round(bounds.top + bounds.height / 2) }
+    }
+    const dragBounds = drag.getBoundingClientRect()
+    return {
+      dragRegion: getComputedStyle(drag).getPropertyValue('-webkit-app-region'),
+      controlRegion: getComputedStyle(control).getPropertyValue('-webkit-app-region'),
+      dragPoint: { x: Math.round(dragBounds.left + dragBounds.width / 2), y: Math.round(dragBounds.top + 8) },
+      controlPoint: point(control),
+    }
+  })()`) as unknown
+  if (typeof value !== 'object' || value === null) throw new Error('desktop renderer exposed no native regions')
+  const candidate = value as Record<string, unknown>
+  const dragPoint = parseRendererPoint(candidate.dragPoint)
+  const controlPoint = parseRendererPoint(candidate.controlPoint)
+  if (candidate.dragRegion !== 'drag' || candidate.controlRegion !== 'no-drag'
+    || dragPoint === undefined || controlPoint === undefined) {
+    throw new Error(`desktop renderer native regions are invalid: ${JSON.stringify(value)}`)
+  }
+  return { dragRegion: candidate.dragRegion, controlRegion: candidate.controlRegion, dragPoint, controlPoint }
+}
+
+async function attemptRendererDrag(
+  window: BrowserWindow,
+  point: { readonly x: number; readonly y: number },
+): Promise<boolean> {
+  const before = window.getBounds()
+  window.webContents.sendInputEvent({ type: 'mouseDown', ...point, button: 'left', clickCount: 1 })
+  window.webContents.sendInputEvent({
+    type: 'mouseMove',
+    x: point.x + 40,
+    y: point.y + 40,
+    movementX: 40,
+    movementY: 40,
+  })
+  window.webContents.sendInputEvent({
+    type: 'mouseUp',
+    x: point.x + 40,
+    y: point.y + 40,
+    button: 'left',
+    clickCount: 1,
+  })
+  await new Promise(done => setTimeout(done, 250))
+  const after = window.getBounds()
+  return before.x !== after.x || before.y !== after.y
+}
+
+async function acceptOsPointerDrag(
+  window: BrowserWindow,
+  stage: 'drag' | 'control',
+  point: { readonly x: number; readonly y: number },
+  shouldMove: boolean,
+): Promise<boolean> {
+  const before = window.getBounds()
+  const content = window.getContentBounds()
+  const screenPoint = { x: content.x + point.x, y: content.y + point.y }
+  const movement = waitForWindowMove(window, shouldMove ? 15_000 : 3_000)
+  console.log(`NATIVE_WINDOW_DRAG_READY ${JSON.stringify({ stage, point: screenPoint })}`)
+  const didMove = await movement
+  if (didMove) await new Promise(done => setTimeout(done, 300))
+  const after = window.getBounds()
+  const changed = before.x !== after.x || before.y !== after.y
+  if (changed !== shouldMove) {
+    throw new Error(
+      `desktop OS drag stage ${stage} expected move=${String(shouldMove)}; before=${JSON.stringify(before)} after=${JSON.stringify(after)}`,
+    )
+  }
+  console.log(`NATIVE_WINDOW_DRAG_STAGE ${JSON.stringify({ stage, point: screenPoint, before, after })}`)
+  return changed
+}
+
+/** Exercise Electron-owned window state through the context-isolated renderer bridge. */
+async function inspectNativeWindow(window: BrowserWindow, framesDir?: string): Promise<void> {
+  const trafficLights = window.getWindowButtonPosition()
+  if (trafficLights?.x !== 16 || trafficLights.y !== 14) {
+    throw new Error(`desktop traffic lights are misplaced: ${JSON.stringify(trafficLights)}`)
+  }
+  if (!window.isResizable() || !window.isMovable() || !window.isFocusable()
+    || !window.isClosable() || !window.isMinimizable() || !window.isFullScreenable()) {
+    throw new Error('desktop native window disabled a required macOS window action')
+  }
+
+  for (const preference of ['dark', 'light', 'system'] as const) {
+    await window.webContents.executeJavaScript(
+      `globalThis.dshNativeTheme?.setPreference(${JSON.stringify(preference)})`,
+    )
+    await waitForThemeSource(preference)
+    const state = await rendererNativeState(window)
+    if (preference !== 'system' && state.appearance !== preference) {
+      throw new Error(`desktop native theme mismatch for ${preference}: ${state.appearance}`)
+    }
+    await waitForRendererAppearance(window, state.appearance)
+    await captureNativeFrame(window, framesDir, `native-${preference}`)
+  }
+
+  const initial = await rendererNativeState(window)
+  const expectedTransparency = nativeTheme.prefersReducedTransparency ? 'opaque' : 'glass'
+  if (initial.transparency !== expectedTransparency || initial.platform !== 'darwin') {
+    throw new Error(`desktop native accessibility state mismatch: ${JSON.stringify(initial)}`)
+  }
+
+  const regions = await rendererRegionEvidence(window)
+  const dragAttemptMoved = await attemptRendererDrag(window, regions.dragPoint)
+  const controlAttemptMoved = await attemptRendererDrag(window, regions.controlPoint)
+  if (controlAttemptMoved) throw new Error('desktop no-drag control moved the native window')
+  let osDragMoved: boolean | undefined
+  let osControlMoved: boolean | undefined
+  if (process.env['DSH_DESKTOP_REQUIRE_OS_DRAG'] === '1') {
+    const dragBounds = window.getBounds()
+    osDragMoved = await acceptOsPointerDrag(window, 'drag', regions.dragPoint, true)
+    window.setBounds(dragBounds)
+    await new Promise(done => setTimeout(done, 250))
+    osControlMoved = await acceptOsPointerDrag(window, 'control', regions.controlPoint, false)
+  }
+
+  const originalBounds = window.getBounds()
+  const resizedEvent = waitForWindowEvent(window, 'resize')
+  window.setSize(originalBounds.width + 40, originalBounds.height + 20)
+  await resizedEvent
+  const resizedBounds = window.getBounds()
+  const resized = resizedBounds.width !== originalBounds.width || resizedBounds.height !== originalBounds.height
+  if (!resized) throw new Error('desktop native window did not resize')
+  window.setBounds(originalBounds)
+
+  const focusTransitions = ['active']
+  const blurred = waitForWindowEvent(window, 'blur')
+  const other = new BrowserWindow({ width: 240, height: 160, show: true })
+  try {
+    other.focus()
+    await blurred
+    if ((await rendererNativeState(window)).focused) {
+      throw new Error('desktop renderer did not observe native window blur')
+    }
+    focusTransitions.push('inactive')
+    const focused = waitForWindowEvent(window, 'focus')
+    window.focus()
+    await focused
+    if (!(await rendererNativeState(window)).focused) {
+      throw new Error('desktop renderer did not observe native window focus')
+    }
+    focusTransitions.push('active')
+  } finally {
+    other.destroy()
+  }
+
+  const entered = waitForWindowEvent(window, 'enter-full-screen')
+  window.setFullScreen(true)
+  await entered
+  const fullscreen = await rendererNativeState(window)
+  if (!fullscreen.fullscreen || !window.isFullScreen()) {
+    throw new Error('desktop renderer did not observe native fullscreen entry')
+  }
+  const left = waitForWindowEvent(window, 'leave-full-screen')
+  window.setFullScreen(false)
+  await left
+  const restored = await rendererNativeState(window)
+  if (restored.fullscreen || window.isFullScreen()) {
+    throw new Error('desktop renderer did not observe native fullscreen exit')
+  }
+
+  console.log(`NATIVE_WINDOW_EVIDENCE ${JSON.stringify({
+    trafficLights,
+    resizable: window.isResizable(),
+    movable: window.isMovable(),
+    focusable: window.isFocusable(),
+    closable: window.isClosable(),
+    minimizable: window.isMinimizable(),
+    fullscreenable: window.isFullScreenable(),
+    reducedTransparency: nativeTheme.prefersReducedTransparency,
+    dragRegion: regions.dragRegion,
+    controlRegion: regions.controlRegion,
+    dragAttemptMoved,
+    osDragMoved,
+    osControlMoved,
+    focusTransitions,
+    resized,
+    state: restored,
+  })}`)
 }
 
 async function startRuntime(runtime: DshSupervisor, options: Parameters<DshSupervisor['start']>[0]): Promise<Awaited<ReturnType<DshSupervisor['start']>>> {
@@ -307,7 +591,7 @@ async function run(): Promise<void> {
     width: 900,
     height: 640,
     show: tracer === undefined,
-    backgroundColor: '#090d18',
+    ...desktopWindowOptions(process.platform),
     webPreferences: desktopWindowWebPreferences(join(shellRoot, 'lib', 'preload.cjs')),
   })
   const preventUnknownNavigation = (event: Electron.Event, url: string): void => {
@@ -317,11 +601,19 @@ async function run(): Promise<void> {
   window.webContents.on('will-redirect', preventUnknownNavigation)
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   const disposeCarrier = installCarrier(runtime, window)
+  const disposeNativeTheme = installNativeThemeHost({
+    ipcMain,
+    nativeTheme,
+    window,
+    platform: process.platform,
+    eventIsTrusted: event => belongsToWindow(event as Electron.IpcMainEvent, window),
+  })
   const disposeNativeActions = tracer?.kind === 'native'
     ? runtime.onNativeActions(tracerNativeActionHandler(tracer.pickedDirectory))
     : runtime.onNativeActions(shellNativeActionHandler(window))
   window.on('closed', () => {
     disposeCarrier()
+    disposeNativeTheme()
     disposeNativeActions()
   })
   await window.loadFile(rendererPath, {
@@ -333,7 +625,9 @@ async function run(): Promise<void> {
   })
   if (tracer !== undefined) {
     window.show()
+    await assertTracerLayout(window)
     await captureTracer(window, tracer)
+    if (process.platform === 'darwin') await inspectNativeWindow(window, tracer.framesDir)
     console.log('TRACER_OK terminal-session')
     app.quit()
     return

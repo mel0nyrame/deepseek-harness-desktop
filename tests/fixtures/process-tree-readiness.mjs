@@ -23,4 +23,5 @@ export function installReadiness(afterReady) {
       }),
     }, () => { afterReady?.() })
   })
+  process.send?.({ type: 'connection-ready' })
 }

@@ -6,34 +6,42 @@ Status: implemented
 
 ## 问题
 
-macOS 桌面窗口曾在侧栏和对话区上方保留一条全宽 44 像素标题条，侧栏收起后仍保留固定轨道。这会把对话区与窗口顶端隔开，让原生控件无法进入产品框架，并在收起后浪费横向空间。侧栏还需要一个可持久化的材质偏好，其可见结果能够跟随 macOS 无障碍设置。
+已发布的 DeepSeek Harness 客户端面向浏览器形态的框架。它在侧栏收起后保留一条窄轨道，也没有 Electron traffic lights、原生 vibrancy、macOS“减少透明度”、窗口焦点或原生全屏的契约。DeepSeek Harness Desktop 需要这些平台行为，但不应复制并长期维护官方侧栏或布局包。
 
 ## 决策
 
-紧凑原生窗口框架由[macOS 原生窗口基础 Agent Note](../../../../legacy/.agents/notes/implemented/feature/2026-08-17-macos-compact-window-foundation.md)实现，该 Note 负责问题 #32。本 Note 负责已完成的问题 #33 零宽侧栏呈现和问题 #34 侧栏材质偏好。
+Electron shell 负责原生窗口策略，只向 renderer 发布呈现所需的事实。在 macOS 上，`BrowserWindow` 使用 `hiddenInset` 标题栏、位于 `(16, 14)` 的 traffic lights、窗口下层 vibrancy 材质与透明背景。启用 context isolation 的 preload bridge 暴露经过校验的浅色、深色和跟随系统偏好，以及实际外观、“减少透明度”、焦点和全屏状态。main process 只接受来自当前窗口 renderer 的消息，并在窗口关闭时移除 IPC、原生主题、焦点和全屏监听器。
 
-在 macOS 上，侧栏第一行与原生 traffic-light 区域共享空间，侧栏控制位于其右侧，字标位于下一行，对话表面延伸到窗口顶端。实际处于最上层的对话头部、侧栏控制行与字标行、以及模态框标题行是拖动区域；控件、对话内容、输入区与模态框正文保持为可交互的 no-drag 区域。发生位移的对话标题行保持为位于正文上方的定位层，使头部拥有的菜单能够在重叠的对话内容之上绘制并接收指针输入。侧栏收起后解析为零宽网格轨道；材质、内容、调整宽度的 handle 与分隔线一并消失，由框架拥有的展开控件恢复最后一次可用宽度。原生全屏时，traffic lights 的显隐交给 AppKit，展开控件移动到侧栏内容内缩位置。
+子进程 connection 只在 IPC listener 安装后发送 `connection-ready`。supervisor 收到该信号后才发出 `host.describe`，因此较慢的 Client graph 不会在进程启动期间丢失唯一一次 readiness 请求。
 
-展开后的侧栏使用一块连续的原生半透明材质，会话与详情表面保持不透明。两种玻璃变体都直接呈现该材质；[原生浅色侧栏材质 Agent Note](../../../../legacy/.agents/notes/implemented/bug-fix/2026-08-18-native-light-sidebar-material.md)负责由应用偏好选择匹配的 AppKit 外观。General → Appearance 根据 Host 设置 `ui-sidebar-glass-macos.enabled` 渲染仅 macOS 提供的 `Sidebar glass effect` 开关。默认值为开启，写入立即生效并跨重启保留。“减少透明度”只选择与主题匹配的不透明材质，不改写保存偏好；因此恢复系统透明度后，只要偏好仍开启就会再次显示玻璃。桌面 bundle 仅在 `process.platform === 'darwin'` 时插入 Host contribution，因此 Web、Windows 与 Linux 不会注册或显示该控件。
+桌面 UI 包保持为增量 Client 与 Host contribution。它在 `shell.overlay` 注册窗口控件，在 `settings.general.item` 注册玻璃材质偏好；官方侧栏继续渲染标签、计数、会话和操作。稳定的 slot 属性与桌面拥有的 body 属性驱动一小层 CSS：标题行可以拖动，所有控件保持 no-drag。侧栏变为零宽后，展开按钮仍位于侧栏之外；原生全屏中也是如此。
+
+Client 与 Host 只共享不带运行时依赖的设置契约。Client 入口不导入 Host plugin 及其 Settings、Schemastery 依赖，因此浏览器 bundle 保持产品的 capability 边界。
+
+Host 负责 `ui-sidebar-glass-macos.enabled` 设置。该设置默认开启，并且只在原生 bridge 报告 macOS 且 namespace 可写时提供。renderer 将该偏好与实际主题和“减少透明度”组合：启用玻璃时使用原生材质；偏好关闭或无障碍覆盖生效时，选择明确的浅色或深色不透明表面。无障碍覆盖不会回写已保存的偏好。
+
+一个带版本的 `@deepseek-ai/dsh-client-ui-layout@0.1.0-rc.8` 补丁把已收起侧栏的轨道从 56 像素改为零，保留最后一次拖动宽度，并发布稳定的收起状态与解析后宽度。runtime manifest 记录补丁摘要、上游来源、测试和移除条件。已发布的布局包提供同等契约后即可删除该补丁。
 
 ## 考虑过的替代方案
 
-**保留全宽合成标题条。** 否决：它阻止对话区延伸到窗口顶部，并在原生控件集群之外继续占用 renderer 空间。
+**复制官方侧栏与布局包。** 否决：这会重复标签、计数、交互行为和未来的上游变更。官方 slot 和稳定的框架状态已经足以承载桌面行为。
 
-**保留紧凑的收起侧栏轨道。** 否决：收起后仍持续占用宽度。由框架拥有的展开控件可以保留入口，而不保留侧栏轨道。
+**保留官方 56 像素收起轨道。** 否决：桌面展开控件可以保持可用，不需要继续占据侧栏宽度。
 
-**新建独立 Appearance 页面。** 否决：General → Appearance 已经拥有主题偏好，也是现有的平台感知设置表面。
+**让 renderer 代码直接读取 Electron 状态。** 否决：原生主题与窗口生命周期属于 main process。窄 preload bridge 可以保留 context isolation，并让 host 在一个位置完成消息校验和监听器清理。
 
-**将玻璃状态保存在 renderer 存储中。** 否决：该偏好是全局偏好，必须跨重启保留。Host-backed settings 提供持久边界，并允许“减少透明度”只覆盖实际材质。
-
-**根据 renderer 偏好覆盖 Electron 的全局原生主题。** 这项原始选择已由[原生浅色侧栏材质 Agent Note](../../../../legacy/.agents/notes/implemented/bug-fix/2026-08-18-native-light-sidebar-material.md)取代：局部 tint 无法把深色 AppKit 底层材质变成原生浅色材质，因此现在会有意让操作系统绘制的 chrome 与 Electron UI 匹配显式应用偏好。
-
-**在每种组合中注册该偏好。** 否决：Web、Windows 与 Linux 不具备原生材质和 macOS 无障碍事实。专用 macOS Host contribution 让平台边界保持明确。
+**持久化可见材质而不是用户偏好。** 否决：“减少透明度”是临时系统事实。持久化其结果会在无障碍设置变化时丢失用户的玻璃选择。
 
 ## 后果
 
-- `AppFrame` 暴露 frame、sidebar、conversation 与 details 的稳定表面 hook，桌面 CSS 无需耦合 CSS module 生成的类名。
-- 桌面 renderer 发布平台、主题与“减少透明度”事实；侧栏 runtime 负责即时投影与 Host 持久化，系统事实不会回写保存偏好。只有 macOS namespace 同时存在且可写时，控件才可用。
-- `@deepseek-ai/dsh-client-ui-theme/sidebar-glass` 是依赖 settings 的 Host-only 导出。`cordis.patch.yml` 仅在 macOS 插入它，ApiProxy 将该 namespace 暴露给桌面 renderer。
-- macOS 桌面 CSS 让侧栏后代保持透明，使 hover、选中与焦点继续作为统一原生材质上的覆盖层；明暗不透明 fallback 使用明确的 neutral 表面。
-- 聚焦的客户端、Host 组合、窗口策略与打包测试覆盖默认开启、即时切换、重启持久化、主题切换、“减少透明度”覆盖、零宽收起和非 macOS 隔离。打包验收流程的三个阶段共用一个明确的测试 home。
+- BrowserWindow 创建、外观变化、焦点、原生全屏、缩放和退出继续走 Electron 原生窗口生命周期。
+- 浅色、深色、跟随系统、玻璃和不透明状态投影为稳定的 body 属性，shell 无需依赖生成后的 CSS module 类名。
+- 侧栏展开时恢复最后一次拖动宽度；收起时网格轨道与原生材质解析为零，同时保留官方侧栏注册。
+- 每个 Client registration、样式表、主题订阅、设置订阅和原生 bridge 订阅都有明确的 disposer。
+- 原生 tracer 在输出 `NATIVE_WINDOW_EVIDENCE` 前，验证真实 macOS 窗口能力、traffic-light 位置、缩放、active → inactive → active 焦点切换、主题、“减少透明度”投影和全屏切换。它还检查计算后的 drag/no-drag 区域，并分别发送输入尝试。带权限门禁的验收路径向父级 driver 发布绝对坐标；外部注入的 CoreGraphics 指针事件必须移动 drag 表面，并且不得移动 no-drag 控件。
+- 可见 tracer 表面投影与 contribution 相同且经过校验的原生事实。它在 compositor 稳定后捕获深色、浅色和跟随系统的 PNG 帧，并要求深浅图片不同。另一个离屏 Electron fixture 运行正式桌面注册、加载精确发布版 sidebar 组件与样式，并记录深色玻璃展开、浅色玻璃收起和不透明展开帧。`webContents.capturePage()` 有意不包含原生 traffic-light 图形；这些图形由原生窗口断言覆盖。
+- 聚焦测试覆盖原生 bridge 校验与清理、表面投影、主题与无障碍转换、Host 与 Client contribution、contribution disposal 和已安装的布局补丁。侧栏集成测试加载精确的已发布 sidebar Client，操作其 toggle，并保留官方标签、子 slot 与 workspace/count occupant。仓库布局测试按路径和内容保护应用图标与视觉资产。
+
+## 验证
+
+2026-08-31 的 `pnpm run check` 通过 typecheck、lint、全部 workspace build，以及 21 个文件中的 122 个测试；默认运行跳过 1 个需要 Accessibility 权限的 OS-pointer 用例。`DSH_DESKTOP_REQUIRE_OS_DRAG=1 pnpm exec vitest run tests/desktop-runtime.e2e.test.ts -t 'moves only the computed drag surface'` 另行通过该真实 drag/no-drag 用例。`pnpm run test:layout` 通过全部 7 项仓库布局检查。聚焦行为由 `tests/desktop-native-window.test.ts`、`tests/desktop-ui-surface.test.ts`、`tests/desktop-ui-runtime.test.ts`、`tests/desktop-ui-host.test.ts`、`tests/desktop-ui-client.test.ts`、`tests/desktop-layout-patch.test.ts`、`tests/desktop-sidebar-integration.test.ts`、`tests/desktop-ui-visual.e2e.test.ts`，以及 `tests/desktop-runtime.e2e.test.ts` 中的真实 Electron 流程覆盖。

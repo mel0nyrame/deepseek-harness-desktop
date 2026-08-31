@@ -151,6 +151,7 @@ class RelayIpc extends EventEmitter implements IpcRendererLike {
   }
 
   private fromHost(message: DesktopChildMessage): void {
+    if (message.type === 'connection-ready') return
     if (message.type === 'response' || message.type === 'request-error') {
       const pending = this.pending.get(message.id)
       if (pending === undefined) return
