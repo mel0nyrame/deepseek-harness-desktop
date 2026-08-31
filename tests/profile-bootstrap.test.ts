@@ -42,14 +42,22 @@ describe('desktop profile composition', () => {
     const ids = entries.map(entry => entry.id)
     expect(ids.indexOf('timer')).toBe(0)
     expect(ids.indexOf('connection')).toBeGreaterThan(ids.indexOf('webserver'))
-    expect(ids.slice(-4)).toEqual(['desktop-directory-picker', 'desktop-api-gateway', 'desktop-connection', 'desktop-ui'])
+    expect(ids.slice(-5)).toEqual([
+      'desktop-directory-picker',
+      'desktop-api-gateway',
+      'desktop-connection',
+      'desktop-directory-picker-client',
+      'desktop-ui',
+    ])
     expect(entries.find(entry => entry.id === 'webserver')?.disabled).toBe(true)
     expect(entries.find(entry => entry.id === 'directory-picker')?.disabled).toBe(true)
     expect(entries.find(entry => entry.id === 'api-gateway')?.disabled).toBe(true)
     expect(entries.find(entry => entry.id === 'desktop-directory-picker')?.name).toBe('@dsh-desktop/native')
     expect(entries.find(entry => entry.id === 'desktop-api-gateway')?.name).toBe('@dsh-desktop/native/gateway')
-    expect(entries.find(entry => entry.id === 'modules')?.disabled).toBe(true)
+    expect(entries.find(entry => entry.id === 'modules')?.disabled).not.toBe(true)
     expect(entries.find(entry => entry.id === 'connection')?.disabled).toBe(true)
+    expect(entries.find(entry => entry.id === 'desktop-directory-picker-client')?.name)
+      .toBe('@deepseek-ai/dsh-client-ui-directory-picker-native')
     expect(dump).toContain('# == @deepseek-ai/dsh-base')
     expect(dump).toContain('# == @dsh-desktop/bundle')
     expect(dump.indexOf('id: timer')).toBeLessThan(dump.indexOf('id: desktop-connection'))

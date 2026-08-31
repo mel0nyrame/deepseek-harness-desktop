@@ -12,6 +12,13 @@ export type TracerInvocation =
     readonly framesDir?: string
   }
   | {
+    /** Official Client journey over replay plus the native directory provider. */
+    readonly kind: 'ui'
+    readonly replayFile: string
+    readonly pickedDirectory: string
+    readonly framesDir: string
+  }
+  | {
     /** Native directory selection plus path opening over the full desktop stack. */
     readonly kind: 'native'
     readonly pickedDirectory: string
@@ -29,11 +36,26 @@ function parseFramesDir(argv: readonly string[]): string | undefined {
 
 /** Parse and validate the optional integrated-runtime tracer invocation. */
 export function parseTracerInvocation(argv: readonly string[]): TracerInvocation | undefined {
+  const uiIndex = argv.indexOf('--tracer-ui')
   const nativeIndex = argv.indexOf('--tracer-native')
   const marker = argv.indexOf('--tracer')
-  if (nativeIndex < 0 && marker < 0) return undefined
+  if (uiIndex < 0 && nativeIndex < 0 && marker < 0) return undefined
   const framesDir = parseFramesDir(argv)
   const withFramesDir = (): { framesDir?: string } => framesDir === undefined ? {} : { framesDir }
+
+  if (uiIndex >= 0) {
+    const pickedDirectory = argv[uiIndex + 1]
+    if (pickedDirectory === undefined || !isAbsolute(pickedDirectory) || !existsSync(pickedDirectory)) {
+      throw new Error('desktop UI tracer requires an existing absolute --tracer-ui directory')
+    }
+    const replayIndex = argv.indexOf('--replay-file')
+    const replayFile = replayIndex < 0 ? undefined : argv[replayIndex + 1]
+    if (replayFile === undefined || !isAbsolute(replayFile) || !existsSync(replayFile)) {
+      throw new Error('desktop UI tracer requires an existing absolute --replay-file')
+    }
+    if (framesDir === undefined) throw new Error('desktop UI tracer requires an absolute --frames-dir')
+    return { kind: 'ui', replayFile, pickedDirectory, framesDir }
+  }
 
   if (nativeIndex >= 0) {
     const pickedDirectory = argv[nativeIndex + 1]
@@ -59,7 +81,7 @@ export function parseTracerInvocation(argv: readonly string[]): TracerInvocation
   return { kind: 'terminal', replayFile, ...withFramesDir() }
 }
 
-function replayPatch(replayFile: string): string {
+function replayPatch(replayFile: string, paceMs?: number): string {
   return [
     '- id: llm-deepseek',
     '  disabled: true',
@@ -70,6 +92,7 @@ function replayPatch(replayFile: string): string {
     "      name: '@deepseek-ai/dsh-llm-replay'",
     '      config:',
     `        file: ${JSON.stringify(replayFile)}`,
+    ...(paceMs === undefined ? [] : [`        paceMs: ${String(paceMs)}`]),
     '        providers:',
     '          - id: deepseek-official',
     '            name: DeepSeek',
@@ -81,15 +104,31 @@ function replayPatch(replayFile: string): string {
   ].join('\n')
 }
 
-/** Mount the packaged replay adapter through the user-overlay seam in an isolated tracer home. */
-export function prepareTracerProfile(home: string, replayProvider: string, replayFile: string): void {
+/**
+ * Mount replay through the user-overlay seam in an isolated tracer home.
+ * `acknowledgeWelcome` creates the tracer-owned settings file only when absent;
+ * `replayPaceMs` controls keyless stream pacing and is validated by the replay provider.
+ */
+export function prepareTracerProfile(
+  home: string,
+  replayProvider: string,
+  replayFile: string,
+  options: {
+    readonly acknowledgeWelcome?: boolean
+    readonly replayPaceMs?: number
+  } = {},
+): void {
   if (!isAbsolute(home) || !isAbsolute(replayProvider)) {
     throw new Error('desktop tracer profile paths must be absolute')
   }
   const profileDir = join(home, 'profiles', 'desktop')
   const fallback = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'dsh-llm-replay')
   mkdirSync(profileDir, { recursive: true })
-  writeFileSync(join(profileDir, 'cordis.patch.yml'), replayPatch(replayFile))
+  writeFileSync(join(profileDir, 'cordis.patch.yml'), replayPatch(replayFile, options.replayPaceMs))
+  const settingsPath = join(home, 'settings.yaml')
+  if (options.acknowledgeWelcome === true && !existsSync(settingsPath)) {
+    writeFileSync(settingsPath, 'ui-onboarding:\n  welcomeNoticeVersion: 2026-08-13.1\n')
+  }
   mkdirSync(dirname(fallback), { recursive: true })
   if (existsSync(fallback)) {
     if (!lstatSync(fallback).isSymbolicLink()) {

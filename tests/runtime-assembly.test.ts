@@ -70,7 +70,7 @@ describe('published DSH runtime', () => {
     expect(() => execFileSync('git', ['check-ignore', value.build.output], { cwd: ROOT, env: CLEAN_ENV })).not.toThrow()
     const lockfileDigest = execFileSync('shasum', ['-a', '256', value.build.lockfile], { cwd: ROOT, env: CLEAN_ENV, encoding: 'utf8' }).split(' ')[0]
     expect(lockfileDigest).toBe(value.build.lockfileSha256)
-    expect(value.patches).toHaveLength(3)
+    expect(value.patches).toHaveLength(4)
     const workspace = parse(fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8')) as { patchedDependencies?: Record<string, string> }
     expect(workspace.patchedDependencies).toEqual(Object.fromEntries(value.patches.map(patch => [`${patch.package}@${patch.version}`, patch.file])))
     for (const patch of value.patches) {
@@ -133,16 +133,16 @@ describe('published DSH runtime', () => {
   })
 
   it('assembles every declared entrypoint without source dependencies', () => {
+    const value = manifest()
     const workspace = parse(fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8')) as {
       packages?: string[]
     }
     expect(workspace.packages?.some(pattern => pattern.includes('upstream'))).toBe(false)
-    execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', ['run', 'runtime:assemble', '--', '--output', OUTPUT], {
+    execFileSync(process.execPath, [path.join(ROOT, value.build.assemblyScript), '--output', OUTPUT], {
       cwd: ROOT,
       env: { ...CLEAN_ENV, CI: 'true' },
       stdio: 'pipe',
     })
-    const value = manifest()
     for (const [name, entry] of Object.entries(value.entryPackages)) {
       const packageRoot = name === '@dsh-desktop/shell' ? OUTPUT : path.join(OUTPUT, 'node_modules', name)
       const relativeToSource = path.relative(path.join(ROOT, 'upstream'), fs.realpathSync(packageRoot))

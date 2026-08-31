@@ -1,7 +1,8 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { basename, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeRuntimeOutput, scrubRuntimeEnvironment } from '../scripts/runtime-output.js'
 
@@ -196,8 +197,8 @@ function expectQuiescent(result: ProcessOutput, minimumIdentities = 1): void {
 }
 
 beforeAll(() => {
-  execFileSync(process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm', [
-    'run', 'runtime:assemble', '--', '--output', RUNTIME,
+  execFileSync(process.execPath, [
+    join(ROOT, 'scripts', 'assemble-runtime.ts'), '--output', RUNTIME,
   ], {
     cwd: ROOT,
     env: { ...scrubRuntimeEnvironment(process.env), CI: 'true' },
@@ -211,6 +212,81 @@ afterAll(() => {
 })
 
 describe.skipIf(process.platform !== 'darwin')('integrated Electron runtime', () => {
+  it('composes the official Client with desktop workspace, input, conversation, and settings contributions', () => {
+    const home = temporary('dsh-desktop-ui-home-')
+    const picked = temporary('dsh-desktop-ui-picked-')
+    const frames = temporary('dsh-desktop-ui-frames-')
+
+    const result = launch(home, [
+      '--tracer-ui', picked,
+      '--replay-file', FIXTURE,
+      '--frames-dir', frames,
+    ])
+
+    expect(result.error).toBeUndefined()
+    expect(result.status, textOutput(result.stderr)).toBe(0)
+    const output = textOutput(result.stdout)
+    expect(output).toContain('TRACER_OK no-loopback-listener')
+    expect(output).toContain('TRACER_OK official-client-ui')
+    const evidenceLine = output.split('\n')
+      .find(line => line.startsWith('DESKTOP_UI_EVIDENCE '))
+    expect(evidenceLine).toBeDefined()
+    const evidence = JSON.parse((evidenceLine as string).slice('DESKTOP_UI_EVIDENCE '.length)) as {
+      graph: string[]
+      workspace: boolean
+      workspacePath: string
+      workspaceLabel: string
+      streaming: boolean
+      tool: string
+      answer: boolean
+      error: boolean
+      settings: boolean
+      desktopChrome: boolean
+      frames: Array<{ file: string; bytes: number; sha256: string }>
+    }
+    expect(evidence).toMatchObject({
+      workspace: true,
+      workspacePath: picked,
+      workspaceLabel: basename(picked),
+      streaming: true,
+      tool: 'ok',
+      answer: true,
+      error: true,
+      settings: false,
+      desktopChrome: true,
+    })
+    for (const id of [
+      '@deepseek-ai/dsh-client-ui-conversation',
+      '@deepseek-ai/dsh-client-ui-directory-picker-native',
+      '@deepseek-ai/dsh-client-ui-input-trigger',
+      '@deepseek-ai/dsh-client-ui-settings',
+      '@deepseek-ai/dsh-client-ui-workspace',
+      '@dsh-desktop/ui',
+    ]) expect(evidence.graph).toContain(id)
+    const files = [
+      '01-workspace-picker.png',
+      '02-workspace-adopted.png',
+      '03-input-triggers.png',
+      '04-conversation-streaming.png',
+      '05-conversation-complete.png',
+      '06-conversation-error.png',
+      '07-settings.png',
+    ]
+    const images = files.map(file => readFileSync(join(frames, file)))
+    expect(images.every(image => image.subarray(0, 8).toString('hex') === '89504e470d0a1a0a')).toBe(true)
+    expect(images.every(image => image.byteLength > 20_000)).toBe(true)
+    expect(new Set(images.map(image => image.toString('base64'))).size).toBe(files.length)
+    expect(evidence.frames).toEqual(files.map((file, index) => ({
+      file,
+      bytes: images[index]?.byteLength,
+      sha256: createHash('sha256').update(images[index] as Buffer).digest('hex'),
+    })))
+    expect(JSON.parse(readFileSync(join(frames, 'evidence.json'), 'utf8'))).toEqual(evidence)
+    expect(readFileSync(join(home, 'settings.yaml'), 'utf8'))
+      .toContain('ui-sidebar-glass-macos:\n  enabled: false')
+    expectQuiescent(result)
+  }, 180_000)
+
   it('renders one ordered keyless terminal turn over the real embedded DSH child', () => {
     const home = temporary('dsh-desktop-e2e-home-')
     const frames = temporary('dsh-desktop-e2e-frames-')

@@ -1,0 +1,64 @@
+diff --git a/lib/index.js b/lib/index.js
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -248,7 +248,7 @@ synchronously — a malformed declaration or missing bundle among the
+ * boot activation audit reports it).
+ */
+ var ClientModuleRegistry = class extends Service {
+-	static inject = ["webServer", "loader"];
++	static inject = ["loader"];
+ 	table = /* @__PURE__ */ new Map();
+ 	pkgMeta = /* @__PURE__ */ new Map();
+ 	rebuildListeners = /* @__PURE__ */ new Set();
+@@ -259,7 +259,9 @@ var ClientModuleRegistry = class extends Service {
+ 	composed;
+ 	/**
+ 	* Build the service: subscribe, seed, and run the activation flush.
+-	* @param ctx - plugin context carrying webServer and loader.
++	* Web deployments attach routes when a WebServer provider is present; other
++	* carriers consume the transport-neutral graph and client paths directly.
++	* @param ctx - plugin context carrying loader and an optional WebServer.
+ 	*/
+ 	constructor(ctx) {
+ 		super(ctx, "clientModules");
+@@ -284,12 +286,14 @@ var ClientModuleRegistry = class extends Service {
+ 		const failures = [];
+ 		this.flush((err) => failures.push(err));
+ 		if (failures.length > 0) throw new ClientPackageCompositionError(failures);
+-		ctx.effect(() => ctx.webServer.register({
+-			kind: "prefix",
+-			path: "/plugins",
+-			handler: this.serveBundle
+-		}), "client-modules: bundle route");
+-		ctx.effect(() => ctx.webServer.tapIndex((html) => injectBootManifest(html, this.composed)), "client-modules: boot manifest injection");
++		ctx.inject(["webServer"], (webContext) => {
++			webContext.effect(() => webContext.webServer.register({
++				kind: "prefix",
++				path: "/plugins",
++				handler: this.serveBundle
++			}), "client-modules: bundle route");
++			webContext.effect(() => webContext.webServer.tapIndex((html) => injectBootManifest(html, this.composed)), "client-modules: boot manifest injection");
++		});
+ 	}
+ 	/**
+ 	* Current composed entry graph (stable object between changes).
+diff --git a/lib/types/index.d.ts b/lib/types/index.d.ts
+--- a/lib/types/index.d.ts
++++ b/lib/types/index.d.ts
+@@ -58,6 +58,7 @@ export declare function injectBootManifest(html: string, graph: WebBootGraph): st
+ /**
+- * The web plugin table service: incremental `dsh.client` scan + wire composition
+- * + bundle route + index tap. Construction runs the activation scan
++ * The client plugin table service: incremental `dsh.client` scan + wire composition.
++ * A WebServer provider adds the Web bundle route and index tap; other carriers
++ * consume the transport-neutral graph and client paths directly. Construction runs the activation scan
+  * synchronously — a malformed declaration or missing bundle among the
+  * already-loaded entries aggregates into one loud throw (FAILED fiber; the
+  * boot activation audit reports it).
+@@ -75,5 +76,5 @@ export declare class ClientModuleRegistry extends Service {
+     /**
+      * Build the service: subscribe, seed, and run the activation flush.
+-     * @param ctx - plugin context carrying webServer and loader.
++     * @param ctx - plugin context carrying loader and an optional WebServer.
+      */
+     constructor(ctx: Context);

@@ -15,9 +15,13 @@ import type {
 import { parseDesktopCapabilityRequest } from '../packages/connection/src/index.js'
 import { createDesktopPreload, type ContextBridgeLike, type IpcRendererLike } from '../packages/connection/src/preload.js'
 
-interface OfficialClientExports {
+interface DesktopClientExports {
   createConnectionHandle(transport: ConnectionTransport): ConnectionHandle
   createFetchConnectionRpc(fetcher: typeof fetch): ConnectionTransport['rpc']
+  readonly internals: {
+    createConnectionHandle(transport: ConnectionTransport): ConnectionHandle
+    createFetchConnectionRpc(fetcher: typeof fetch): ConnectionTransport['rpc']
+  }
 }
 
 interface HostPluginExports {
@@ -55,25 +59,39 @@ const officialGateway = bundleRequire('@deepseek-ai/dsh-host-apiproxy') as {
   ApiProxyService: { inject: readonly string[] }
 }
 
-let officialClientImports = 0
+let desktopClientImports = 0
 
-async function loadOfficialClientExports(): Promise<OfficialClientExports> {
-  let exports: OfficialClientExports | undefined
+async function loadDesktopClientExports(): Promise<DesktopClientExports> {
+  interface ClientModule {
+    readonly id: string
+    factory(require: (id: string) => unknown): unknown
+  }
+  const modules = new Map<string, ClientModule>()
+  const exports = new Map<string, unknown>()
   Object.assign(globalThis, {
     window: {
       __ModuleLoader__: {
-        load(module: { factory(require: (id: string) => unknown): OfficialClientExports }) {
-          exports = module.factory((id) => { throw new Error(`unexpected client dependency: ${id}`) })
-          return exports
+        load(module: ClientModule) {
+          modules.set(module.id, module)
         },
       },
     },
   })
-  const entry = new URL('../packages/connection/node_modules/@deepseek-ai/dsh-client-connection/lib/client.js', import.meta.url)
-  officialClientImports += 1
-  await import(`${entry.href}?connection-composition-${String(officialClientImports)}`)
-  if (exports === undefined) throw new Error('official Client bundle did not register')
-  return exports
+  desktopClientImports += 1
+  await import(`${clientPluginUrl}?connection-composition-${String(desktopClientImports)}`)
+
+  const resolveModule = (requestedId: string): unknown => {
+    const id = requestedId === '@deepseek-ai/dsh-client-connection/client'
+      ? '@deepseek-ai/dsh-client-connection'
+      : requestedId
+    if (exports.has(id)) return exports.get(id)
+    const module = modules.get(id)
+    if (module === undefined) throw new Error(`unexpected client dependency: ${requestedId}`)
+    const value = module.factory(resolveModule)
+    exports.set(id, value)
+    return value
+  }
+  return resolveModule('@dsh-desktop/connection') as DesktopClientExports
 }
 
 class RelayEndpoint extends EventEmitter implements DesktopChildEndpoint {
@@ -187,11 +205,8 @@ afterEach(() => {
 })
 
 it('boots real Client and Host connection plugins over IPC without WebServer or a listener', async () => {
-  const official = await loadOfficialClientExports()
   const hostPlugin = await import(hostPluginUrl) as HostPluginExports
-  const clientPlugin = await import(clientPluginUrl)
-  clientPlugin.internals.createConnectionHandle = official.createConnectionHandle
-  clientPlugin.internals.createFetchConnectionRpc = official.createFetchConnectionRpc
+  const clientPlugin = await loadDesktopClientExports()
   const endpoint = new RelayEndpoint()
   const ipc = new RelayIpc(endpoint)
   const contextBridge: ContextBridgeLike = { exposeInMainWorld() {} }
@@ -348,10 +363,7 @@ it('composes the desktop picker and gateway over the real stack with shell-side 
     const preload = createDesktopPreload(contextBridge, ipc)
     globalThis.dshDesktop = preload.bridge
 
-    const official = await loadOfficialClientExports()
-    const clientPlugin = await import(clientPluginUrl)
-    clientPlugin.internals.createConnectionHandle = official.createConnectionHandle
-    clientPlugin.internals.createFetchConnectionRpc = official.createFetchConnectionRpc
+    const clientPlugin = await loadDesktopClientExports()
     const clientConfigPath = join(fixture, 'native-client.cordis.yml')
     writeFileSync(clientConfigPath, '- id: desktop-connection\n  name: cordis:desktop-client-connection\n')
     let client: Awaited<ReturnType<typeof boot>> | undefined

@@ -104,6 +104,19 @@
       ]
     },
     {
+      "package": "@deepseek-ai/dsh-client-modules",
+      "version": "0.1.0-rc.8",
+      "file": "patches/@deepseek-ai__dsh-client-modules@0.1.0-rc.8.patch",
+      "sha256": "07af454e8431f012e10c8aa58659263dd8f3e5566b952847c6c3ed5cb80409c2",
+      "rationale": "Keep the official Client graph and bundle resolver available to the desktop carrier when no WebServer provider is mounted.",
+      "upstream": "https://github.com/deepseek-ai/deepseek-harness/tree/141eb6fef83422698aef7a981029e843e8161534/packages/client/modules/src",
+      "removeWhen": "An exact published @deepseek-ai/dsh-client-modules release treats WebServer as an optional carrier.",
+      "tests": [
+        "tests/desktop-client-modules.test.ts",
+        "tests/ui-assets.test.ts"
+      ]
+    },
+    {
       "package": "@deepseek-ai/dsh-client-ui-layout",
       "version": "0.1.0-rc.8",
       "file": "patches/@deepseek-ai__dsh-client-ui-layout@0.1.0-rc.8.patch",
@@ -126,6 +139,6 @@
       "version": "43.4.0",
       "runAsNode": true
     },
-    "lockfileSha256": "9803076a57ff72a98dd02fa9789422e029f3d7e1adea10d694dfc30e860555f5"
+    "lockfileSha256": "cf6d513d481d2821a7a343f59154e05b36b89842b5e00c8dd3b79f8e845df7ea"
   }
 }

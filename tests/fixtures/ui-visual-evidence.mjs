@@ -13,9 +13,6 @@ if (output === undefined || !path.isAbsolute(output)) {
 const uiRequire = createRequire(path.join(ROOT, 'packages', 'ui', 'package.json'))
 const React = uiRequire('react')
 const { renderToStaticMarkup } = uiRequire('react-dom/server')
-const { applyWithEnvironment } = await import(pathToFileURL(
-  path.join(ROOT, 'packages', 'ui', 'lib', 'client.js'),
-).href)
 const {
   DESKTOP_SURFACE_CSS,
   applyDesktopSurfaceState,
@@ -23,6 +20,7 @@ const {
 
 const officialStyles = []
 let sidebarClient
+let desktopClient
 const passthrough = ({ children }) => children
 const icon = ({ size = 16 }) => React.createElement(
   'span',
@@ -42,15 +40,21 @@ globalThis.window = {
   clearTimeout,
   __ModuleLoader__: {
     load(definition) {
-      sidebarClient = definition.factory((id) => {
+      const value = definition.factory((id) => {
         if (id === 'react') return React
         if (id === 'react/jsx-runtime') return uiRequire('react/jsx-runtime')
         if (id === '@deepseek-ai/dsh-client-ui-primitives') return primitives
         throw new Error(`unexpected published sidebar dependency: ${id}`)
       })
+      if (definition.id === '@dsh-desktop/ui') desktopClient = value
+      if (definition.id === '@deepseek-ai/dsh-client-ui-sidebar') sidebarClient = value
     },
   },
 }
+
+await import(`${pathToFileURL(path.join(ROOT, 'packages', 'ui', 'lib', 'client.js')).href}?visual-evidence`)
+if (desktopClient === undefined) throw new Error('desktop UI Client module did not register')
+const { applyWithEnvironment } = desktopClient
 
 const bundleRequire = createRequire(path.join(ROOT, 'packages', 'bundle', 'package.json'))
 const webAppPackage = bundleRequire.resolve('@deepseek-ai/dsh-web-app/package.json')
