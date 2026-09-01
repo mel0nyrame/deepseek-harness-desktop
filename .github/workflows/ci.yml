@@ -45,3 +45,41 @@ jobs:
 
       - name: Test (incl. repository-layout boundary)
         run: pnpm run test
+
+  package-macos:
+    runs-on: macos-15
+    name: packaged macOS application
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build and verify installable products
+        run: pnpm run package
+
+      - name: Test installed application outside the source tree
+        env:
+          DSH_DESKTOP_PACKAGE_REQUIRED: '1'
+        run: pnpm run test:package
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dsh-desktop-macos
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.blockmap
+          if-no-files-found: error

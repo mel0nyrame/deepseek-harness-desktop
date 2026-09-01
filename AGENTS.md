@@ -19,10 +19,9 @@ single product identity.
 - The product workspace lives at the repository root: `apps/desktop` (the
   Electron shell, `@dsh-desktop/shell`) and `packages/*` (`@dsh-desktop/bundle`,
   `connection`, `native`, `ui`).
-- [`legacy/`](legacy/README.md) is the frozen official monorepo source,
-  preserved for comparison and recovery until the decoupling removes it.
-  Never edit, build, or depend on it; the `legacy` branch is its recovery
-  home.
+- The `legacy` branch retains the repository snapshot from before source-copy
+  removal; its `legacy/` subtree is the frozen pre-decoupling monorepo for
+  historical comparison and recovery. Neither is part of this source tree.
 - [`upstream/`](upstream) is the pinned official DeepSeek Harness source
   submodule, for source inspection and compatibility work only. Ordinary
   install, typecheck, test, build, and packaging never require it.
@@ -43,15 +42,16 @@ pnpm run check         # typecheck + lint + test
 
 Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`,
 and root `.env`; never commit credentials. Official runtime packages are
-consumed as exact published versions, never from `legacy/` or `upstream/`.
+consumed as exact published versions, never from the `legacy` branch or
+`upstream/`.
 
 ## Conventions
 
 - Desktop packages are `@dsh-desktop/<role>`; official runtime packages keep
   `@deepseek-ai/*`. Desktop-to-desktop dependencies use `workspace:*`;
   everything else is an exact version. Nothing outside the workspace may
-  depend on a desktop package, and the workspace never reads the `legacy/`
-  package graph.
+  depend on a desktop package, and the workspace never reads the historical
+  monorepo package graph.
 - Registrations are effects through `ctx.effect()` or `ctx.on()`; registry
   `register()` methods return disposers. Waterfall listeners call `next()` to
   delegate.
@@ -89,5 +89,5 @@ Issues/specs use [GitHub Issues](docs/agents/issue-tracker.md); triage uses
 [domain docs](docs/agents/domain.md).
 
 `CLAUDE.md` symlinks this file. Read [defensive
-patterns](legacy/docs/defensive-patterns.md) before lifecycle, concurrency,
+patterns](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/docs/defensive-patterns.md) before lifecycle, concurrency,
 subprocess, or teardown work in the official runtime layers.

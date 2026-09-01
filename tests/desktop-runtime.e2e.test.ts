@@ -5,6 +5,12 @@ import { tmpdir } from 'node:os'
 import { basename, join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeRuntimeOutput, scrubRuntimeEnvironment } from '../scripts/runtime-output.js'
+import {
+  liveProcessIdentities,
+  processIdentities,
+  textOutput,
+  type ProcessOutput,
+} from './desktop-process-evidence.js'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const RUNTIME = join(ROOT, '.artifacts', 'runtime-e2e')
@@ -143,57 +149,10 @@ async function launchWithOsDrag(home: string, args: readonly string[]): Promise<
   })
 }
 
-function textOutput(value: string | Buffer | null): string {
-  return typeof value === 'string' ? value : value?.toString('utf8') ?? ''
-}
-
-interface ProcessIdentity {
-  readonly pid: number
-  readonly started: string
-}
-
-interface ProcessOutput {
-  readonly stdout: string | Buffer | null
-  readonly stderr: string | Buffer | null
-}
-
-function processIdentities(result: ProcessOutput): ProcessIdentity[] {
-  const prefix = 'DESKTOP_PROCESS_IDENTITY '
-  const identities = new Map<string, ProcessIdentity>()
-  for (const line of `${textOutput(result.stdout)}\n${textOutput(result.stderr)}`.split('\n')) {
-    if (!line.startsWith(prefix)) continue
-    const value = JSON.parse(line.slice(prefix.length)) as ProcessIdentity
-    if (!Number.isSafeInteger(value.pid) || value.pid <= 0 || value.started === '') {
-      throw new Error(`invalid desktop process identity: ${line}`)
-    }
-    identities.set(`${String(value.pid)}\0${value.started}`, value)
-  }
-  return [...identities.values()]
-}
-
-function liveIdentities(identities: readonly ProcessIdentity[]): ProcessIdentity[] {
-  return identities.filter((identity) => {
-    try {
-      const output = execFileSync('/bin/ps', [
-        '-p', String(identity.pid), '-o', 'lstart=', '-o', 'stat=',
-      ], {
-        encoding: 'utf8',
-      }).trim()
-      const state = output.startsWith(identity.started)
-        ? output.slice(identity.started.length).trim()
-        : ''
-      return state !== '' && !state.startsWith('Z')
-    } catch (error) {
-      if ((error as { status?: unknown }).status === 1) return false
-      throw error
-    }
-  })
-}
-
 function expectQuiescent(result: ProcessOutput, minimumIdentities = 1): void {
   const identities = processIdentities(result)
   expect(identities.length).toBeGreaterThanOrEqual(minimumIdentities)
-  expect(liveIdentities(identities)).toEqual([])
+  expect(liveProcessIdentities(identities)).toEqual([])
 }
 
 beforeAll(() => {

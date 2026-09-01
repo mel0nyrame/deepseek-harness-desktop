@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-08-02-native-github-stacks-and-optional-rebases.md: 5016dd5314f9539735c3fb103a64e328a55a4f02
-2026-08-02-native-github-stacks-and-optional-rebases.zh.md: 508980a3dc10e8ec92a4f4e31becaee59ca523e0
+2026-08-02-native-github-stacks-and-optional-rebases.md: 3d097c5a7e4c3fe7e973dee7b34c480c9679823a
+2026-08-02-native-github-stacks-and-optional-rebases.zh.md: f28e0879220cad029bad4837dba4baf7a8bee749

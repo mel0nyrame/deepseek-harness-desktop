@@ -1,6 +1,0 @@
-# Bilingual-pair consistency record: the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal
-# authority; after editing either side, bring the other along and re-record
-# with: git hash-object <side> for both files, then update this record.
-2026-08-20-desktop-workspace-decoupling.md: 7c4999addb49d3777d449a01f07dc94c0efee21c
-2026-08-20-desktop-workspace-decoupling.zh.md: 180949b5d86e7d0f824b74b3d795e1efc034e362

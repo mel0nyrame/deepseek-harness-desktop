@@ -10,20 +10,19 @@ These rules apply to the `@dsh-desktop/*` packages: `apps/desktop`
 - Dependencies between desktop packages use `workspace:*`. Dependencies on
   official packages (`@deepseek-ai/*`) are exact published versions from the
   registry — never `workspace:` protocol, `file:`/`link:` references, or
-  anything resolved through `legacy/`. Third-party dependencies are exact
+  anything resolved through the `legacy` branch. Third-party dependencies are exact
   versions too.
-- Nothing outside `@dsh-desktop/*` may depend on a desktop package. In
-  particular the frozen `legacy/` tree must never gain a dependency on this
-  workspace, and this workspace must never read the `legacy/` package graph.
+- Nothing outside `@dsh-desktop/*` may depend on a desktop package, and this
+  workspace must never read the historical monorepo package graph.
 - Every capability enters through a Cordis plugin and a declared capability
   seam (Service Definition / Provider / Consumer). The Electron shell is a
   host boundary, not a second agent runtime.
 
 ## Frozen inputs
 
-- `legacy/` is the frozen official monorepo source, preserved for comparison
-  and recovery until the decoupling removes it. Never edit, build, or depend
-  on it from the product workspace; the `legacy` branch is its recovery home.
+- The `legacy` branch retains the repository snapshot from before source-copy
+  removal; its `legacy/` subtree is the frozen pre-decoupling monorepo for
+  historical comparison and recovery. It is not a product-workspace input.
 - `upstream/` is the pinned official source submodule for inspection and
   compatibility work only. Ordinary install, typecheck, test, build, and
   packaging must never require it.

@@ -44,6 +44,7 @@ export interface DshSpawnOptions {
   readonly cliEntry: string
   readonly runtimeRoot: string
   readonly home: string
+  readonly execArgv?: readonly string[]
 }
 
 /** Successful embedded runtime readiness. */
@@ -156,7 +157,7 @@ export function spawnDshChild(options: DshSpawnOptions): DshChild {
   const child = fork(options.cliEntry, ['--profile', 'desktop'], {
     cwd: options.home,
     execPath: options.executable,
-    execArgv: ['--expose-internals'],
+    execArgv: ['--expose-internals', ...(options.execArgv ?? [])],
     detached: process.platform !== 'win32',
     env: {
       ...process.env,

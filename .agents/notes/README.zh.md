@@ -18,7 +18,7 @@
 
 活跃生命周期目录树就是工作清单：浏览其生命周期/类别文件夹，或搜索仓库即可。请勿添加集中式 `INDEX.md`；设计理由见[不设索引的 Agent Note](implemented/process/2026-07-19-remove-generated-agent-note-index.md)。未来指导价值较低的已实施记录会移至下文所述、单独冻结的 [`archived/`](archived/AGENTS.md) 目录树。
 
-解耦前的决策语料冻结在 `legacy/.agents/notes/` 中；仍能指导桌面产品的记录迁移至此，生命周期状态保持不变，引用已更新。repository-layout 测试（`pnpm run test:layout`）固定生命周期目录树、已迁移记录集合与保留的技能集合。
+解耦前的决策语料冻结在 `legacy` 分支的 `legacy/` 子树中；仍能指导桌面产品的记录迁移至此，生命周期状态保持不变，引用已更新。repository-layout 测试（`pnpm run test:layout`）固定生命周期目录树、已迁移记录集合与保留的技能集合。
 
 <a id="classification"></a>
 
@@ -59,7 +59,7 @@
 
 ## 文件格式
 
-每份活跃 Agent Note 遵循统一的文件内格式；repository-layout 测试（`pnpm run test:layout`）强制执行其中可机器检查的基础项——`# Agent Note: ` 标题、空白的第二行、`Status:` 与生命周期的一致性，以及「曾考虑的替代方案」章节（或格式规范之前的标记）——其余格式按本文件手工执行。该格式的设计动机及其否决的替代方案见[冻结树中的统一格式 Agent Note](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md)。归档记录保留封存时的格式，并增加上述归档日期行。
+每份活跃 Agent Note 遵循统一的文件内格式；repository-layout 测试（`pnpm run test:layout`）强制执行其中可机器检查的基础项——`# Agent Note: ` 标题、空白的第二行、`Status:` 与生命周期的一致性，以及「曾考虑的替代方案」章节（或格式规范之前的标记）——其余格式按本文件手工执行。该格式的设计动机及其否决的替代方案见[冻结树中的统一格式 Agent Note](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md)。归档记录保留封存时的格式，并增加上述归档日期行。
 
 ### 头部块
 

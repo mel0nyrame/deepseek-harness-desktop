@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { isAbsolute, join, resolve } from 'node:path'
 import { app, BrowserWindow, dialog, ipcMain, nativeTheme, protocol, shell } from 'electron'
@@ -115,6 +115,16 @@ function processEvidenceObserver(): SupervisorOptions['onProcessSnapshot'] {
       })}`)
     }
   }
+}
+
+function runtimeEvidenceExecArgv(): readonly string[] | undefined {
+  if (process.env.DSH_DESKTOP_PROCESS_EVIDENCE !== '1') return undefined
+  const guard = process.env.DSH_DESKTOP_NETWORK_GUARD
+  if (guard === undefined) return undefined
+  if (!isAbsolute(guard) || !statSync(guard, { throwIfNoEntry: false })?.isFile()) {
+    throw new Error('DSH_DESKTOP_NETWORK_GUARD must name an absolute file')
+  }
+  return ['--require', guard]
 }
 
 function installCarrier(runtime: DshSupervisor, window: BrowserWindow): () => void {
@@ -564,6 +574,9 @@ function tracerNativeActionHandler(pickedDirectory: string): DesktopNativeAction
 
 async function run(): Promise<void> {
   const root = runtimeRoot()
+  if (process.env.DSH_DESKTOP_PROCESS_EVIDENCE === '1') {
+    console.log(`DESKTOP_RUNTIME_ROOT ${JSON.stringify(root)}`)
+  }
   const home = harnessHome()
   const tracer = parseTracerInvocation(process.argv)
   bootstrapDesktopProfile({
@@ -587,11 +600,13 @@ async function run(): Promise<void> {
     ? {}
     : { onProcessSnapshot: observeProcesses })
   supervisor = runtime
+  const evidenceExecArgv = runtimeEvidenceExecArgv()
   const options = {
     executable: process.execPath,
     cliEntry: join(root, 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
     runtimeRoot: root,
     home,
+    ...evidenceExecArgv === undefined ? {} : { execArgv: evidenceExecArgv },
   }
   const starting = startRuntime(runtime, options)
   if (process.argv.includes('--quit-during-startup')) {

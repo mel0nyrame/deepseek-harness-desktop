@@ -8,11 +8,11 @@ Status: implemented
 
 仅按生命周期组织的 Agent Note 目录树（`proposed/` / `implemented/` / `rejected/`）无法记录每个文件包含哪一*类*决策。读者浏览某个生命周期时，如果不逐一打开文件，就无法区分新功能、移除项或工具策略变更。
 
-本仓库一贯的倾向是[机械质量门禁优于行文规范](../../../../legacy/.agents/notes/implemented/process/2026-06-11-quality-gates.md)：不被机器检查的约定终将腐烂。因此这里的分类方案必须可强制执行，而非靠自觉的文件头。
+本仓库一贯的倾向是[机械质量门禁优于行文规范](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/.agents/notes/implemented/process/2026-06-11-quality-gates.md)：不被机器检查的约定终将腐烂。因此这里的分类方案必须可强制执行，而非靠自觉的文件头。
 
 ## 决策
 
-增加第二个维度，即 Agent Note 的**类别**，并将其编码在路径中：`{lifecycle}/{class}/yyyy-mm-dd-topic.md`。文件夹*就是*标签。文件位置声明其类别；封闭集合限定为「这些文件夹且仅限这些」；既有的 [verify-md-links](../../../../legacy/.agents/notes/implemented/process/2026-06-18-markdown-cross-link-lint.md) 门禁已经保护移动文件所需的路径改写。
+增加第二个维度，即 Agent Note 的**类别**，并将其编码在路径中：`{lifecycle}/{class}/yyyy-mm-dd-topic.md`。文件夹*就是*标签。文件位置声明其类别；封闭集合限定为「这些文件夹且仅限这些」；既有的 [verify-md-links](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/.agents/notes/implemented/process/2026-06-18-markdown-cross-link-lint.md) 门禁已经保护移动文件所需的路径改写。
 
 ### 六个类别的封闭集合
 

@@ -8,6 +8,7 @@ const ROOT = path.resolve(import.meta.dirname, '..')
 
 /** The pinned official DSH source commit: tag `dsh-v0.1.0-rc.8` on deepseek-ai/deepseek-harness. */
 const PINNED_UPSTREAM_COMMIT = '141eb6fef83422698aef7a981029e843e8161534'
+const LEGACY_SNAPSHOT_COMMIT = '0971b9f0e3e9293e3f76c45b1d72f5789244ccdf'
 
 const WORKSPACE_MEMBERS = new Set([
   '@dsh-desktop/shell',
@@ -55,6 +56,7 @@ const DROPPED_DSH_SKILLS = [
 /** The migrated Agent Notes (basename triplets), per the workspace-decoupling Agent Note. */
 const MIGRATED_NOTES = [
   'proposed/feature/2026-08-14-electron-desktop-app',
+  'implemented/architecture/2026-08-20-desktop-workspace-decoupling',
   'implemented/feature/2026-08-16-desktop-app-icon',
   'implemented/feature/2026-08-16-macos-compact-window-presentation',
   'implemented/process/2026-06-20-agent-note-classification',
@@ -92,33 +94,12 @@ const IDENTITY_ASSET_BLOBS: Record<string, string> = {
   'assets/readme/source/screenshots/native-window-product.png': '4be3a76373ee6b2bb6906afb391182453e5ee0f7',
 }
 
-/** The pre-decoupling root files that must stay present inside `legacy/`. */
-const FROZEN_ROOT_DOCS = [
-  'AGENTS.md',
-  'CLAUDE.md',
-  'README.md',
-  'README.zh.md',
-  'README.i18n.yaml',
-  'LICENSE',
-  'SECURITY.md',
-  '.editorconfig',
-  '.gitattributes',
-]
-
 function readJson(relative: string): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(ROOT, relative), 'utf8')) as Record<string, unknown>
 }
 
 function gitBlob(relative: string): string {
   return execFileSync('git', ['hash-object', relative], { cwd: ROOT, encoding: 'utf8' }).trim()
-}
-
-function walkFiles(dir: string): string[] {
-  return fs
-    .readdirSync(dir, { withFileTypes: true })
-    .flatMap((entry) =>
-      entry.isDirectory() ? walkFiles(path.join(dir, entry.name)) : [path.join(dir, entry.name)],
-    )
 }
 
 function expandWorkspaceGlobs(globs: string[]): string[] {
@@ -185,9 +166,6 @@ describe('repository layout', () => {
     const root = readJson('package.json')
     expect(root.name).toBe('@dsh-desktop/root')
 
-    // The legacy monorepo is frozen, not a workspace member.
-    expect(fs.existsSync(path.join(ROOT, 'legacy/package.json'))).toBe(true)
-    expect(fs.existsSync(path.join(ROOT, 'legacy/pnpm-workspace.yaml'))).toBe(true)
     expect(members.some((dir) => dir.startsWith('legacy'))).toBe(false)
   })
 
@@ -200,27 +178,43 @@ describe('repository layout', () => {
       assertAllowedDependencies(manifestPath, readJson(manifestPath))
     }
 
-    // Nothing outside the workspace may depend on a desktop package: the frozen
-    // legacy tree must never gain a dependency on @dsh-desktop/*.
-    const legacyManifests = execFileSync('git', ['ls-files', 'legacy/**/package.json'], {
+  })
+
+  it('keeps the recoverable legacy source only on the legacy branch', () => {
+    const trackedLegacy = execFileSync('git', ['ls-files', 'legacy'], {
       cwd: ROOT,
       encoding: 'utf8',
-    })
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-    for (const manifestPath of legacyManifests) {
-      const manifest = readJson(manifestPath)
-      for (const section of ['dependencies', 'devDependencies', 'peerDependencies'] as const) {
-        const deps = manifest[section]
-        if (typeof deps !== 'object' || deps === null) continue
-        for (const name of Object.keys(deps as Record<string, unknown>)) {
-          expect(name, `${manifestPath}: legacy dependency on a desktop package`).not.toMatch(
-            /^@dsh-desktop\//,
-          )
-        }
-      }
+    }).trim()
+    expect(trackedLegacy).toBe('')
+  })
+
+  it('pins removed-source references to the recoverable legacy snapshot', () => {
+    const markdown = execFileSync('git', ['ls-files', '-z', '*.md'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    }).split('\0').filter(file => file !== ''
+      && !file.startsWith('upstream/')
+      && !file.startsWith('.agents/notes/archived/'))
+    for (const file of markdown) {
+      const contents = fs.readFileSync(path.join(ROOT, file), 'utf8')
+      expect(contents, `${file}: mutable or incorrectly rooted legacy link`).not.toMatch(
+        /github\.com\/mel0nyrame\/deepseek-harness-desktop\/(?:blob|tree)\/legacy(?:[/#)]|$)/,
+      )
     }
+    const mergeSkill = fs.readFileSync(
+      path.join(ROOT, '.agents/skills/dsh-merging-stacked-prs/SKILL.md'),
+      'utf8',
+    )
+    expect(mergeSkill).toContain(
+      `/blob/${LEGACY_SNAPSHOT_COMMIT}/legacy/.agents/notes/implemented/process/2026-07-26-incremental-pr-base-retargeting.md`,
+    )
+    const diagnosingSkill = fs.readFileSync(
+      path.join(ROOT, '.agents/skills/diagnosing-bugs/SKILL.md'),
+      'utf8',
+    )
+    expect(diagnosingSkill).toContain(
+      `/blob/${LEGACY_SNAPSHOT_COMMIT}/legacy/.agents/skills/diagnosing-bugs/scripts/hitl-loop.template.sh`,
+    )
   })
 
   it('declares the pinned official DSH submodule', () => {
@@ -304,23 +298,6 @@ describe('repository layout', () => {
   it('keeps the identity assets with their content intact', () => {
     for (const [relative, blob] of Object.entries(IDENTITY_ASSET_BLOBS)) {
       expect(gitBlob(relative), `${relative} content`).toBe(blob)
-    }
-  })
-
-  it('keeps the frozen legacy tree complete', () => {
-    for (const relative of FROZEN_ROOT_DOCS) {
-      expect(fs.existsSync(path.join(ROOT, 'legacy', relative)), `legacy/${relative}`).toBe(true)
-    }
-    const claude = fs.lstatSync(path.join(ROOT, 'legacy/CLAUDE.md'))
-    expect(claude.isSymbolicLink()).toBe(true)
-    expect(fs.readlinkSync(path.join(ROOT, 'legacy/CLAUDE.md'))).toBe('AGENTS.md')
-
-    // The frozen assets/readme tree mirrors the product identity assets blob-for-blob.
-    for (const file of walkFiles(path.join(ROOT, 'assets/readme'))) {
-      const relative = path.relative(ROOT, file)
-      expect(gitBlob(`legacy/${relative}`), `legacy/${relative} mirrors ${relative}`).toBe(
-        gitBlob(relative),
-      )
     }
   })
 

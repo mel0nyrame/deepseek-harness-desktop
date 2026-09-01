@@ -19,7 +19,7 @@ Accept `mode: automatic | interactive`; default to `automatic`. Enter interactiv
 
 `mode` controls questions, not write authority. Review and audit tasks report findings without editing; explicitly requested write, fix, or trim tasks apply clear changes.
 
-Always exclude `legacy/` and `upstream/` from discovery, review, and edits, even when the requested scope is the whole repository. They are frozen source and a pinned submodule, never review targets. Put exclusions after inclusion globs so a later include cannot re-admit them: for example, end ripgrep commands with `--glob '!legacy/**' --glob '!upstream/**'`, and give Git commands an explicit `:(exclude)legacy/**` pathspec. If the requested scope contains only excluded paths, report that no eligible files remain.
+Always exclude `upstream/` from discovery, review, and edits, even when the requested scope is the whole repository. It is a pinned submodule, never a review target. Put the exclusion after inclusion globs so a later include cannot re-admit it: for example, end ripgrep commands with `--glob '!upstream/**'`, and give Git commands an explicit `:(exclude)upstream/**` pathspec. If the requested scope contains only the excluded path, report that no eligible files remain.
 
 Also exclude `.agents/notes/archived/` from prose review and edits. Archived Agent Notes are frozen snapshots; inspect an exact target only to understand a historical inbound citation, never to modernize its prose or outbound links.
 
@@ -50,7 +50,7 @@ This is not a one-way shortening pass. Add or restore prose when code, types, an
 - **Module comments:** state the module's role, dependencies, responsibilities, and non-obvious architecture choices; link architecture choices to their owning explanation.
 - **Tests:** explain only non-obvious test design—why a fixture, assertion, platform accommodation, real entry path, or indirect observation is necessary. Delete walkthroughs and inventories.
 - **Cookbooks:** include prerequisites, required actions, the real entry path, observable verification, and concise warnings.
-- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Quote stable model-visible text owned by the package; link generated catalogs and cross-package owners. Keep durable gaps and maintainer traps, not ordinary cleanup inventories. Follow the [package README requirements in the frozen cookbook](../../../legacy/docs/cookbook/adding-a-package.md#4-write-the-package-readme).
+- **READMEs:** include the consumer contract: configuration, semantics, failures, limitations, extension points, and model-visible effects. Quote stable model-visible text owned by the package; link generated catalogs and cross-package owners. Keep durable gaps and maintainer traps, not ordinary cleanup inventories. Follow the [package README requirements in the frozen cookbook](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/docs/cookbook/adding-a-package.md#4-write-the-package-readme).
 - **Agent Notes:** retain unique rationale, mechanisms, alternatives, consequences, shipped verification evidence, and named coverage gaps. Implemented Agent Notes state shipped reality in the present tense; remove planning checklists, not evidence of what pins the decision.
 - **Postmortems:** retain the incident sequence, evidence, causal chain, impact, and prevention. Remove repeated persuasion or implementation detail that does not establish causality.
 - **Skills and agent instructions:** state behavioral guardrails and explicit scope limitations such as “guidance, not a script/checklist.” Keep the workflow concise and link its source of truth.
@@ -67,7 +67,7 @@ Preserve searchable mechanism names and meaningful modal, temporal, or negative 
 3. Inspect the requested scope, not only the largest files. Use searches and word counts to find candidates, then judge passages semantically.
 4. Classify each candidate as keep, add, trim, restore, restructure, or defer. Apply clear changes only when the task authorizes edits; do not manufacture edits to satisfy a deletion target.
 5. Update the owner before derivative artifacts. Re-check analogous passages after learning a new rule.
-6. Run the narrow relevant checks, `pnpm run check`, `git diff --check`, and behavior tests for visible strings. Verify the final diff contains no `legacy/` or `upstream/` path and report any accidental match rather than claiming a clean exclusion history.
+6. Run the narrow relevant checks, `pnpm run check`, `git diff --check`, and behavior tests for visible strings. Verify the final prose diff contains no `upstream/` worktree edit and report any accidental match rather than claiming a clean exclusion history.
 7. Report the inspected scope, clear changes, deliberate keeps, deferred cases, and checks actually run.
 
 ## Borderline decisions
