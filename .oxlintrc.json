@@ -4,5 +4,5 @@
     "correctness": "error",
     "suspicious": "error"
   },
-  "ignorePatterns": ["legacy/**", "upstream/**", "node_modules/**"]
+  "ignorePatterns": ["upstream/**", "node_modules/**"]
 }

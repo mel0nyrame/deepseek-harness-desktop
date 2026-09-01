@@ -4,6 +4,7 @@ import path from 'node:path'
 import { parseArgs } from 'node:util'
 import { parse } from 'yaml'
 import { assertRuntimeOutput, removeRuntimeOutput, scrubRuntimeEnvironment } from './runtime-output.ts'
+import { verifyRuntimeClosure } from './verify-runtime-closure.ts'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'runtime/runtime-manifest.json'), 'utf8')) as {
@@ -58,6 +59,10 @@ const runtimePackagePaths = [
 for (const packagePath of runtimePackagePaths) {
   const value = JSON.parse(fs.readFileSync(packagePath, 'utf8')) as Record<string, unknown>
   let changed = false
+  if (typeof value.name === 'string' && value.name.startsWith('@dsh-desktop/')) {
+    changed = delete value.scripts || changed
+    changed = delete value.devDependencies || changed
+  }
   for (const section of ['dependencies', 'peerDependencies', 'optionalDependencies']) {
     const dependencies = value[section]
     if (typeof dependencies !== 'object' || dependencies === null) continue
@@ -107,5 +112,6 @@ for (const packagePath of runtimePackagePaths) {
     }
   }
 }
+verifyRuntimeClosure(output)
 fs.copyFileSync(path.join(ROOT, 'runtime/runtime-manifest.json'), path.join(output, 'runtime-manifest.json'))
 console.log(`Assembled DSH ${manifest.dshVersion} runtime at ${output}`)

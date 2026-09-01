@@ -1,0 +1,23 @@
+appId: ai.deepseek.dsh-desktop
+productName: DSH Desktop
+electronVersion: 43.4.0
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+buildDependenciesFromSource: false
+publish: null
+files:
+  - lib/packaged-main.js
+  - package.json
+  - '!node_modules/**'
+mac:
+  icon: build/icon.png
+  identity: '-'
+  hardenedRuntime: false
+  category: public.app-category.developer-tools
+  target:
+    - dmg
+    - dir
+  artifactName: '${productName}-${version}-${arch}.${ext}'
+  extendInfo:
+    NSHighResolutionCapable: true

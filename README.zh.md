@@ -56,7 +56,7 @@ React 客户端继续使用与 Web 产品相同、与传输无关的 Connection 
   <img src="./assets/readme/architecture.svg" width="100%" alt="React renderer 经 preload 桥和 Electron main 连接到内置 DSH 子进程的架构">
 </p>
 
-解耦前的载体、生命周期、打包、原生操作、恢复与安装态验收约定保留在冻结的[旧版桌面参考](legacy/apps/desktop/README.md)中；解耦后的外壳与桌面 Provider 约定随各自的切片落地（[`apps/desktop`](apps/desktop)、[`packages/`](packages)）。
+解耦前的载体与生命周期约定仍可在冻结的[旧版桌面参考](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/apps/desktop/README.md)中查阅。当前外壳与桌面 Provider 约定位于 [`apps/desktop`](apps/desktop) 和 [`packages/`](packages)。
 
 <a id="run"></a><a id="run-from-source"></a>
 
@@ -86,14 +86,16 @@ pnpm install
 pnpm run check
 ```
 
-`dev:desktop` 与打包命令会随解耦后的运行时与外壳切片回归；在此之前，冻结的旧版产品保留在 `legacy` 分支上。
+运行 `pnpm run package` 可构建可安装且经过 ad-hoc 签名的应用与 DMG。
+该命令会装配精确的已发布运行时、在 Electron 下验证原生 addon、校验应用身份与嵌入式运行时，并把产物写入 `apps/desktop/dist/`。运行
+`DSH_DESKTOP_PACKAGE_REQUIRED=1 pnpm run test:package` 可执行安装态产品门禁。
 
 ## 项目边界
 
 - [DSH Desktop 外壳](apps/desktop/README.md) — Electron 外壳角色及其边界。
 - [桌面产品包](packages/AGENTS.md) — `@dsh-desktop/*` 的归属与依赖方向规则。
-- [冻结的官方 monorepo 源码](legacy/README.md) — 解耦前的产品与官方内核，保留用于对比与恢复。
-- [冻结的旧版桌面参考](legacy/apps/desktop/README.md) — 解耦前发布的 Electron 架构、安全、生命周期、打包、验收与限制。
+- [冻结的解耦前 monorepo](https://github.com/mel0nyrame/deepseek-harness-desktop/tree/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy) — 仅供历史对比与恢复。
+- [冻结的旧版桌面参考](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/apps/desktop/README.md) — 解耦前发布的 Electron 架构、安全、生命周期、打包、验收与限制。
 - [固定的上游源码](upstream/README.md) — `dsh-v0.1.0-rc.8` 处锁定的官方 DeepSeek Harness 源码，仅用于源码检视与兼容性工作。
 - [上游仓库](https://github.com/deepseek-ai/deepseek-harness) — 本桌面仓库直接基于的原始 DeepSeek Harness 项目。
 
@@ -101,14 +103,14 @@ pnpm run check
 
 - 仓库与应用仍在积极开发中，未来仍可能出现破坏兼容性的变更。
 - 产品发行版分别提供 arm64 与 x64 macOS DMG，并附带 SHA-256 校验文件。
-- 尚未配置 Developer ID 签名与公证；直接下载时可能需要执行上文所述的一次性右键 → 打开。再次分发产物前请阅读[旧版桌面限制](legacy/apps/desktop/README.md#limitations)。
+- 尚未配置 Developer ID 签名与公证；直接下载时可能需要执行上文所述的一次性右键 → 打开。再次分发产物前请阅读[旧版桌面限制](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/apps/desktop/README.md#limitations)。
 
 ## 开发
 
-内核贡献流程以 [AGENTS.md](AGENTS.md) 为准；冻结的[开发指南](legacy/docs/development.md)与 [CONTRIBUTING.md](legacy/CONTRIBUTING.md) 记录了解耦前的贡献流程。桌面端专属实现位于 [`apps/desktop`](apps/desktop) 与桌面 Provider 包（[`packages/`](packages)）中。
+内核贡献流程以 [AGENTS.md](AGENTS.md) 为准；冻结的[开发指南](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/docs/development.md)与 [CONTRIBUTING.md](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/CONTRIBUTING.md) 记录了解耦前的贡献流程。桌面端专属实现位于 [`apps/desktop`](apps/desktop) 与桌面 Provider 包（[`packages/`](packages)）中。
 
 ## 许可证
 
 [MIT](LICENSE)
 
-解耦前产品的第三方依赖及其许可证见冻结的 [THIRD_PARTY_NOTICES.md](legacy/THIRD_PARTY_NOTICES.md)；解耦后产品的声明清单随打包切片落地。
+解耦前产品的第三方依赖及其许可证仍可在冻结的 [THIRD_PARTY_NOTICES.md](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/THIRD_PARTY_NOTICES.md) 中查阅。

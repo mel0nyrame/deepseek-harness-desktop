@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-06-20-agent-note-classification.md: 092fd8a4f5ca662ab5fd05ef92f6625e99a27fba
-2026-06-20-agent-note-classification.zh.md: c5ec3d75a10d005ac6eecc1c72b96c89dea047e9
+2026-06-20-agent-note-classification.md: 261fac6aff659d98ea1ddb7ed732cb2b2cc1c3f3
+2026-06-20-agent-note-classification.zh.md: b26868441f55065e563afb778fd3e7dfbad6e08c

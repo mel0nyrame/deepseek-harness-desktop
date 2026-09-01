@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-08-10-npm-release-sequences.md: b19fa47d54d37d53f02bdb3adaae2b2b097e2fb2
-2026-08-10-npm-release-sequences.zh.md: ac98273367190ff0b76d530c35d3ea835e428d4b
+2026-08-10-npm-release-sequences.md: a7b5741161205f4aa894bf8a42361de7036a4dcf
+2026-08-10-npm-release-sequences.zh.md: 7c116110f2561fbe184c5981aed8ca177f75b7bc

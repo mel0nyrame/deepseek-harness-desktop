@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-README.md: ca19490d8fa3c06dff44530aeb06ae52c0d6e397
-README.zh.md: 9ad9a2d15570a66992128676af751deca19aed46
+README.md: c06051aaec7a887130cc250a726f5d4f0b7a5289
+README.zh.md: ce7d0fba344f1b518abf4a292dc11cc1bb0c7705

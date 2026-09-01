@@ -18,7 +18,7 @@ The date in the filename is when the topic was **first proposed** (per git histo
 
 The active lifecycle tree is the working inventory: browse its lifecycle/class folders or search the repository. Do not add a centralized `INDEX.md`; the [no-index Agent Note](implemented/process/2026-07-19-remove-generated-agent-note-index.md) owns the rationale. Low-future-value implemented records move to the separate frozen [`archived/`](archived/AGENTS.md) tree described below.
 
-The pre-decoupling decision corpus remains frozen under `legacy/.agents/notes/`; notes whose decisions still guide the desktop product are migrated here with their lifecycle status preserved and their references updated. The repository-layout test (`pnpm run test:layout`) pins the lifecycle tree, the migrated note set, and the retained skill set.
+The pre-decoupling decision corpus remains frozen in the `legacy/` subtree of the `legacy` branch; notes whose decisions still guide the desktop product are migrated here with their lifecycle status preserved and their references updated. The repository-layout test (`pnpm run test:layout`) pins the lifecycle tree, the migrated note set, and the retained skill set.
 
 ## Classification
 
@@ -55,7 +55,7 @@ A feature-addition note may be consolidated into the later removal note only whe
 
 ## The file format
 
-Every active Agent Note follows one in-file format; the repository-layout test (`pnpm run test:layout`) enforces the machine-checkable basics — the `# Agent Note: ` header, the blank second line, the `Status:`/lifecycle agreement, and an Alternatives section (or the pre-format marker) — and the rest of the format is manual per this file. The rationale for the format — and the alternatives it rejected — is [the uniform-format Agent Note in the frozen tree](../../../legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md). Archived notes retain the format they had when sealed plus the archive-date line above.
+Every active Agent Note follows one in-file format; the repository-layout test (`pnpm run test:layout`) enforces the machine-checkable basics — the `# Agent Note: ` header, the blank second line, the `Status:`/lifecycle agreement, and an Alternatives section (or the pre-format marker) — and the rest of the format is manual per this file. The rationale for the format — and the alternatives it rejected — is [the uniform-format Agent Note in the frozen tree](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/.agents/notes/implemented/process/2026-07-05-uniform-agent-note-format.md). Archived notes retain the format they had when sealed plus the archive-date line above.
 
 ### The header block
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-08-16-desktop-fork-identity-and-upstream-readme-preservation.md: b0e9250fd42d59602f7bd48dbf2d748202780b36
-2026-08-16-desktop-fork-identity-and-upstream-readme-preservation.zh.md: 23212be24a79a985ee8947bac587c78179702926
+2026-08-16-desktop-fork-identity-and-upstream-readme-preservation.md: 2ef98a8e8c25c9dc50291921a0880219b6e1d020
+2026-08-16-desktop-fork-identity-and-upstream-readme-preservation.zh.md: f5ea2f6511d4203057b5379f4a67268244293686

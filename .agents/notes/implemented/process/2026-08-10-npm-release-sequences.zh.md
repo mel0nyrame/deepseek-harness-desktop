@@ -27,13 +27,13 @@ Status: implemented
 | vendored framework | `vendor/*` 九个包 | 每包各自一条版本线 | `vendor-<包名>-v<版本>`（每包一个） | 仅在本地 bump、pack 与 verify |
 | native | `native/landlock-run/packages/*` | 自己的 `0.0.x` | `landlock-run-v<版本>` | 仅在本地 bump、pack 与 verify |
 
-这个桌面 fork 不把三条序列中的任何一条发布到 npm。脚本保留 pack、安装态产物、payload、版本与 tag 校验，作为显式本地门禁；常规 CI 校验源码与构建产物，但没有工作流调用注册表发布器，产品发行工作流也不接收 npm 凭据。各 manifest 保留按序列区分的 `publishConfig.access`，作为未来重新考虑注册表分发时的打包 payload 策略；取值继续由 [access 决策](../../../../legacy/.agents/notes/implemented/process/2026-08-13-public-vendor-and-native-sequences.md)记录。
+这个桌面 fork 不把三条序列中的任何一条发布到 npm。脚本保留 pack、安装态产物、payload、版本与 tag 校验，作为显式本地门禁；常规 CI 校验源码与构建产物，但没有工作流调用注册表发布器，产品发行工作流也不接收 npm 凭据。各 manifest 保留按序列区分的 `publishConfig.access`，作为未来重新考虑注册表分发时的打包 payload 策略；取值继续由 [access 决策](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/.agents/notes/implemented/process/2026-08-13-public-vendor-and-native-sequences.md)记录。
 
 ### 版本由本地命令写进仓库，CI 只核对与上传
 
 每条序列有一条 bump-and-commit 命令：算出目标版本，写进相关 manifest，跑 `pnpm install --lockfile-only`，再把 manifest 连 lockfile 一起 commit。产品版本因此在仓库里查得到。tag 由人工在 commit 合入 master 后打；CI 不写仓库。
 
-`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进 core 族**以及 workspace 根**——workspace 约束要求每个 core 成员的版本等于根版本，所以根承载 core 族版本，而根的检查接受预发布段。Desktop 外壳不属于这条命令，它的版本只在 `apps/desktop/package.json` 中单独 bump。像 `1.0.0-rc.1` 这样的产品预发布号通过朴素的 `v<版本>` tag 演练完整 GitHub Release 路径；休眠的 core npm 族使用 `dsh-v<版本>`，因此两个 tag 权威不会碰撞。vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。参见 [Desktop 独立版本线决策](../../../../legacy/.agents/notes/implemented/process/2026-08-19-independent-desktop-version-line.md)。
+`release:dsh` 接受 `major`、`minor`、`patch` 或显式版本号，把同一个版本写进 core 族**以及 workspace 根**——workspace 约束要求每个 core 成员的版本等于根版本，所以根承载 core 族版本，而根的检查接受预发布段。Desktop 外壳不属于这条命令，它的版本只在 `apps/desktop/package.json` 中单独 bump。像 `1.0.0-rc.1` 这样的产品预发布号通过朴素的 `v<版本>` tag 演练完整 GitHub Release 路径；休眠的 core npm 族使用 `dsh-v<版本>`，因此两个 tag 权威不会碰撞。vendor 与 native tag 保留各自前缀，且无法通过 dsh 族校验。参见 [Desktop 独立版本线决策](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/.agents/notes/implemented/process/2026-08-19-independent-desktop-version-line.md)。
 
 ### vendor：谁改了谁发版，tag 就是账本
 
@@ -85,7 +85,7 @@ tag 只是 commit 指针，不是发布成功的证明。bump 会向注册表核
 
 `optionalDependencies` 里的依赖，或带 `peerDependenciesMeta.<name>.optional` 的 peer，在安装出来的树里可以不存在——这份「可以不存在」正是 optional 的全部承诺。而静态 import 在引入方模块加载时就求值，于是一个缺失的包不再表现为「这个能力不可用」，而是变成所有能走到该模块的代码的加载失败。这种失败只在「缺了该包的安装树」里出现，而本仓没有任何测试构造这种树：workspace 安装总是把每个包都装上，所以单测、快照、打包安装探针全都会过，而那个拒绝了这个 optional peer 的消费者拿到的却是坏的包。
 
-[`verify-optional-dependency-imports`](../../../../legacy/scripts/verify-optional-dependency-imports.ts) 堵掉这个洞。它从每个包自己的 manifest 读取「这个包允许谁缺失」，再扫描会发布出去的文件——`packages/*/*/src/` 与 `apps/*/src/`——且两个编译门面各扫一遍。`vendor/` 不在范围内，那是[受 vendoring 政策管辖](../../../../legacy/vendor/README.md)的固定上游源码。值与类型的判定对着绑定好的 Program 做，而不是看 import 写法，因为 `verbatimModuleSyntax` 是关的：编译器本来就会消除绑定解析为类型的 import，所以 `import type {}`、`import {}`、内联 `type` 说明符、以及解析为类型的具名绑定都不产生产物、一律放行，而裸 import、值绑定、星号 re-export 会被保留、一律报错。只有 type 相位会消除 import：`import defer` 仍然解析并链接它的模块，只推迟求值，所以门禁把它算作一次加载。
+[`verify-optional-dependency-imports`](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/scripts/verify-optional-dependency-imports.ts) 堵掉这个洞。它从每个包自己的 manifest 读取「这个包允许谁缺失」，再扫描会发布出去的文件——`packages/*/*/src/` 与 `apps/*/src/`——且两个编译门面各扫一遍。`vendor/` 不在范围内，那是[受 vendoring 政策管辖](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/vendor/README.md)的固定上游源码。值与类型的判定对着绑定好的 Program 做，而不是看 import 写法，因为 `verbatimModuleSyntax` 是关的：编译器本来就会消除绑定解析为类型的 import，所以 `import type {}`、`import {}`、内联 `type` 说明符、以及解析为类型的具名绑定都不产生产物、一律放行，而裸 import、值绑定、星号 re-export 会被保留、一律报错。只有 type 相位会消除 import：`import defer` 仍然解析并链接它的模块，只推迟求值，所以门禁把它算作一次加载。
 
 报错会点名这个包、点名是哪条声明把它标成 optional 的，并按顺序给出出路——把它作为类型引入（声明合并需要的仅此而已），或者调整写法让模块作用域不再需要这个包。动态 `import()` 只是把失败推迟到首次使用，它属于那种确实需要这个包、并且自己处理缺失的调用方；会想到它，往往说明这个依赖并不 optional，所以门禁不把它作为解法给出。
 

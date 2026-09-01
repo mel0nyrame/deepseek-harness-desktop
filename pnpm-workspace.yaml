@@ -1,7 +1,6 @@
 packages:
-  # Desktop-owned product packages. The legacy monorepo lives frozen under
-  # legacy/ and is deliberately NOT a workspace member: ordinary install,
-  # build, and packaging must never read its package graph.
+  # Desktop-owned product packages. Ordinary install, build, and packaging
+  # must never read the historical monorepo package graph.
   - apps/*
   - packages/*
 
@@ -20,6 +19,7 @@ allowBuilds:
   '@deepseek-ai/dsh-subprocess-local': true
   '@google/genai': false
   protobufjs: false
+  electron-winstaller: false
 
 minimumReleaseAgeExclude:
   - '@deepseek-ai/dsh-agent-default-model@0.1.0-rc.8'
