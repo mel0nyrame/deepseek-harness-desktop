@@ -1,0 +1,159 @@
+name: Release
+
+# Release evidence: arm64/x64 artifacts for release pull requests (labeled
+# `release`, built ad-hoc without any signing credential) and for version tags
+# or manual dispatches (Developer ID signed and notarized). The workflow never
+# publishes a GitHub release and never receives credentials outside the signed
+# tag/dispatch job.
+on:
+  pull_request:
+    types:
+      - labeled
+      - synchronize
+      - reopened
+    branches:
+      - master
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+
+jobs:
+  preview:
+    # Release pull-request evidence: the full release build with ad-hoc
+    # signing. No secret is available to pull-request runs. The label check
+    # uses the label list so synchronize/reopened runs of a labeled PR replay.
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'release')
+    name: preview artifacts (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build release artifacts (ad-hoc)
+        run: |
+          set -o pipefail
+          ulimit -Sn 65536 2>/dev/null || ulimit -Sn "$(ulimit -Hn)" 2>/dev/null || true
+          pnpm run package 2>&1 | tee packaging.log
+
+      - name: Test installed application outside the source tree
+        env:
+          DSH_DESKTOP_PACKAGE_REQUIRED: '1'
+        run: pnpm run test:package
+
+      - name: Write SHA-256 checksums
+        run: cd apps/desktop/dist && shasum -a 256 ./*.dmg > "SHA256SUMS-${{ matrix.arch }}.txt" && cat "SHA256SUMS-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dsh-desktop-preview-${{ matrix.arch }}
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/SHA256SUMS-*.txt
+            packaging.log
+          if-no-files-found: error
+
+  release:
+    # Signed and notarized release evidence. Runs only for version tags and
+    # manual dispatches; pull-request runs never reach this job, so the
+    # credentials below stay outside every pull-request execution path.
+    if: (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) || github.event_name == 'workflow_dispatch'
+    name: signed artifacts (${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    env:
+      DSH_DESKTOP_SIGN_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          submodules: false
+
+      - name: Require configured signing and notarization credentials
+        run: |
+          test -n "$DSH_DESKTOP_SIGN_IDENTITY" || { echo '::error::MAC_SIGNING_IDENTITY secret is not configured; refusing an unsigned release build.'; exit 1; }
+          test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" || { echo '::error::MAC_CERTIFICATE_P12/MAC_CERTIFICATE_PASSWORD secrets are not configured; refusing an unsigned release build.'; exit 1; }
+          test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID" || { echo '::error::APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID secrets are not configured; refusing an unnotarized release build.'; exit 1; }
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build signed and notarized release artifacts
+        run: |
+          set -o pipefail
+          ulimit -Sn 65536 2>/dev/null || ulimit -Sn "$(ulimit -Hn)" 2>/dev/null || true
+          pnpm run package 2>&1 | tee packaging.log
+
+      - name: Test installed application outside the source tree
+        env:
+          DSH_DESKTOP_PACKAGE_REQUIRED: '1'
+        run: pnpm run test:package
+
+      - name: Write SHA-256 checksums
+        run: cd apps/desktop/dist && shasum -a 256 ./*.dmg > "SHA256SUMS-${{ matrix.arch }}.txt" && cat "SHA256SUMS-${{ matrix.arch }}.txt"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: dsh-desktop-release-${{ matrix.arch }}
+          path: |
+            apps/desktop/dist/*.dmg
+            apps/desktop/dist/*.blockmap
+            apps/desktop/dist/SHA256SUMS-*.txt
+            packaging.log
+          if-no-files-found: error

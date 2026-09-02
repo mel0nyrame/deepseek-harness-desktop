@@ -109,6 +109,8 @@ with `DSH_DESKTOP_PACKAGE_REQUIRED=1 pnpm run test:package`.
 
 ## Development
 
+CI is staged by change risk: ordinary pull requests run the fast workspace checks (`.github/workflows/ci.yml`), packaging inputs run the macOS packaging gate (`.github/workflows/packaging.yml`), and pull requests labeled `release`, version tags, or manual dispatches run the arm64/x64 release-evidence workflow (`.github/workflows/release.yml`). The promotion evidence, the protected manual real-API acceptance command, and the promotion checklist for making this branch the default live in [`docs/promotion/promotion.md`](docs/promotion/promotion.md).
+
 Core contributor workflows remain in [AGENTS.md](AGENTS.md); the frozen [development guide](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/docs/development.md) and [CONTRIBUTING.md](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/CONTRIBUTING.md) document the pre-decoupling contribution flow. Desktop-specific implementation lives under [`apps/desktop`](apps/desktop) and the desktop provider packages ([`packages/`](packages)).
 
 ## License

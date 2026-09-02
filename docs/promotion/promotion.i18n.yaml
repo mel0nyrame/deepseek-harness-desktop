@@ -1,0 +1,8 @@
+version: 1
+files:
+  en:
+    path: promotion.md
+    blob: ae6d8bb52ef795c8c372b8a6e28480517707adf1
+  zh:
+    path: promotion.zh.md
+    blob: afda3540738e66aa4a938a91d851a766ece5970e

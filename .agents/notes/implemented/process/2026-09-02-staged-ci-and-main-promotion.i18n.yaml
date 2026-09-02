@@ -1,0 +1,8 @@
+version: 1
+files:
+  en:
+    path: 2026-09-02-staged-ci-and-main-promotion.md
+    blob: 75aadb4476a846f4ff7a47123e1ec0a3ad68cde8
+  zh:
+    path: 2026-09-02-staged-ci-and-main-promotion.zh.md
+    blob: 812dd45bc23509c5af4c61e271829a63a5c558a5

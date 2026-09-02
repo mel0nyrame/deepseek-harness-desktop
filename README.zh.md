@@ -107,6 +107,8 @@ pnpm run check
 
 ## 开发
 
+CI 按变更风险分级：普通 pull request 运行快速工作区检查（`.github/workflows/ci.yml`），打包相关输入运行 macOS 打包门禁（`.github/workflows/packaging.yml`），带 `release` 标签的 pull request、版本标签或手动触发运行 arm64/x64 release 证据工作流（`.github/workflows/release.yml`）。以本分支为默认分支所需的晋升证据、受保护的手动真实 API 验收命令与晋升清单见 [`docs/promotion/promotion.md`](docs/promotion/promotion.md)。
+
 内核贡献流程以 [AGENTS.md](AGENTS.md) 为准；冻结的[开发指南](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/docs/development.md)与 [CONTRIBUTING.md](https://github.com/mel0nyrame/deepseek-harness-desktop/blob/0971b9f0e3e9293e3f76c45b1d72f5789244ccdf/legacy/CONTRIBUTING.md) 记录了解耦前的贡献流程。桌面端专属实现位于 [`apps/desktop`](apps/desktop) 与桌面 Provider 包（[`packages/`](packages)）中。
 
 ## 许可证
