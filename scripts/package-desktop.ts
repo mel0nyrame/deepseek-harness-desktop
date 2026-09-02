@@ -13,6 +13,11 @@ import {
   type SignEvidenceStep,
 } from './artifact-evidence.ts'
 import { removeRuntimeOutput, scrubRuntimeEnvironment } from './runtime-output.ts'
+import {
+  applyReleaseSigning,
+  resolveReleaseSigning,
+  scrubReleaseSigningEnvironment,
+} from './release-signing.ts'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const RUNTIME = path.join(ROOT, '.artifacts', 'package-runtime')
@@ -21,7 +26,11 @@ const OUTPUT = path.join(ROOT, 'apps', 'desktop', 'dist')
 const APP_DIR = path.join(ROOT, 'apps', 'desktop')
 const CONFIG = path.join(APP_DIR, 'electron-builder.yml')
 const requireFromShell = createRequire(path.join(APP_DIR, 'package.json'))
-const CLEAN_ENVIRONMENT = scrubRuntimeEnvironment(process.env)
+// Release signing mode is resolved once from the unscrubbed environment and
+// re-admits only the declared credential names during the electron-builder
+// build; the default (unset) mode stays ad-hoc with credentials stripped.
+const RELEASE_SIGNING = resolveReleaseSigning(process.env)
+const CLEAN_ENVIRONMENT = scrubReleaseSigningEnvironment(scrubRuntimeEnvironment(process.env))
 
 function pnpm(): string {
   return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'
@@ -151,7 +160,12 @@ function electronVersion(config: Configuration, electron: ReturnType<typeof elec
 
 function installCleanProcessEnvironment(): void {
   for (const name of Object.keys(process.env)) delete process.env[name]
-  Object.assign(process.env, CLEAN_ENVIRONMENT, { CSC_FOR_PULL_REQUEST: 'true' })
+  Object.assign(
+    process.env,
+    CLEAN_ENVIRONMENT,
+    { CSC_FOR_PULL_REQUEST: 'true' },
+    RELEASE_SIGNING?.buildEnvironment ?? {},
+  )
 }
 
 /**
@@ -252,6 +266,7 @@ if (values.help) {
   console.log('dsh-desktop package: native ABI validation: node-pty and koffi under Electron')
   console.log(`dsh-desktop package: electron-builder: ${OUTPUT}`)
   console.log('dsh-desktop package: artifact evidence: identity, runtime manifest, native helpers, signatures')
+  console.log(`dsh-desktop package: release signing: ${RELEASE_SIGNING ? RELEASE_SIGNING.identity : 'ad-hoc (default)'}`)
 } else {
   if (process.platform !== 'darwin') throw new Error('desktop packaging currently requires macOS')
   if (!values['skip-build']) await run('build', pnpm(), ['run', 'build'])
@@ -259,6 +274,10 @@ if (values.help) {
     path.join(ROOT, 'scripts', 'assemble-runtime.ts'), '--output', RUNTIME,
   ], scrubRuntimeEnvironment(process.env))
   const config = parse(fs.readFileSync(CONFIG, 'utf8')) as Configuration
+  if (RELEASE_SIGNING) {
+    console.log(`dsh-desktop package: release signing: ${RELEASE_SIGNING.identity} (hardened runtime, notarization when Apple credentials are present)`)
+    applyReleaseSigning(config, RELEASE_SIGNING)
+  }
   const electron = await ensureElectron()
   const version = electronVersion(config, electron)
   await validateNativeRuntime(electron)

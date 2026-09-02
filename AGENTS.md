@@ -38,7 +38,14 @@ pnpm run lint
 pnpm run test
 pnpm run test:layout   # repository-layout boundary test
 pnpm run check         # typecheck + lint + test
+pnpm run package       # installable macOS app + DMG (macOS only)
+pnpm run test:package  # installed-product gate; needs a packaged app
 ```
+
+CI is staged by change risk (`ci.yml` ordinary PRs, `packaging.yml`
+app-artifact changes, `release.yml` release pull requests and tags); the
+promotion evidence and checklist live in
+[`docs/promotion/promotion.md`](docs/promotion/promotion.md).
 
 Real-API tests and demos read `DEEPSEEK_API_KEY`, optional `DEEPSEEK_BASE_URL`,
 and root `.env`; never commit credentials. Official runtime packages are

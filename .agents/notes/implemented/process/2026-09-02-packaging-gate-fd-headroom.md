@@ -23,3 +23,7 @@ Locally, `ulimit -n 256 && pnpm run package` reproduced the signing-stage `EMFIL
 **Strip source maps from the runtime closure.** Fewer files lower the peak but leave the gate coupled to whatever fd ceiling the host has, and drop the stack mappings that crash triage relies on.
 
 **Patch electron-builder.** The dependency is pinned to an exact published version; carrying a fork would trade a one-line resource setting for a permanent upgrade tax.
+
+## Consequences
+
+The gate no longer couples to the host's default fd ceiling, at the price of one clean full rebuild whenever the timing-dependent peak still exhausts the raised limit; the retry is bounded and the packaged content is identical.

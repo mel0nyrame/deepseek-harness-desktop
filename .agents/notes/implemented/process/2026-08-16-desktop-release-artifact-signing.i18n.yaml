@@ -1,6 +1,8 @@
-# Bilingual-pair consistency record: the git blob hash of each
-# side as of the last confirmed-consistent state. Both languages carry equal
-# authority; after editing either side, bring the other along and re-record
-# with: git hash-object <side> for both files, then update this record.
-2026-08-16-desktop-release-artifact-signing.md: 00303d208aae31d6105acf934018537cc195e63d
-2026-08-16-desktop-release-artifact-signing.zh.md: bdbc30a7dd0cd92da93cb87a8bbfe63199810ff8
+version: 1
+files:
+  en:
+    path: 2026-08-16-desktop-release-artifact-signing.md
+    blob: 31e105326d44bd69438055cdcdf45b6d64b1425b
+  zh:
+    path: 2026-08-16-desktop-release-artifact-signing.zh.md
+    blob: 3785b91c35f3cdae741bfd24052ad29ded2f7509

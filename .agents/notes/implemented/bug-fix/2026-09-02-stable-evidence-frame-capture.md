@@ -25,3 +25,7 @@ All desktop screenshot evidence goes through one shared capture, `captureStableF
 **Capture offscreen.** Offscreen rendering takes a different compositor path from the shipped product, so the gate would stop proving what users see, and it changes product runtime behavior for a testing need.
 
 **Patch only the journey that failed on CI.** The native-window and terminal-tracer journeys would keep the same defect and re-flake the gate later; the shared helper removes the pattern once.
+
+## Consequences
+
+The evidence journeys keep their painted-frame guarantee on software-rendered runners, and a genuinely blank renderer still fails the gate loudly; the cost is that every screenshot site now shares one threshold and retry budget, so tuning capture behavior is a single-seam change.
