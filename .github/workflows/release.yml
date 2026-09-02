@@ -51,7 +51,7 @@ jobs:
           persist-credentials: false
           submodules: false
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           dest: ${{ runner.temp }}/setup-pnpm
 
@@ -122,7 +122,7 @@ jobs:
           test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" || { echo '::error::MAC_CERTIFICATE_P12/MAC_CERTIFICATE_PASSWORD secrets are not configured; refusing an unsigned release build.'; exit 1; }
           test -n "$APPLE_ID" && test -n "$APPLE_APP_SPECIFIC_PASSWORD" && test -n "$APPLE_TEAM_ID" || { echo '::error::APPLE_ID/APPLE_APP_SPECIFIC_PASSWORD/APPLE_TEAM_ID secrets are not configured; refusing an unnotarized release build.'; exit 1; }
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           dest: ${{ runner.temp }}/setup-pnpm
 
