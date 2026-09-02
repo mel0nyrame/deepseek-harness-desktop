@@ -15,6 +15,7 @@ import { DshSupervisor, type SupervisorOptions, type DesktopNativeActionHandler 
 import { isTrustedRendererUrl } from './renderer-policy.js'
 import { createDesktopUiProtocolHandler, DESKTOP_UI_URL } from './ui-protocol.js'
 import { captureOfficialUiEvidence } from './ui-evidence.js'
+import { captureStableFrame } from './frame-capture.js'
 import {
   parseTracerInvocation,
   prepareTracerProfile,
@@ -35,6 +36,7 @@ let supervisor: DshSupervisor | undefined
 let shutdownComplete = false
 let shutdown: Promise<void> | undefined
 
+app.commandLine.appendSwitch('disable-backgrounding-occluded-windows')
 protocol.registerSchemesAsPrivileged([{
   scheme: 'dsh',
   privileges: {
@@ -233,8 +235,9 @@ async function captureTracer(window: BrowserWindow, tracer: TracerInvocation): P
       console.log(`TRACER_STATE ${state}`)
       if (tracer.framesDir !== undefined) {
         mkdirSync(tracer.framesDir, { recursive: true })
-        if (state === 'complete') await settleRendererPaint(window)
-        const image = await window.webContents.capturePage()
+        const image = state === 'complete'
+          ? await captureStableFrame(window, 'terminal', state)
+          : await window.webContents.capturePage()
         if (state === 'complete') {
           const bitmap = image.toBitmap()
           let visiblePixels = 0
@@ -321,10 +324,8 @@ async function captureNativeFrame(
 ): Promise<void> {
   if (framesDir === undefined) return
   mkdirSync(framesDir, { recursive: true })
-  const image = await window.webContents.capturePage()
-  const png = image.toPNG()
-  if (png.length < 20_000) throw new Error(`desktop native evidence frame ${name} is unexpectedly empty`)
-  writeFileSync(join(framesDir, `${name}.png`), png)
+  const image = await captureStableFrame(window, 'native', name)
+  writeFileSync(join(framesDir, `${name}.png`), image.toPNG())
 }
 
 interface RendererRegionEvidence {

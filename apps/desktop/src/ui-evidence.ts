@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import type { BrowserWindow } from 'electron'
+import { captureStableFrame } from './frame-capture.js'
 import { TERMINAL_TRACER_PROMPT } from './tracer-contract.js'
 
 const REQUIRED_CLIENT_MODULES = [
@@ -49,12 +50,8 @@ interface CapturedFrame {
 }
 
 async function capture(window: BrowserWindow, framesDir: string, name: string): Promise<CapturedFrame> {
-  await window.webContents.executeJavaScript(
-    'new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))',
-  )
-  const image = await window.webContents.capturePage()
+  const image = await captureStableFrame(window, 'UI', name)
   const png = image.toPNG()
-  if (png.length < 20_000) throw new Error(`desktop UI evidence frame ${name} is unexpectedly empty`)
   const file = `${name}.png`
   writeFileSync(join(framesDir, file), png)
   return {

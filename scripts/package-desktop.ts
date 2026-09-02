@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import { createRequire } from 'node:module'
 import path from 'node:path'
 import { parseArgs } from 'node:util'
-import type { Configuration } from 'electron-builder'
+import type { Configuration, PackagerOptions } from 'electron-builder'
 import { parse } from 'yaml'
 import {
   discoverArtifacts,
@@ -154,6 +154,25 @@ function installCleanProcessEnvironment(): void {
   Object.assign(process.env, CLEAN_ENVIRONMENT, { CSC_FOR_PULL_REQUEST: 'true' })
 }
 
+/**
+ * Builds the installer once, retrying once from a clean output when
+ * electron-builder's signing exhausts the host file descriptors (EMFILE);
+ * the signing concurrency peak is timing-dependent, so a fresh attempt
+ * usually completes under the same limit. Other failures surface directly.
+ */
+async function buildInstallable(options: PackagerOptions): Promise<void> {
+  const { build } = await import('electron-builder')
+  try {
+    await build(options)
+  } catch (error) {
+    if (!(error instanceof Error && error.message.includes('EMFILE'))) throw error
+    console.warn('dsh-desktop package: electron-builder exhausted the host file descriptors; retrying from a clean output')
+    removeRuntimeOutput(OUTPUT)
+    fs.mkdirSync(OUTPUT, { recursive: true })
+    await build(options)
+  }
+}
+
 function packagedRuntimeResources(): NonNullable<Configuration['extraResources']> {
   return [
     { from: path.join(RUNTIME, 'package.json'), to: 'runtime/package.json' },
@@ -248,8 +267,7 @@ if (values.help) {
   removeRuntimeOutput(OUTPUT)
   fs.mkdirSync(OUTPUT, { recursive: true })
   installCleanProcessEnvironment()
-  const { build } = await import('electron-builder')
-  await build({
+  await buildInstallable({
     projectDir: PACKAGE_PROJECT,
     config: {
       ...config,

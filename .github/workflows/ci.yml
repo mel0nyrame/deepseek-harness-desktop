@@ -69,7 +69,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build and verify installable products
-        run: pnpm run package
+        # electron-builder seals and signs the ~30k-file embedded runtime; the
+        # runner's default soft fd limit sits below the signing concurrency
+        # peak and flakes the gate with EMFILE. Raise the soft limit toward
+        # 65536, falling back to this host's hard ceiling.
+        run: |
+          ulimit -Sn 65536 2>/dev/null || ulimit -Sn "$(ulimit -Hn)" 2>/dev/null || true
+          pnpm run package
 
       - name: Test installed application outside the source tree
         env:
