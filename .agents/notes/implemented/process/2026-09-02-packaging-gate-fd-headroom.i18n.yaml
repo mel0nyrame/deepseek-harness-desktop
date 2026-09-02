@@ -1,0 +1,8 @@
+version: 1
+files:
+  en:
+    path: 2026-09-02-packaging-gate-fd-headroom.md
+    blob: b8f066e5b5253d22fe1b684d1618b3c2e8cbd2a7
+  zh:
+    path: 2026-09-02-packaging-gate-fd-headroom.zh.md
+    blob: 6d504ae9820ac83af4c0bd389e11ddd50add4146
