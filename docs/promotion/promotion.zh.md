@@ -41,6 +41,8 @@
 | `pnpm run package` | 产物 `DSH Desktop-0.1.0-arm64.dmg`（+`.blockmap`）与 `mac-arm64/DSH Desktop.app`；签名 `adhoc`；Gatekeeper 评估按证据记录：拒绝（ad-hoc 的预期结果）；运行时闭包、原生 ABI 与身份证据通过 |
 | `DSH_DESKTOP_PACKAGE_REQUIRED=1 pnpm run test:package` | 2 个文件、10 个测试通过，40.88 s——已安装应用在网络守卫下于源码树之外运行，自有进程零存活 |
 | `shasum -a 256 'apps/desktop/dist/DSH Desktop-0.1.0-arm64.dmg'` | `d542664356e2886b1f3e8dfda8d4b3b2b3b63b6eb35221d7e2dfdc10eb12dd6a` |
+| [Release preview arm64](https://github.com/mel0nyrame/deepseek-harness-desktop/actions/runs/33586031825/job/100110253298) | 原生 `macos-15` 构建通过；已安装产品门禁 2 个文件 / 10 个测试通过；DMG checksum `a041f691cadaef20b52eaeecbc05a41490ef1d27c9d1438324ca4c9984f4f8d4` |
+| [Release preview x64](https://github.com/mel0nyrame/deepseek-harness-desktop/actions/runs/33586031825/job/100110253117) | 原生 `macos-15-intel` 构建通过；已安装产品门禁 2 个文件 / 10 个测试通过；DMG checksum `696e9d47b832d014684c89d864810de25594013cad438dcab8dd599045521e6d` |
 
 ## 受保护的手动真实 API 验收
 
@@ -64,4 +66,4 @@
 - **基于 revert 的回滚** — 晋升 PR 以普通合并提交落地；`git revert -m 1 <merge>` 无需 force-push 即可恢复先前的默认分支状态。晋升过程不改写历史。
 - **精确运行时清单** — `runtime/runtime-manifest.json` 锁定 `@deepseek-ai/dsh` `0.1.0-rc.8`、上游提交 `141eb6fef83422698aef7a981029e843e8161534`、Electron `43.4.0`、`node-pty` `1.2.0-beta.15`（已打补丁、锁定哈希）、`koffi` `3.1.0`、四个带版本的官方补丁，以及锁文件摘要 `9594e9b8b7a4e51af2d08d77d4083cfb526b65d2c301ff54250025598b2a03c3`。
 - **无 force-push 要求** — 晋升经由评审 pull request 进入现有默认分支；晋升与回滚都不需要 force-push。
-- **已记录结果** — 上文精确命令结果附于晋升 PR 描述；晋升合并提交上 CI（工作区 + 打包层）必须为绿。
+- **已记录结果** — 上文精确命令结果附于晋升 PR 描述；晋升 head 上 CI（工作区、打包、原生 arm64/x64 preview 层）均为绿，晋升合并提交上必须继续为绿。

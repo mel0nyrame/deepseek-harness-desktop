@@ -2,7 +2,7 @@ version: 1
 files:
   en:
     path: promotion.md
-    blob: ae6d8bb52ef795c8c372b8a6e28480517707adf1
+    blob: c4a730b20c5b8cd161e246bdab9daa011aab1c0c
   zh:
     path: promotion.zh.md
-    blob: afda3540738e66aa4a938a91d851a766ece5970e
+    blob: d17595f68e07e95c6ea2b88f6ff98982adfeb4df

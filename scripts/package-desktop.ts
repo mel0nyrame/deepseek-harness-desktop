@@ -13,7 +13,11 @@ import {
   type SignEvidenceStep,
 } from './artifact-evidence.ts'
 import { removeRuntimeOutput, scrubRuntimeEnvironment } from './runtime-output.ts'
-import { applyReleaseSigning, resolveReleaseSigning } from './release-signing.ts'
+import {
+  applyReleaseSigning,
+  resolveReleaseSigning,
+  scrubReleaseSigningEnvironment,
+} from './release-signing.ts'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const RUNTIME = path.join(ROOT, '.artifacts', 'package-runtime')
@@ -22,11 +26,11 @@ const OUTPUT = path.join(ROOT, 'apps', 'desktop', 'dist')
 const APP_DIR = path.join(ROOT, 'apps', 'desktop')
 const CONFIG = path.join(APP_DIR, 'electron-builder.yml')
 const requireFromShell = createRequire(path.join(APP_DIR, 'package.json'))
-const CLEAN_ENVIRONMENT = scrubRuntimeEnvironment(process.env)
 // Release signing mode is resolved once from the unscrubbed environment and
 // re-admits only the declared credential names during the electron-builder
 // build; the default (unset) mode stays ad-hoc with credentials stripped.
 const RELEASE_SIGNING = resolveReleaseSigning(process.env)
+const CLEAN_ENVIRONMENT = scrubReleaseSigningEnvironment(scrubRuntimeEnvironment(process.env))
 
 function pnpm(): string {
   return process.platform === 'win32' ? 'pnpm.cmd' : 'pnpm'

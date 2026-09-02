@@ -103,13 +103,6 @@ jobs:
             arch: x64
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
-    env:
-      DSH_DESKTOP_SIGN_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
-      CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
-      CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
-      APPLE_ID: ${{ secrets.APPLE_ID }}
-      APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -117,6 +110,13 @@ jobs:
           submodules: false
 
       - name: Require configured signing and notarization credentials
+        env:
+          DSH_DESKTOP_SIGN_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           test -n "$DSH_DESKTOP_SIGN_IDENTITY" || { echo '::error::MAC_SIGNING_IDENTITY secret is not configured; refusing an unsigned release build.'; exit 1; }
           test -n "$CSC_LINK" && test -n "$CSC_KEY_PASSWORD" || { echo '::error::MAC_CERTIFICATE_P12/MAC_CERTIFICATE_PASSWORD secrets are not configured; refusing an unsigned release build.'; exit 1; }
@@ -135,6 +135,13 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build signed and notarized release artifacts
+        env:
+          DSH_DESKTOP_SIGN_IDENTITY: ${{ secrets.MAC_SIGNING_IDENTITY }}
+          CSC_LINK: ${{ secrets.MAC_CERTIFICATE_P12 }}
+          CSC_KEY_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -o pipefail
           ulimit -Sn 65536 2>/dev/null || ulimit -Sn "$(ulimit -Hn)" 2>/dev/null || true

@@ -41,6 +41,8 @@ All evidence comes from the keyless suites: the real Electron shell, the real bu
 | `pnpm run package` | products `DSH Desktop-0.1.0-arm64.dmg` (+`.blockmap`) and `mac-arm64/DSH Desktop.app`; signature `adhoc`; Gatekeeper assessment recorded: rejected (expected for ad-hoc); runtime closure, native ABI, and identity evidence pass |
 | `DSH_DESKTOP_PACKAGE_REQUIRED=1 pnpm run test:package` | 2 files, 10 tests passed, 40.88 s — installed app runs outside the source tree under the network guard with zero surviving owned processes |
 | `shasum -a 256 'apps/desktop/dist/DSH Desktop-0.1.0-arm64.dmg'` | `d542664356e2886b1f3e8dfda8d4b3b2b3b63b6eb35221d7e2dfdc10eb12dd6a` |
+| [Release preview arm64](https://github.com/mel0nyrame/deepseek-harness-desktop/actions/runs/33586031825/job/100110253298) | Native `macos-15` build passed; installed-product gate 2 files / 10 tests passed; DMG checksum `a041f691cadaef20b52eaeecbc05a41490ef1d27c9d1438324ca4c9984f4f8d4` |
+| [Release preview x64](https://github.com/mel0nyrame/deepseek-harness-desktop/actions/runs/33586031825/job/100110253117) | Native `macos-15-intel` build passed; installed-product gate 2 files / 10 tests passed; DMG checksum `696e9d47b832d014684c89d864810de25594013cad438dcab8dd599045521e6d` |
 
 ## Protected manual real-API acceptance
 
@@ -64,4 +66,4 @@ Never commit the key, quote it in evidence, or pass it through a workflow enviro
 - **Revert-based rollback** — the promotion PR merges as a normal merge commit; `git revert -m 1 <merge>` restores the prior default-branch state without force-push. Nothing in the promotion rewrites history.
 - **Exact runtime manifest** — `runtime/runtime-manifest.json` pins `@deepseek-ai/dsh` `0.1.0-rc.8`, upstream commit `141eb6fef83422698aef7a981029e843e8161534`, Electron `43.4.0`, `node-pty` `1.2.0-beta.15` (patched, pinned hash), `koffi` `3.1.0`, four versioned upstream patches, and the lockfile digest `9594e9b8b7a4e51af2d08d77d4083cfb526b65d2c301ff54250025598b2a03c3`.
 - **No force-push requirement** — the promotion lands through a reviewed pull request into the existing default branch; neither promotion nor rollback needs a force-push.
-- **Recorded results** — the exact command results above are attached to the promotion PR description; CI (workspace + packaging tiers) must be green on the promotion merge commit.
+- **Recorded results** — the exact command results above are attached to the promotion PR description; CI (workspace, packaging, and native arm64/x64 preview tiers) is green on the promotion head and must remain green on the promotion merge commit.

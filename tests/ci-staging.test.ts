@@ -98,18 +98,24 @@ describe('CI staging', () => {
     expect(release.if).toContain("github.event_name == 'workflow_dispatch'")
     expect(release.if).not.toContain("'pull_request'")
 
-    const declaredSecrets = new Set<string>()
-    for (const [name, value] of Object.entries(release.env ?? {})) {
-      const match = String(value).match(/^\$\{\{ secrets\.([A-Z0-9_]+) \}\}$/)
-      expect(match, `${name} must map to exactly one secret`).not.toBeNull()
-      declaredSecrets.add(match![1] as string)
-    }
-    expect([...declaredSecrets].toSorted()).toEqual([...RELEASE_SECRET_NAMES].toSorted())
-
     const guard = release.steps.find((step: { name?: string }) => step.name === 'Require configured signing and notarization credentials')
     expect(guard).toBeDefined()
     expect(guard?.run).toContain('refusing an unsigned release build')
     expect(guard?.run).toContain('refusing an unnotarized release build')
+
+    const build = release.steps.find((step: { name?: string }) => step.name === 'Build signed and notarized release artifacts')
+    expect(build).toBeDefined()
+    expect(release.env).toBeUndefined()
+    for (const step of release.steps) {
+      const secretNames = new Set<string>()
+      for (const [name, value] of Object.entries(step.env ?? {})) {
+        const match = String(value).match(/^\$\{\{ secrets\.([A-Z0-9_]+) \}\}$/)
+        if (match !== null) secretNames.add(match[1] as string)
+        else expect(String(value), `${step.name}: ${name} must not disguise a secret expression`).not.toContain('secrets.')
+      }
+      const expected = step === guard || step === build ? RELEASE_SECRET_NAMES : []
+      expect([...secretNames].toSorted(), `${step.name}: secret scope`).toEqual([...expected].toSorted())
+    }
 
     // Credentials exist only as repository/Actions secrets: no cert material,
     // no password literals anywhere in the workflow file.

@@ -12,6 +12,13 @@ const SIGNING_CREDENTIAL_NAMES = [
   'APPLE_TEAM_ID',
 ] as const
 
+/** Remove every credential understood by the release-signing path. */
+export function scrubReleaseSigningEnvironment(environment: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const scrubbed = { ...environment }
+  for (const name of SIGNING_CREDENTIAL_NAMES) delete scrubbed[name]
+  return scrubbed
+}
+
 /** The identity-name environment variable that turns on release signing. */
 export const RELEASE_SIGNING_IDENTITY_ENV = 'DSH_DESKTOP_SIGN_IDENTITY'
 

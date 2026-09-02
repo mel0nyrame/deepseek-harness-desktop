@@ -3,6 +3,7 @@ import {
   RELEASE_SIGNING_IDENTITY_ENV,
   applyReleaseSigning,
   resolveReleaseSigning,
+  scrubReleaseSigningEnvironment,
 } from '../scripts/release-signing.js'
 
 describe('release signing mode', () => {
@@ -39,6 +40,17 @@ describe('release signing mode', () => {
         APPLE_TEAM_ID: 'TEAM',
       },
     })
+  })
+
+  it('strips every signing credential from the default packaging environment', () => {
+    expect(scrubReleaseSigningEnvironment({
+      CSC_LINK: 'p12-bytes',
+      CSC_KEY_PASSWORD: 'password',
+      APPLE_ID: 'release@example.com',
+      APPLE_APP_SPECIFIC_PASSWORD: 'opaque-app-password',
+      APPLE_TEAM_ID: 'TEAM',
+      PATH: '/usr/bin',
+    })).toEqual({ PATH: '/usr/bin' })
   })
 
   it('hardens the runtime and overrides the identity without touching other mac settings', () => {
