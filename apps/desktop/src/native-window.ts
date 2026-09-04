@@ -15,6 +15,11 @@ export interface NativeWindowOptions {
   readonly visualEffectState?: 'followWindow'
 }
 
+export interface WindowSizeLike {
+  readonly width: number
+  readonly height: number
+}
+
 export interface RendererSurfaceState {
   readonly appearance: 'light' | 'dark'
   readonly transparency: 'glass' | 'opaque'
@@ -95,6 +100,22 @@ export function desktopWindowOptions(platform: NodeJS.Platform): NativeWindowOpt
     vibrancy: 'under-window',
     visualEffectState: 'followWindow',
   }
+}
+
+/** Return whether width reached its display limit and height settled within the allowed range. */
+export function isRequestedWindowSizeSettled(
+  actual: WindowSizeLike,
+  requested: WindowSizeLike,
+  minimumHeight: number,
+  workArea: WindowSizeLike,
+): boolean {
+  const maximum = {
+    width: Math.min(requested.width, workArea.width),
+    height: Math.min(requested.height, workArea.height),
+  }
+  return actual.width === maximum.width
+    && actual.height >= Math.min(minimumHeight, maximum.height)
+    && actual.height <= maximum.height
 }
 
 /** Derive renderer data attributes from validated Electron native state. */

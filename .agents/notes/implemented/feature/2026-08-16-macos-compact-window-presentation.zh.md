@@ -38,6 +38,7 @@ Host 负责 `ui-sidebar-glass-macos.enabled` 设置。该设置默认开启，�
 - 浅色、深色、跟随系统、玻璃和不透明状态投影为稳定的 body 属性，shell 无需依赖生成后的 CSS module 类名。
 - 侧栏展开时恢复最后一次拖动宽度；收起时网格轨道与原生材质解析为零，同时保留官方侧栏注册。
 - 窄窗口会自动收起侧栏并允许手动重开，缩放回宽窗口后恢复保留的宽屏偏好。窗口与全屏状态下的展开控件都保持可达，conversation header 与 view tab 会避开原生 chrome。
+- 证据流程区分初始尺寸与后续 resize 收敛。初始尺寸必须精确匹配请求，或精确匹配 display work area 钳制；后续宽窗 resize 必须达到请求宽度或 work area 限制宽度，高度则位于平台最小值与请求高度或 work area 限制高度之间，因为 macOS 在窗口重新定位后可能额外保留 frame 高度。
 - 每个 Client registration、样式表、主题订阅、设置订阅和原生 bridge 订阅都有明确的 disposer。
 - 原生 tracer 在输出 `NATIVE_WINDOW_EVIDENCE` 前，验证真实 macOS 窗口能力、traffic-light 位置、缩放、active → inactive → active 焦点切换、主题、“减少透明度”投影和全屏切换。它还检查计算后的 drag/no-drag 区域，并分别发送输入尝试。带权限门禁的验收路径向父级 driver 发布绝对坐标；外部注入的 CoreGraphics 指针事件必须移动 drag 表面，并且不得移动 no-drag 控件。
 - 可见 tracer 表面投影与 contribution 相同且经过校验的原生事实。它在 compositor 稳定后捕获深色、浅色和跟随系统的 PNG 帧，并要求深浅图片不同。另一个离屏 Electron fixture 运行正式桌面注册、加载精确发布版 sidebar 组件与样式，并记录深色玻璃展开、浅色玻璃收起和不透明展开帧。`webContents.capturePage()` 有意不包含原生 traffic-light 图形；这些图形由原生窗口断言覆盖。
@@ -45,4 +46,4 @@ Host 负责 `ui-sidebar-glass-macos.enabled` 设置。该设置默认开启，�
 
 ## 验证
 
-2026-09-05 的 `pnpm run check` 通过 typecheck、lint、全部 workspace build，以及 31 个文件中的 180 个测试；默认运行跳过 1 个需要 Accessibility 权限的 OS-pointer 用例。`pnpm run package` 生成通过完整性验证的 arm64 app 与 DMG，`pnpm run test:package` 通过全部 10 项已安装产品检查。`DSH_DESKTOP_REQUIRE_OS_DRAG=1 pnpm exec vitest run tests/desktop-runtime.e2e.test.ts -t 'moves only the computed drag surface'` 单独覆盖真实 drag/no-drag 用例。`pnpm run test:layout` 覆盖仓库布局边界。聚焦行为由 `tests/desktop-native-window.test.ts`、`tests/desktop-ui-surface.test.ts`、`tests/desktop-ui-runtime.test.ts`、`tests/desktop-ui-host.test.ts`、`tests/desktop-ui-client.test.ts`、`tests/desktop-layout-patch.test.ts`、`tests/desktop-sidebar-integration.test.ts`、`tests/desktop-ui-visual.e2e.test.ts`，以及 `tests/desktop-runtime.e2e.test.ts` 和 `tests/desktop-packaged.e2e.test.ts` 中的真实 Electron 流程覆盖。
+2026-09-05 的 `pnpm run check` 通过 typecheck、lint、全部 workspace build，以及 31 个文件中的 181 个测试；默认运行跳过 1 个需要 Accessibility 权限的 OS-pointer 用例。`pnpm run package` 生成通过完整性验证的 arm64 app 与 DMG，`pnpm run test:package` 通过全部 10 项已安装产品检查。`DSH_DESKTOP_REQUIRE_OS_DRAG=1 pnpm exec vitest run tests/desktop-runtime.e2e.test.ts -t 'moves only the computed drag surface'` 单独覆盖真实 drag/no-drag 用例。`pnpm run test:layout` 覆盖仓库布局边界。聚焦行为由 `tests/desktop-native-window.test.ts`、`tests/desktop-ui-surface.test.ts`、`tests/desktop-ui-runtime.test.ts`、`tests/desktop-ui-host.test.ts`、`tests/desktop-ui-client.test.ts`、`tests/desktop-layout-patch.test.ts`、`tests/desktop-sidebar-integration.test.ts`、`tests/desktop-ui-visual.e2e.test.ts`，以及 `tests/desktop-runtime.e2e.test.ts` 和 `tests/desktop-packaged.e2e.test.ts` 中的真实 Electron 流程覆盖。

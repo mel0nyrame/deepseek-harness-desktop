@@ -5,6 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { screen, type BrowserWindow } from 'electron'
 import { captureStableFrame } from './frame-capture.js'
+import { isRequestedWindowSizeSettled } from './native-window.js'
 import { TERMINAL_TRACER_PROMPT } from './tracer-contract.js'
 
 const REQUIRED_CLIENT_MODULES = [
@@ -99,6 +100,7 @@ const VISUAL_SESSIONS: readonly VisualSession[] = [
 ] as const
 
 const EXPECTED_INITIAL_SIZE = { width: 1280, height: 840 } as const
+const MINIMUM_WINDOW_SIZE = { width: 900, height: 640 } as const
 const TERMINAL_EVIDENCE_SESSION: VisualSession = {
   id: 'visual-terminal-behavior-proof',
   title: 'Verify installed runtime behavior',
@@ -499,7 +501,6 @@ async function exerciseResponsiveLayout(
   window: BrowserWindow,
   framesDir: string,
   frames: CapturedFrame[],
-  wideWindowSize: { readonly width: number; readonly height: number },
 ): Promise<ResponsiveEvidence> {
   const expanded = await readResponsiveLayoutState(window)
 
@@ -523,7 +524,10 @@ async function exerciseResponsiveLayout(
   window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
   await waitForWindowState(window, () => {
     const bounds = window.getBounds()
-    return bounds.width === wideWindowSize.width && bounds.height === wideWindowSize.height
+    const workArea = screen.getDisplayMatching(bounds).workArea
+    return isRequestedWindowSizeSettled(
+      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, workArea,
+    )
   }, 'restored window bounds')
   await settleRendererLayout(window)
   await waitFor(window, `document.querySelector('[data-sidebar-collapsed="true"]') !== null`, 'restored wide layout')
@@ -543,7 +547,10 @@ async function exerciseResponsiveLayout(
   window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
   await waitForWindowState(window, () => {
     const bounds = window.getBounds()
-    return bounds.width === wideWindowSize.width && bounds.height === wideWindowSize.height
+    const workArea = screen.getDisplayMatching(bounds).workArea
+    return isRequestedWindowSizeSettled(
+      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, workArea,
+    )
   }, 'final window bounds')
   await settleRendererLayout(window)
   await toggleSidebar(window, true, 'final manually reopened sidebar')
@@ -710,7 +717,7 @@ export async function captureOfficialUiEvidence(
   window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
   window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
   await waitFor(window, `document.querySelector('[role="dialog"]') === null`, 'settings dismissal')
-  const responsive = await exerciseResponsiveLayout(window, framesDir, frames, initialWindowSize)
+  const responsive = await exerciseResponsiveLayout(window, framesDir, frames)
   const evidence = {
     ...rendererEvidence,
     workspace: true,
