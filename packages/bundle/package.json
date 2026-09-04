@@ -38,7 +38,7 @@
     "@dsh-desktop/native": "workspace:*",
     "@dsh-desktop/ui": "workspace:*",
     "jsonc-parser": "3.3.1",
-    "koffi": "3.1.0",
+    "koffi": "3.1.2",
     "node-pty": "1.2.0-beta.15"
   },
   "dsh": {
