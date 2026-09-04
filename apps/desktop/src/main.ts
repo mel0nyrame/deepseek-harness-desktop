@@ -591,10 +591,17 @@ async function run(): Promise<void> {
       join(root, 'node_modules', '@deepseek-ai', 'dsh-llm-replay'),
       tracer.replayFile,
       tracer.kind === 'ui'
-        ? { acknowledgeWelcome: true, replayPaceMs: 80 }
+        ? {
+            acknowledgeWelcome: true,
+            replayPaceMs: 80,
+            replayChildFiles: tracer.replayChildFiles,
+            locale: 'en',
+            appearance: 'light',
+          }
         : {},
     )
   }
+  if (tracer?.kind === 'ui') nativeTheme.themeSource = 'light'
 
   const observeProcesses = processEvidenceObserver()
   const runtime = new DshSupervisor(undefined, observeProcesses === undefined
@@ -626,6 +633,7 @@ async function run(): Promise<void> {
     ...desktopWindowOptions(process.platform),
     webPreferences: desktopWindowWebPreferences(join(shellRoot, 'lib', 'preload.cjs')),
   })
+  if (tracer?.kind === 'ui') window.webContents.setZoomFactor(1)
   protocol.handle('dsh', createDesktopUiProtocolHandler(runtime))
   const preventUnknownNavigation = (event: Electron.Event, url: string): void => {
     if (!isTrustedRendererUrl(url, rendererPath)) event.preventDefault()

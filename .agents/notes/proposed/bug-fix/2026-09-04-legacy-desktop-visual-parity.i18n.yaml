@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record: the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal
+# authority; after editing either side, bring the other along and re-record
+# with: git hash-object <side> for both files, then update this record.
+2026-09-04-legacy-desktop-visual-parity.md: 7e290285e5a46322f40941c43ebd79d8ea19c05e
+2026-09-04-legacy-desktop-visual-parity.zh.md: c7f0b84b74b5064ea93d0b1f729abc20b484272e

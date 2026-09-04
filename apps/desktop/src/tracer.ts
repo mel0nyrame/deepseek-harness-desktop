@@ -15,6 +15,7 @@ export type TracerInvocation =
     /** Official Client journey over replay plus the native directory provider. */
     readonly kind: 'ui'
     readonly replayFile: string
+    readonly replayChildFiles: readonly string[]
     readonly pickedDirectory: string
     readonly framesDir: string
   }
@@ -32,6 +33,19 @@ function parseFramesDir(argv: readonly string[]): string | undefined {
   if (framesDir === undefined) return undefined
   if (!isAbsolute(framesDir)) throw new Error('desktop tracer --frames-dir must be absolute')
   return framesDir
+}
+
+function parseRepeatedAbsoluteFiles(argv: readonly string[], option: string): string[] {
+  const files: string[] = []
+  for (let index = 0; index < argv.length; index += 1) {
+    if (argv[index] !== option) continue
+    const file = argv[index + 1]
+    if (file === undefined || !isAbsolute(file) || !existsSync(file)) {
+      throw new Error(`desktop UI tracer requires every ${option} value to be an existing absolute file`)
+    }
+    files.push(file)
+  }
+  return files
 }
 
 /** Parse and validate the optional integrated-runtime tracer invocation. */
@@ -54,7 +68,15 @@ export function parseTracerInvocation(argv: readonly string[]): TracerInvocation
       throw new Error('desktop UI tracer requires an existing absolute --replay-file')
     }
     if (framesDir === undefined) throw new Error('desktop UI tracer requires an absolute --frames-dir')
-    return { kind: 'ui', replayFile, pickedDirectory, framesDir }
+    const replayChildFiles = parseRepeatedAbsoluteFiles(argv, '--replay-child-file')
+    if (replayChildFiles.length !== 3) {
+      throw new Error('desktop UI tracer requires exactly three --replay-child-file values')
+    }
+    return {
+      kind: 'ui', replayFile,
+      replayChildFiles,
+      pickedDirectory, framesDir,
+    }
   }
 
   if (nativeIndex >= 0) {
@@ -81,7 +103,7 @@ export function parseTracerInvocation(argv: readonly string[]): TracerInvocation
   return { kind: 'terminal', replayFile, ...withFramesDir() }
 }
 
-function replayPatch(replayFile: string, paceMs?: number): string {
+function replayPatch(replayFile: string, paceMs?: number, childFiles: readonly string[] = []): string {
   return [
     '- id: llm-deepseek',
     '  disabled: true',
@@ -92,6 +114,10 @@ function replayPatch(replayFile: string, paceMs?: number): string {
     "      name: '@deepseek-ai/dsh-llm-replay'",
     '      config:',
     `        file: ${JSON.stringify(replayFile)}`,
+    ...(childFiles.length === 0 ? [] : [
+      '        childFiles:',
+      ...childFiles.map(file => `          - ${JSON.stringify(file)}`),
+    ]),
     ...(paceMs === undefined ? [] : [`        paceMs: ${String(paceMs)}`]),
     '        providers:',
     '          - id: deepseek-official',
@@ -106,8 +132,10 @@ function replayPatch(replayFile: string, paceMs?: number): string {
 
 /**
  * Mount replay through the user-overlay seam in an isolated tracer home.
- * `acknowledgeWelcome` creates the tracer-owned settings file only when absent;
- * `replayPaceMs` controls keyless stream pacing and is validated by the replay provider.
+ * Writes the replay patch and optional first-run UI preferences inside `home`.
+ * `acknowledgeWelcome` gates creation of a missing settings file; locale and
+ * appearance are written only with that new file. Replay pacing and child files
+ * are delegated to the keyless replay provider.
  */
 export function prepareTracerProfile(
   home: string,
@@ -116,6 +144,9 @@ export function prepareTracerProfile(
   options: {
     readonly acknowledgeWelcome?: boolean
     readonly replayPaceMs?: number
+    readonly replayChildFiles?: readonly string[]
+    readonly locale?: 'en' | 'zh'
+    readonly appearance?: 'light' | 'dark' | 'system'
   } = {},
 ): void {
   if (!isAbsolute(home) || !isAbsolute(replayProvider)) {
@@ -124,10 +155,19 @@ export function prepareTracerProfile(
   const profileDir = join(home, 'profiles', 'desktop')
   const fallback = join(home, 'profiles', 'node_modules', '@deepseek-ai', 'dsh-llm-replay')
   mkdirSync(profileDir, { recursive: true })
-  writeFileSync(join(profileDir, 'cordis.patch.yml'), replayPatch(replayFile, options.replayPaceMs))
+  writeFileSync(
+    join(profileDir, 'cordis.patch.yml'),
+    replayPatch(replayFile, options.replayPaceMs, options.replayChildFiles),
+  )
   const settingsPath = join(home, 'settings.yaml')
   if (options.acknowledgeWelcome === true && !existsSync(settingsPath)) {
-    writeFileSync(settingsPath, 'ui-onboarding:\n  welcomeNoticeVersion: 2026-08-13.1\n')
+    writeFileSync(settingsPath, [
+      ...(options.locale === undefined ? [] : ['locale:', `  preference: ${options.locale}`]),
+      ...(options.appearance === undefined ? [] : ['ui-theme:', `  preference: ${options.appearance}`]),
+      'ui-onboarding:',
+      '  welcomeNoticeVersion: 2026-08-13.1',
+      '',
+    ].join('\n'))
   }
   mkdirSync(dirname(fallback), { recursive: true })
   if (existsSync(fallback)) {

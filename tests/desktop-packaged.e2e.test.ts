@@ -13,6 +13,7 @@ import {
   terminateProcessIdentities,
   type ProcessIdentity,
 } from './desktop-process-evidence.js'
+import { assertOfficialUiEvidence, type UiEvidence } from './desktop-ui-evidence-contract.js'
 
 const ROOT = path.resolve(import.meta.dirname, '..')
 const OUTPUT = path.join(ROOT, 'apps', 'desktop', 'dist')
@@ -101,35 +102,11 @@ function assertNetworkGuard(): void {
   expect(lines.filter(line => line.startsWith('attempted '))).toEqual([])
 }
 
-interface UiEvidence {
-  readonly graph: string[]
-  readonly workspace: boolean
-  readonly workspacePath: string
-  readonly workspaceLabel: string
-  readonly streaming: boolean
-  readonly tool: string
-  readonly answer: boolean
-  readonly error: boolean
-  readonly settings: boolean
-  readonly desktopChrome: boolean
-  readonly frames: Array<{ file: string; bytes: number; sha256: string }>
-}
-
 function assertInstalledUiEvidence(): void {
   const evidence = JSON.parse(
     fs.readFileSync(path.join(frames, 'evidence.json'), 'utf8'),
   ) as UiEvidence
-  expect(evidence).toMatchObject({
-    workspace: true,
-    workspacePath: picked,
-    workspaceLabel: path.basename(picked),
-    streaming: true,
-    tool: 'ok',
-    answer: true,
-    error: true,
-    settings: false,
-    desktopChrome: true,
-  })
+  assertOfficialUiEvidence(evidence, frames, picked)
   for (const id of [
     '@deepseek-ai/dsh-client-ui-conversation',
     '@deepseek-ai/dsh-client-ui-directory-picker-native',
@@ -138,24 +115,6 @@ function assertInstalledUiEvidence(): void {
     '@deepseek-ai/dsh-client-ui-workspace',
     '@dsh-desktop/ui',
   ]) expect(evidence.graph).toContain(id)
-  const files = [
-    '01-workspace-picker.png',
-    '02-workspace-adopted.png',
-    '03-input-triggers.png',
-    '04-conversation-streaming.png',
-    '05-conversation-complete.png',
-    '06-conversation-error.png',
-    '07-settings.png',
-  ]
-  const images = files.map(file => fs.readFileSync(path.join(frames, file)))
-  expect(images.every(image => image.subarray(0, 8).toString('hex') === '89504e470d0a1a0a')).toBe(true)
-  expect(images.every(image => image.byteLength > 20_000)).toBe(true)
-  expect(new Set(images.map(image => image.toString('base64'))).size).toBe(files.length)
-  expect(evidence.frames).toEqual(files.map((file, index) => ({
-    file,
-    bytes: images[index]?.byteLength,
-    sha256: createHash('sha256').update(images[index] as Buffer).digest('hex'),
-  })))
   expect(fs.readFileSync(path.join(home, 'settings.yaml'), 'utf8'))
     .toContain('ui-sidebar-glass-macos:\n  enabled: false')
 }
@@ -164,9 +123,10 @@ const sourceApp = packagedApp()
 const temporary = fs.mkdtempSync(path.join(os.tmpdir(), 'dsh-installed-smoke-'))
 const installedApp = path.join(temporary, 'DSH Desktop.app')
 const home = path.join(temporary, 'home')
-const picked = path.join(temporary, 'picked')
+const picked = path.join(temporary, 'workspace', 'deepseek-harness')
 const frames = path.join(temporary, 'frames')
-const replay = path.join(temporary, 'session.jsonl')
+const replays = [1, 2, 3].map(index => path.join(temporary, `session-${String(index)}.jsonl`))
+const terminalReplay = path.join(temporary, 'terminal-session.jsonl')
 const startupUserData = path.join(temporary, 'electron-startup')
 const tracerUserData = path.join(temporary, 'electron-tracer')
 const installedRuntime = path.join(installedApp, 'Contents', 'Resources', 'runtime')
@@ -178,9 +138,15 @@ beforeAll(() => {
   if (sourceApp === undefined || process.platform !== 'darwin') return
   execFileSync('/usr/bin/ditto', [sourceApp, installedApp])
   fs.mkdirSync(home)
-  fs.mkdirSync(picked)
+  fs.mkdirSync(picked, { recursive: true })
   fs.mkdirSync(frames)
-  fs.copyFileSync(path.join(ROOT, 'tests/fixtures/terminal-turn/session.jsonl'), replay)
+  for (const [offset, replay] of replays.entries()) {
+    fs.copyFileSync(
+      path.join(ROOT, 'tests', 'fixtures', 'visual-acceptance', `session-${String(offset + 1)}.jsonl`),
+      replay,
+    )
+  }
+  fs.copyFileSync(path.join(ROOT, 'tests', 'fixtures', 'terminal-turn', 'session.jsonl'), terminalReplay)
   fs.writeFileSync(networkGuard, [
     "const fs = require('node:fs')",
     "const log = process.env.DSH_DESKTOP_NETWORK_GUARD_LOG",
@@ -279,13 +245,17 @@ describe('installed desktop application', () => {
   )
 
   it.skipIf(process.platform !== 'darwin' || sourceApp === undefined)(
-    'runs the embedded Session, streaming, PTY, and native provider outside the source tree',
+    'runs deterministic published-Client sessions and the native provider outside the source tree',
     () => {
       const binary = path.join(installedApp, 'Contents', 'MacOS', 'DSH Desktop')
       const result = launchInstalled(binary, [
         `--user-data-dir=${tracerUserData}`,
+        '--lang=en-US',
         '--tracer-ui', picked,
-        '--replay-file', replay,
+        '--replay-file', replays[0] as string,
+        '--replay-child-file', replays[1] as string,
+        '--replay-child-file', replays[2] as string,
+        '--replay-child-file', terminalReplay,
         '--frames-dir', frames,
       ])
       const output = `${result.stdout}\n${result.stderr}`

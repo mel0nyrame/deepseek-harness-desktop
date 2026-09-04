@@ -26,8 +26,10 @@ afterAll(() => {
   for (const directory of outputDirectories) rmSync(directory, { recursive: true, force: true })
 })
 
-describe.skipIf(process.platform !== 'darwin')('desktop UI visual evidence', () => {
-  it('renders formal desktop contributions with the published sidebar in Electron', () => {
+// This synthetic markup is a focused contribution smoke test. The real-product
+// visual-acceptance journey lives in desktop-runtime.e2e.test.ts.
+describe.skipIf(process.platform !== 'darwin')('desktop UI synthetic composition smoke', () => {
+  it('renders desktop contributions with the published sidebar in Electron', () => {
     const output = mkdtempSync(join(tmpdir(), 'dsh-desktop-ui-evidence-'))
     outputDirectories.add(output)
     const env = { ...process.env }
