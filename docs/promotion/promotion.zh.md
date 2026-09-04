@@ -20,14 +20,14 @@
 
 | 表面 | 证据 |
 | --- | --- |
-| 浅色 / 深色 | `tests/desktop-ui-visual.e2e.test.ts` 以 `glass-light` 与 `glass-dark` 渲染已发布的侧边栏并捕获互不相同的帧；`tests/desktop-native-window.test.ts` 从原生状态推导渲染器外观并校验主题桥（`light`、`dark`） |
+| 浅色 / 深色 | `tests/desktop-ui-visual.e2e.test.ts` 是覆盖 `glass-light` 与 `glass-dark` 的合成 contribution 冒烟测试，不是视觉一致性权威；`tests/desktop-native-window.test.ts` 从原生状态推导渲染器外观并校验主题桥（`light`、`dark`） |
 | 跟随系统 | `tests/desktop-native-window.test.ts` 接受 `auto` 主题偏好，并把原生 `nativeTheme` 更新重新发布给渲染器 |
 | 降低透明度 | `tests/desktop-ui-visual.e2e.test.ts` 渲染不透明的辅助功能回退（`transparency: opaque`、材质 `opaque`） |
-| 窗口镶边与拖拽 | `tests/desktop-native-window.test.ts` 锁定紧凑 macOS 镶边；已安装应用旅程断言 `desktopChrome: true` 与 `data-desktop-window-chrome` 区域，并捕获真实渲染器帧（`01`–`07`） |
-| 侧边栏 | `tests/desktop-sidebar-integration.test.ts` 保留官方标签、工作区计数、插槽与开合交互；视觉证据覆盖折叠与展开状态 |
-| 会话流式输出 | `tests/desktop-runtime.e2e.test.ts` 在真实内嵌 DSH 子进程上渲染一个有序的 keyless 终端轮次；已安装旅程捕获 `04-conversation-streaming.png` 与 `05-conversation-complete.png`，`streaming: true` |
-| 工具 | 已安装旅程断言 bash 工具到达 `data-state="ok"`，并输出 `TRACER_OK official-client-ui` |
-| 终端 / PTY | 真实 bash/PTY 路径在 `tests/desktop-runtime.e2e.test.ts` 与已安装应用冒烟中运行；`tests/desktop-process-tree.e2e.test.ts` 在五个进程场景中覆盖真实 PTY 清理 |
+| 窗口镶边与拖拽 | `tests/desktop-native-window.test.ts` 锁定紧凑 macOS 镶边；已安装应用旅程在真实产品截图旁记录 `data-desktop-window-chrome` 区域的语义与解析后几何事实 |
+| 侧边栏 | `tests/desktop-sidebar-integration.test.ts` 保留官方标签、工作区计数、插槽与开合交互；`tests/desktop-runtime.e2e.test.ts` 是真实产品视觉验收旅程，合成冒烟测试只覆盖隔离的折叠与展开 contribution 状态 |
+| 会话流式输出 | `tests/desktop-runtime.e2e.test.ts` 在真实内嵌 DSH 子进程上渲染一个有序的 keyless 终端轮次；其 published Client 旅程通过受支持的 Host API 创建三条固定非空参考 session，再在补充 session 中捕获 streaming、complete 和 replay-exhaustion 状态 |
+| 工具 | terminal 旅程与 published Client 旅程都断言 bash-backed 结果可见；后者在参考与补充 replay 脚本全部消费后输出 `TRACER_OK official-client-ui` |
+| 终端 / PTY | 真实 bash/PTY 路径在源码与已安装产品旅程中运行；`tests/desktop-process-tree.e2e.test.ts` 在五个进程场景中覆盖真实 PTY 清理 |
 | 工作区 / 目录选择 | `tests/desktop-runtime.e2e.test.ts` 经完整的原生反向请求旅程采纳目录并打开路径；已安装旅程捕获工作区选择器、采纳所选目录并记录 `workspacePath`/`workspaceLabel` |
 | 设置 | `tests/desktop-runtime.e2e.test.ts` 组合设置贡献；已安装旅程打开真实设置对话框，切换桌面玻璃设置，并验证 `settings.yaml` 中的持久投影（`ui-sidebar-glass-macos: enabled: false`） |
 | 重启 / 会话行为 | `tests/desktop-supervisor.test.ts` 锁定就绪、意外退出与恰好一次受控重启；`tests/desktop-runtime.e2e.test.ts` 在配置失败后重启一次；已安装冒烟在启动期间退出外壳时回收内嵌子进程 |

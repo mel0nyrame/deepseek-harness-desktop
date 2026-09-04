@@ -1,8 +1,7 @@
 import { execFileSync, spawn, spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { basename, join, resolve } from 'node:path'
+import { join, resolve } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { removeRuntimeOutput, scrubRuntimeEnvironment } from '../scripts/runtime-output.js'
 import {
@@ -11,10 +10,13 @@ import {
   textOutput,
   type ProcessOutput,
 } from './desktop-process-evidence.js'
+import { assertOfficialUiEvidence, type UiEvidence } from './desktop-ui-evidence-contract.js'
 
 const ROOT = resolve(import.meta.dirname, '..')
 const RUNTIME = join(ROOT, '.artifacts', 'runtime-e2e')
 const FIXTURE = join(ROOT, 'tests', 'fixtures', 'terminal-turn', 'session.jsonl')
+const VISUAL_FIXTURES = [1, 2, 3]
+  .map(index => join(ROOT, 'tests', 'fixtures', 'visual-acceptance', `session-${String(index)}.jsonl`))
 const temporaryDirectories = new Set<string>()
 
 function temporary(prefix: string): string {
@@ -173,12 +175,19 @@ afterAll(() => {
 describe.skipIf(process.platform !== 'darwin')('integrated Electron runtime', () => {
   it('composes the official Client with desktop workspace, input, conversation, and settings contributions', () => {
     const home = temporary('dsh-desktop-ui-home-')
-    const picked = temporary('dsh-desktop-ui-picked-')
+    const workspaceRoot = temporary('dsh-desktop-ui-workspace-')
+    const picked = join(workspaceRoot, 'deepseek-harness')
+    mkdirSync(picked)
     const frames = temporary('dsh-desktop-ui-frames-')
 
     const result = launch(home, [
+      `--user-data-dir=${join(home, 'electron-user-data')}`,
+      '--lang=en-US',
       '--tracer-ui', picked,
-      '--replay-file', FIXTURE,
+      '--replay-file', VISUAL_FIXTURES[0] as string,
+      '--replay-child-file', VISUAL_FIXTURES[1] as string,
+      '--replay-child-file', VISUAL_FIXTURES[2] as string,
+      '--replay-child-file', FIXTURE,
       '--frames-dir', frames,
     ])
 
@@ -190,30 +199,10 @@ describe.skipIf(process.platform !== 'darwin')('integrated Electron runtime', ()
     const evidenceLine = output.split('\n')
       .find(line => line.startsWith('DESKTOP_UI_EVIDENCE '))
     expect(evidenceLine).toBeDefined()
-    const evidence = JSON.parse((evidenceLine as string).slice('DESKTOP_UI_EVIDENCE '.length)) as {
-      graph: string[]
-      workspace: boolean
-      workspacePath: string
-      workspaceLabel: string
-      streaming: boolean
-      tool: string
-      answer: boolean
-      error: boolean
-      settings: boolean
-      desktopChrome: boolean
-      frames: Array<{ file: string; bytes: number; sha256: string }>
-    }
-    expect(evidence).toMatchObject({
-      workspace: true,
-      workspacePath: picked,
-      workspaceLabel: basename(picked),
-      streaming: true,
-      tool: 'ok',
-      answer: true,
-      error: true,
-      settings: false,
-      desktopChrome: true,
-    })
+    const evidence = JSON.parse(
+      (evidenceLine as string).slice('DESKTOP_UI_EVIDENCE '.length),
+    ) as UiEvidence
+    assertOfficialUiEvidence(evidence, frames, picked)
     for (const id of [
       '@deepseek-ai/dsh-client-ui-conversation',
       '@deepseek-ai/dsh-client-ui-directory-picker-native',
@@ -222,24 +211,6 @@ describe.skipIf(process.platform !== 'darwin')('integrated Electron runtime', ()
       '@deepseek-ai/dsh-client-ui-workspace',
       '@dsh-desktop/ui',
     ]) expect(evidence.graph).toContain(id)
-    const files = [
-      '01-workspace-picker.png',
-      '02-workspace-adopted.png',
-      '03-input-triggers.png',
-      '04-conversation-streaming.png',
-      '05-conversation-complete.png',
-      '06-conversation-error.png',
-      '07-settings.png',
-    ]
-    const images = files.map(file => readFileSync(join(frames, file)))
-    expect(images.every(image => image.subarray(0, 8).toString('hex') === '89504e470d0a1a0a')).toBe(true)
-    expect(images.every(image => image.byteLength > 20_000)).toBe(true)
-    expect(new Set(images.map(image => image.toString('base64'))).size).toBe(files.length)
-    expect(evidence.frames).toEqual(files.map((file, index) => ({
-      file,
-      bytes: images[index]?.byteLength,
-      sha256: createHash('sha256').update(images[index] as Buffer).digest('hex'),
-    })))
     expect(JSON.parse(readFileSync(join(frames, 'evidence.json'), 'utf8'))).toEqual(evidence)
     expect(readFileSync(join(home, 'settings.yaml'), 'utf8'))
       .toContain('ui-sidebar-glass-macos:\n  enabled: false')

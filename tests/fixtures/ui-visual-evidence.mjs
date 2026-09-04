@@ -7,7 +7,7 @@ import { app, BrowserWindow } from 'electron'
 const ROOT = path.resolve(import.meta.dirname, '..', '..')
 const output = process.argv.at(-1)
 if (output === undefined || !path.isAbsolute(output)) {
-  throw new Error('desktop UI visual evidence requires an absolute output directory')
+  throw new Error('desktop UI composition smoke requires an absolute output directory')
 }
 
 const uiRequire = createRequire(path.join(ROOT, 'packages', 'ui', 'package.json'))

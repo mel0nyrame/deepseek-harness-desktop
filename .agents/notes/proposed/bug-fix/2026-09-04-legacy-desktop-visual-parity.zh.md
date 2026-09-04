@@ -44,6 +44,8 @@ Status: proposed
 
 通过真实 Host API 和 Client 流程创建固定 workspace 与三条非空 session。用 keyless replay 驱动每条 session，再通过真实 rename API 分配获批图片中的可见标题。固定 locale、appearance、窗口尺寸、workspace 名称、session 顺序和标题。冻结相对时间，或将其排除在图片比较之外。合成 React 标记可以继续充当聚焦 fixture，但不能宣称验证产品视觉一致性。
 
+Issue #100 在源码与已安装产品旅程中建立了这条参考接缝。隔离 tracer profile 提供三份参考 replay 脚本、一份补充 terminal 行为脚本，以及固定 locale 和 appearance 偏好，不会触及普通 profile。该旅程在 `evidence.json` 中记录参考 session 标识、非空状态、replay marker、稳定顺序、animation 与 compositor settlement、语义事实、解析后几何和图片哈希。在呈现修复落地前，契约还记录品牌身份、panel 图标、chrome 行结构与初始窗口尺寸这四项已知 mismatch。补充脚本在不改变三 session 参考截图的前提下，保留已安装产品的 streaming、tool、completion 与 replay-exhaustion gate。合成 Electron fixture 仅归类为 contribution composition 冒烟测试。
+
 获批图片继续作为人工视觉契约。只有 reviewer 确认真实产品渲染与该图片及适用 legacy 界面一致后，自动化才记录新的确定性基准。基准更新必须明确且可审查。浅色、已选 workspace、展开侧栏的主状态进行图片比较；启动、未选 workspace、收起、深色、不透明、全屏、conversation、details 和 settings 状态采用语义与几何断言，并在稳定位置增加聚焦截图。
 
 ## 考虑过的替代方案
