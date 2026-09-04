@@ -24,6 +24,9 @@ export const VISUAL_EVIDENCE_FILES = [
   '06-conversation-complete.png',
   '07-conversation-error.png',
   '08-settings.png',
+  '09-sidebar-collapsed.png',
+  '10-sidebar-narrow-reopened.png',
+  '11-sidebar-fullscreen.png',
 ] as const
 
 interface ResolvedRect {
@@ -62,7 +65,12 @@ export interface UiEvidence {
     readonly relativeTime: { readonly asserted: boolean; readonly excludedFromImages: boolean }
   }
   readonly semantics: {
-    readonly brand: { readonly present: boolean; readonly text: string; readonly graphic: boolean }
+    readonly brand: {
+      readonly present: boolean
+      readonly accessibleName: string | null
+      readonly text: string
+      readonly graphic: boolean
+    }
     readonly panelControl: {
       readonly present: boolean
       readonly accessibleName: string | null
@@ -73,6 +81,7 @@ export interface UiEvidence {
   }
   readonly geometry: {
     readonly initialWindow: { readonly width: number; readonly height: number }
+    readonly initialWorkArea: { readonly width: number; readonly height: number }
     readonly window: { readonly width: number; readonly height: number }
     readonly viewport: { readonly width: number; readonly height: number }
     readonly sidebar: ResolvedRect | null
@@ -82,9 +91,34 @@ export interface UiEvidence {
   }
   readonly visualContract: {
     readonly expectedInitialSize: { readonly width: number; readonly height: number }
+    readonly windowSizing: {
+      readonly actual: { readonly width: number; readonly height: number }
+      readonly constrainedByWorkArea: boolean
+      readonly reason: 'display-work-area' | null
+    }
     readonly mismatches: string[]
   }
+  readonly responsive: {
+    readonly expanded: ResponsiveLayoutState
+    readonly collapsed: ResponsiveLayoutState
+    readonly narrowCollapsed: ResponsiveLayoutState
+    readonly narrowReopened: ResponsiveLayoutState
+    readonly resizedExpanded: ResponsiveLayoutState
+    readonly fullscreenCollapsed: ResponsiveLayoutState
+  }
   readonly frames: Array<{ readonly file: string; readonly bytes: number; readonly sha256: string }>
+}
+
+interface ResponsiveLayoutState {
+  readonly window: { readonly width: number; readonly height: number }
+  readonly fullscreen: boolean
+  readonly collapsed: boolean
+  readonly sidebarWidth: number
+  readonly declaredSidebarWidth: number
+  readonly control: 'collapse' | 'reveal'
+  readonly controlLeft: number
+  readonly headerPaddingLeft: number
+  readonly tabsLeft: number | null
 }
 
 /** Assert the shared source and installed-product visual-evidence contract. */
@@ -135,18 +169,24 @@ export function assertOfficialUiEvidence(
       relativeTime: { asserted: true, excludedFromImages: true },
     },
     semantics: {
-      brand: { present: true, text: 'DeepSeek', graphic: false },
+      brand: {
+        present: true,
+        accessibleName: 'deepseek HARNESS',
+        text: '',
+        graphic: true,
+      },
       panelControl: {
         present: true,
         accessibleName: 'Collapse sidebar',
-        text: '‹',
-        graphic: false,
+        text: '',
+        graphic: true,
       },
-      chromeRows: { separate: false },
+      chromeRows: { separate: true },
     },
     geometry: {
-      initialWindow: { width: 900, height: 640 },
-      window: { width: 900, height: 640 },
+      initialWindow: { width: 1280, height: expect.any(Number) },
+      initialWorkArea: { width: expect.any(Number), height: expect.any(Number) },
+      window: { width: 1280, height: expect.any(Number) },
       viewport: { width: expect.any(Number), height: expect.any(Number) },
       sidebar: { x: 0, y: 0, width: expect.any(Number), height: expect.any(Number) },
       chrome: { x: expect.any(Number), y: expect.any(Number), width: expect.any(Number), height: expect.any(Number) },
@@ -160,14 +200,81 @@ export function assertOfficialUiEvidence(
     },
     visualContract: {
       expectedInitialSize: { width: 1280, height: 840 },
-      mismatches: [
-        'brand.identity',
-        'sidebar.panel-control',
-        'sidebar.chrome-rows',
-        'window.initial-size',
-      ],
+      windowSizing: {
+        actual: { width: 1280, height: expect.any(Number) },
+        constrainedByWorkArea: expect.any(Boolean),
+      },
+      mismatches: [],
+    },
+    responsive: {
+      expanded: {
+        window: { width: 1280, height: expect.any(Number) }, fullscreen: false, collapsed: false,
+        sidebarWidth: expect.any(Number), declaredSidebarWidth: expect.any(Number),
+        control: 'collapse', controlLeft: 84,
+        headerPaddingLeft: 20, tabsLeft: expect.any(Number),
+      },
+      collapsed: {
+        window: { width: 1280, height: expect.any(Number) }, fullscreen: false, collapsed: true,
+        sidebarWidth: 0, declaredSidebarWidth: 0, control: 'reveal', controlLeft: 84,
+        headerPaddingLeft: 120, tabsLeft: expect.any(Number),
+      },
+      narrowCollapsed: {
+        window: { width: 900, height: 640 }, fullscreen: false, collapsed: true,
+        sidebarWidth: 0, declaredSidebarWidth: 0, control: 'reveal', controlLeft: 84,
+        headerPaddingLeft: 120, tabsLeft: expect.any(Number),
+      },
+      narrowReopened: {
+        window: { width: 900, height: 640 }, fullscreen: false, collapsed: false,
+        sidebarWidth: expect.any(Number), declaredSidebarWidth: expect.any(Number),
+        control: 'collapse', controlLeft: 84,
+        headerPaddingLeft: 20, tabsLeft: expect.any(Number),
+      },
+      resizedExpanded: {
+        window: { width: 1280, height: expect.any(Number) }, fullscreen: false, collapsed: false,
+        sidebarWidth: expect.any(Number), declaredSidebarWidth: expect.any(Number),
+        control: 'collapse', controlLeft: 84,
+        headerPaddingLeft: 20, tabsLeft: expect.any(Number),
+      },
+      fullscreenCollapsed: {
+        window: { width: expect.any(Number), height: expect.any(Number) },
+        fullscreen: true, collapsed: true, sidebarWidth: 0, declaredSidebarWidth: 0,
+        control: 'reveal', controlLeft: 12,
+        headerPaddingLeft: 48, tabsLeft: expect.any(Number),
+      },
     },
   })
+  expect(evidence.responsive.expanded.sidebarWidth).toBeGreaterThanOrEqual(264)
+  expect(evidence.responsive.narrowReopened.sidebarWidth).toBeGreaterThanOrEqual(264)
+  expect(evidence.responsive.resizedExpanded.sidebarWidth).toBeGreaterThanOrEqual(264)
+  expect(evidence.responsive.collapsed.tabsLeft ?? -1).toBeGreaterThanOrEqual(120)
+  expect(evidence.responsive.narrowCollapsed.tabsLeft ?? -1).toBeGreaterThanOrEqual(120)
+  expect(evidence.responsive.fullscreenCollapsed.tabsLeft ?? -1).toBeGreaterThanOrEqual(48)
+  for (const state of Object.values(evidence.responsive)) {
+    expect(state.sidebarWidth).toBe(state.declaredSidebarWidth)
+  }
+  const requested = evidence.visualContract.expectedInitialSize
+  const actual = evidence.visualContract.windowSizing.actual
+  const workArea = evidence.geometry.initialWorkArea
+  if (actual.width === requested.width && actual.height === requested.height) {
+    expect(evidence.visualContract.windowSizing).toMatchObject({
+      constrainedByWorkArea: false,
+      reason: null,
+    })
+  } else {
+    expect(evidence.visualContract.windowSizing).toMatchObject({
+      constrainedByWorkArea: true,
+      reason: 'display-work-area',
+    })
+    expect(actual).toEqual({
+      width: Math.min(requested.width, workArea.width),
+      height: Math.min(requested.height, workArea.height),
+    })
+  }
+  expect(evidence.geometry.initialWindow).toEqual(actual)
+  expect(evidence.geometry.window).toEqual(actual)
+  expect(evidence.responsive.expanded.window).toEqual(actual)
+  expect(evidence.responsive.collapsed.window).toEqual(actual)
+  expect(evidence.responsive.resizedExpanded.window).toEqual(actual)
   const images = VISUAL_EVIDENCE_FILES.map(file => readFileSync(join(framesDirectory, file)))
   expect(images.every(image => image.subarray(0, 8).toString('hex') === '89504e470d0a1a0a')).toBe(true)
   expect(images.every(image => image.byteLength > 20_000)).toBe(true)

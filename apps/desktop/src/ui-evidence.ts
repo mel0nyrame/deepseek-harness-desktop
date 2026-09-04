@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
-import type { BrowserWindow } from 'electron'
+import { screen, type BrowserWindow } from 'electron'
 import { captureStableFrame } from './frame-capture.js'
 import { TERMINAL_TRACER_PROMPT } from './tracer-contract.js'
 
@@ -54,6 +54,27 @@ interface VisualSession {
   readonly title: string
   readonly prompt: string
   readonly reply: string
+}
+
+interface ResponsiveLayoutState {
+  readonly window: { readonly width: number; readonly height: number }
+  readonly fullscreen: boolean
+  readonly collapsed: boolean
+  readonly sidebarWidth: number
+  readonly declaredSidebarWidth: number
+  readonly control: 'collapse' | 'reveal'
+  readonly controlLeft: number
+  readonly headerPaddingLeft: number
+  readonly tabsLeft: number | null
+}
+
+interface ResponsiveEvidence {
+  readonly expanded: ResponsiveLayoutState
+  readonly collapsed: ResponsiveLayoutState
+  readonly narrowCollapsed: ResponsiveLayoutState
+  readonly narrowReopened: ResponsiveLayoutState
+  readonly resizedExpanded: ResponsiveLayoutState
+  readonly fullscreenCollapsed: ResponsiveLayoutState
 }
 
 const VISUAL_SESSIONS: readonly VisualSession[] = [
@@ -191,6 +212,7 @@ async function createVisualReferenceState(window: BrowserWindow, pickedDirectory
 async function resolvedVisualEvidence(
   window: BrowserWindow,
   initialWindowSize: { readonly width: number; readonly height: number },
+  initialWorkArea: { readonly width: number; readonly height: number },
 ): Promise<{
   readonly deterministic: Record<string, unknown>
   readonly semantics: Record<string, unknown>
@@ -264,6 +286,7 @@ async function resolvedVisualEvidence(
       animationsRunning: document.getAnimations().filter(animation => animation.playState === 'running').length,
       brand: {
         present: brand !== null,
+        accessibleName: brand?.getAttribute('aria-label') ?? null,
         text: brand?.textContent?.trim() ?? '',
         graphic: brand !== null && brand.querySelector('svg, img') !== null,
       },
@@ -290,10 +313,19 @@ async function resolvedVisualEvidence(
     throw new Error(`desktop UI evidence resolved invalid reference facts: ${JSON.stringify(renderer)}`)
   }
   const currentWindowBounds = window.getBounds()
+  const resolvedRequestedSize = {
+    width: Math.min(EXPECTED_INITIAL_SIZE.width, initialWorkArea.width),
+    height: Math.min(EXPECTED_INITIAL_SIZE.height, initialWorkArea.height),
+  }
+  const constrainedByWorkArea = initialWindowSize.width === resolvedRequestedSize.width
+    && initialWindowSize.height === resolvedRequestedSize.height
+    && (initialWindowSize.width !== EXPECTED_INITIAL_SIZE.width
+      || initialWindowSize.height !== EXPECTED_INITIAL_SIZE.height)
+  const initialSizeMatches = initialWindowSize.width === EXPECTED_INITIAL_SIZE.width
+    && initialWindowSize.height === EXPECTED_INITIAL_SIZE.height
   const brandMatches = renderer.brand.present === true && renderer.brand.graphic === true
-    && typeof renderer.brand.text === 'string'
-    && renderer.brand.text.toLowerCase().includes('deepseek')
-    && renderer.brand.text.includes('HARNESS')
+    && renderer.brand.accessibleName === 'deepseek HARNESS'
+    && renderer.brand.text === ''
   const panelMatches = renderer.panelControl.present === true
     && renderer.panelControl.graphic === true
     && renderer.panelControl.text === ''
@@ -301,10 +333,7 @@ async function resolvedVisualEvidence(
     ...(brandMatches ? [] : ['brand.identity']),
     ...(panelMatches ? [] : ['sidebar.panel-control']),
     ...(renderer.chromeRows.separate === true ? [] : ['sidebar.chrome-rows']),
-    ...(initialWindowSize.width === EXPECTED_INITIAL_SIZE.width
-      && initialWindowSize.height === EXPECTED_INITIAL_SIZE.height
-      ? []
-      : ['window.initial-size']),
+    ...(initialSizeMatches || constrainedByWorkArea ? [] : ['window.initial-size']),
   ]
   return {
     deterministic: {
@@ -331,11 +360,195 @@ async function resolvedVisualEvidence(
     },
     geometry: {
       initialWindow: initialWindowSize,
+      initialWorkArea,
       window: { width: currentWindowBounds.width, height: currentWindowBounds.height },
       ...renderer.geometry,
     },
-    visualContract: { expectedInitialSize: EXPECTED_INITIAL_SIZE, mismatches },
+    visualContract: {
+      expectedInitialSize: EXPECTED_INITIAL_SIZE,
+      windowSizing: {
+        actual: initialWindowSize,
+        constrainedByWorkArea,
+        reason: constrainedByWorkArea ? 'display-work-area' : null,
+      },
+      mismatches,
+    },
   }
+}
+
+async function waitForWindowState(
+  window: BrowserWindow,
+  ready: () => boolean,
+  label: string,
+  timeoutMs = 30_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!ready()) {
+    if (Date.now() > deadline) {
+      throw new Error(`desktop UI evidence timed out waiting for ${label}: ${JSON.stringify(window.getBounds())}`)
+    }
+    await new Promise(done => setTimeout(done, 50))
+  }
+}
+
+async function readResponsiveLayoutState(window: BrowserWindow): Promise<ResponsiveLayoutState> {
+  const renderer = await window.webContents.executeJavaScript(`(() => {
+    const round = value => Math.round(value)
+    const frame = document.querySelector('[data-sidebar-collapsed]')
+    const collapsed = frame?.getAttribute('data-sidebar-collapsed') === 'true'
+    const sidebarSlot = document.querySelector('[data-slot="sidebar"]')
+    const control = document.querySelector(collapsed
+      ? '[data-desktop-sidebar-reveal]'
+      : '[data-desktop-sidebar-toggle]')
+    const header = document.querySelector('[data-slot="conversation.session.header"] > header')
+    const tabs = header?.querySelector('[role="tablist"]') ?? null
+    if (!(frame instanceof HTMLElement) || !(sidebarSlot instanceof HTMLElement)
+      || !(control instanceof HTMLElement) || !(header instanceof HTMLElement)) return null
+    let sidebarColumn = sidebarSlot
+    while (sidebarColumn.parentElement !== null && sidebarColumn.parentElement !== frame) {
+      sidebarColumn = sidebarColumn.parentElement
+    }
+    if (sidebarColumn.parentElement !== frame) return null
+    const controlStyle = getComputedStyle(control)
+    const controlRect = control.getBoundingClientRect()
+    if (controlStyle.display === 'none' || controlStyle.visibility === 'hidden'
+      || controlRect.width === 0 || controlRect.height === 0) return null
+    return {
+      fullscreen: document.body.dataset.dshFullscreen === 'true',
+      collapsed,
+      sidebarWidth: round(sidebarColumn.getBoundingClientRect().width),
+      declaredSidebarWidth: round(Number.parseFloat(
+        getComputedStyle(frame).getPropertyValue('--dsh-sidebar-width'),
+      )),
+      control: collapsed ? 'reveal' : 'collapse',
+      controlLeft: round(controlRect.left),
+      headerPaddingLeft: round(Number.parseFloat(getComputedStyle(header).paddingLeft)),
+      tabsLeft: tabs instanceof HTMLElement ? round(tabs.getBoundingClientRect().left) : null,
+      sidebarAncestors: (() => {
+        const rows = []
+        let element = sidebarSlot
+        while (element instanceof HTMLElement) {
+          const style = getComputedStyle(element)
+          rows.push({
+            tag: element.tagName,
+            slot: element.getAttribute('data-slot'),
+            className: element.className,
+            rectWidth: round(element.getBoundingClientRect().width),
+            width: style.width,
+            minWidth: style.minWidth,
+            overflow: style.overflow,
+            borderRightWidth: style.borderRightWidth,
+          })
+          if (element === frame) break
+          element = element.parentElement
+        }
+        return rows
+      })(),
+    }
+  })()`) as unknown
+  if (!isRecord(renderer) || typeof renderer.fullscreen !== 'boolean'
+    || typeof renderer.collapsed !== 'boolean' || typeof renderer.sidebarWidth !== 'number'
+    || typeof renderer.declaredSidebarWidth !== 'number'
+    || (renderer.control !== 'collapse' && renderer.control !== 'reveal')
+    || typeof renderer.controlLeft !== 'number' || typeof renderer.headerPaddingLeft !== 'number'
+    || (renderer.tabsLeft !== null && typeof renderer.tabsLeft !== 'number')) {
+    throw new Error(`desktop UI evidence resolved invalid responsive state: ${JSON.stringify(renderer)}`)
+  }
+  if (renderer.sidebarWidth !== renderer.declaredSidebarWidth) {
+    throw new Error(`desktop UI evidence sidebar track does not match its resolved geometry: ${JSON.stringify(renderer.sidebarAncestors)}`)
+  }
+  const bounds = window.getBounds()
+  return {
+    window: { width: bounds.width, height: bounds.height },
+    fullscreen: renderer.fullscreen,
+    collapsed: renderer.collapsed,
+    sidebarWidth: renderer.sidebarWidth,
+    declaredSidebarWidth: renderer.declaredSidebarWidth,
+    control: renderer.control,
+    controlLeft: renderer.controlLeft,
+    headerPaddingLeft: renderer.headerPaddingLeft,
+    tabsLeft: renderer.tabsLeft,
+  }
+}
+
+async function settleRendererLayout(window: BrowserWindow): Promise<void> {
+  await window.webContents.executeJavaScript(`new Promise(resolve => {
+    requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  })`)
+}
+
+async function toggleSidebar(window: BrowserWindow, collapsed: boolean, label: string): Promise<void> {
+  const selector = collapsed
+    ? '[data-desktop-sidebar-reveal]'
+    : '[data-desktop-sidebar-toggle]'
+  const toggled = await window.webContents.executeJavaScript(`(() => {
+    const button = document.querySelector(${JSON.stringify(selector)})
+    if (!(button instanceof HTMLButtonElement)) return false
+    button.click()
+    return true
+  })()`) as unknown
+  if (toggled !== true) throw new Error('desktop UI evidence found no reachable sidebar control')
+  await waitFor(
+    window,
+    `document.querySelector('[data-sidebar-collapsed="${String(!collapsed)}"]') !== null`,
+    label,
+  )
+}
+
+async function exerciseResponsiveLayout(
+  window: BrowserWindow,
+  framesDir: string,
+  frames: CapturedFrame[],
+  wideWindowSize: { readonly width: number; readonly height: number },
+): Promise<ResponsiveEvidence> {
+  const expanded = await readResponsiveLayoutState(window)
+
+  await toggleSidebar(window, false, 'wide manually collapsed sidebar')
+  const collapsed = await readResponsiveLayoutState(window)
+  frames.push(await capture(window, framesDir, '09-sidebar-collapsed'))
+
+  window.setSize(900, 640)
+  await waitForWindowState(window, () => {
+    const bounds = window.getBounds()
+    return bounds.width === 900 && bounds.height === 640
+  }, 'narrow window bounds')
+  await settleRendererLayout(window)
+  await waitFor(window, `document.querySelector('[data-sidebar-collapsed="true"]') !== null`, 'narrow auto-collapse')
+  const narrowCollapsed = await readResponsiveLayoutState(window)
+
+  await toggleSidebar(window, true, 'narrow manually reopened sidebar')
+  const narrowReopened = await readResponsiveLayoutState(window)
+  frames.push(await capture(window, framesDir, '10-sidebar-narrow-reopened'))
+
+  window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
+  await waitForWindowState(window, () => {
+    const bounds = window.getBounds()
+    return bounds.width === wideWindowSize.width && bounds.height === wideWindowSize.height
+  }, 'restored window bounds')
+  await settleRendererLayout(window)
+  await waitFor(window, `document.querySelector('[data-sidebar-collapsed="true"]') !== null`, 'restored wide layout')
+  await toggleSidebar(window, true, 'resized manually reopened sidebar')
+  const resizedExpanded = await readResponsiveLayoutState(window)
+
+  await toggleSidebar(window, false, 'pre-fullscreen manually collapsed sidebar')
+  window.setFullScreen(true)
+  await waitForWindowState(window, () => window.isFullScreen(), 'native fullscreen')
+  await waitFor(window, `document.body.dataset.dshFullscreen === 'true'`, 'renderer fullscreen projection')
+  const fullscreenCollapsed = await readResponsiveLayoutState(window)
+  frames.push(await capture(window, framesDir, '11-sidebar-fullscreen'))
+
+  window.setFullScreen(false)
+  await waitForWindowState(window, () => !window.isFullScreen(), 'leaving native fullscreen')
+  await waitFor(window, `document.body.dataset.dshFullscreen === 'false'`, 'windowed renderer projection')
+  window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
+  await waitForWindowState(window, () => {
+    const bounds = window.getBounds()
+    return bounds.width === wideWindowSize.width && bounds.height === wideWindowSize.height
+  }, 'final window bounds')
+  await settleRendererLayout(window)
+  await toggleSidebar(window, true, 'final manually reopened sidebar')
+
+  return { expanded, collapsed, narrowCollapsed, narrowReopened, resizedExpanded, fullscreenCollapsed }
 }
 
 async function captureTerminalBehaviorEvidence(
@@ -407,6 +620,8 @@ export async function captureOfficialUiEvidence(
   const frames: CapturedFrame[] = []
   const initialBounds = window.getBounds()
   const initialWindowSize = { width: initialBounds.width, height: initialBounds.height }
+  const displayWorkArea = screen.getDisplayMatching(initialBounds).workArea
+  const initialWorkArea = { width: displayWorkArea.width, height: displayWorkArea.height }
   await waitFor(window, `(() => {
     const graph = globalThis.__DSH_BOOT__
     return typeof graph === 'object' && graph !== null && Array.isArray(graph.entries)
@@ -456,7 +671,7 @@ export async function captureOfficialUiEvidence(
   await waitFor(window, 'document.querySelector(\'[role="listbox"]\') === null', 'input trigger dismissal')
 
   const workspaceId = await createVisualReferenceState(window, pickedDirectory)
-  const visual = await resolvedVisualEvidence(window, initialWindowSize)
+  const visual = await resolvedVisualEvidence(window, initialWindowSize, initialWorkArea)
   frames.push(await capture(window, framesDir, '04-visual-reference'))
   await captureTerminalBehaviorEvidence(window, workspaceId, framesDir, frames)
 
@@ -492,6 +707,10 @@ export async function captureOfficialUiEvidence(
     settings: document.querySelector('.dsh-desktop-glass-row input[type="checkbox"]')?.checked,
     desktopChrome: document.querySelector('[data-desktop-window-chrome]') !== null,
   }))()`) as Record<string, unknown>
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Escape' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Escape' })
+  await waitFor(window, `document.querySelector('[role="dialog"]') === null`, 'settings dismissal')
+  const responsive = await exerciseResponsiveLayout(window, framesDir, frames, initialWindowSize)
   const evidence = {
     ...rendererEvidence,
     workspace: true,
@@ -499,6 +718,7 @@ export async function captureOfficialUiEvidence(
     workspacePath: pickedDirectory,
     workspaceLabel: expectedWorkspaceLabel,
     ...visual,
+    responsive,
     frames,
   }
   writeFileSync(join(framesDir, 'evidence.json'), `${JSON.stringify(evidence, null, 2)}\n`)

@@ -111,6 +111,10 @@ applyWithEnvironment({
     setPreference() {},
     onState: () => () => undefined,
   },
+  primitives: {
+    BrandWordmark: primitives.BrandWordmark,
+    PanelIcon: primitives.IconPanelLeftOutline16,
+  },
   document: {
     body: { dataset: {} },
     createElement: () => ({ id: '', textContent: '', remove() {} }),
@@ -207,7 +211,12 @@ function surfaceBody({ appearance, transparency, collapsed }) {
         t: desktopText,
       }),
     ),
-    React.createElement(DesktopWindowChrome, { toggleSidebar() {}, t: desktopText }),
+    React.createElement(DesktopWindowChrome, {
+      BrandWordmark: primitives.BrandWordmark,
+      PanelIcon: primitives.IconPanelLeftOutline16,
+      toggleSidebar() {},
+      t: desktopText,
+    }),
   )))
 }
 

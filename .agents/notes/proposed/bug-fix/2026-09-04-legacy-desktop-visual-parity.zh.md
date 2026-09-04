@@ -27,24 +27,24 @@ Status: proposed
 | 界面或状态 | 获批证据 | 当前缺口 | 计划证据 |
 |---|---|---|---|
 | 启动状态：starting、recovering、failed、stopping | Legacy 状态界面与生命周期 | 产品窗口只在 runtime 就绪后创建 | 真实生命周期断言与稳定状态区域截图 |
-| 工作区首页：浅色、展开、已选 workspace | 获批仓库图片与 legacy 实现 | 品牌、panel 控件、行结构、几何和初始尺寸不同 | 确定性真实产品参考截图，以及语义与几何断言 |
-| 工作区首页：未选 workspace | Legacy 行为 | Model 与 permission 控件按状态显示是正确的，但 chrome 仍有差异 | 选择 workspace 前的真实产品流程 |
-| 侧栏：展开、收起、窄窗口、全屏 | Legacy 布局与原生呈现 | 现有测试不检查获批品牌与控件位置 | 语义、响应式几何与聚焦区域断言 |
+| 工作区首页：浅色、展开、已选 workspace | 获批仓库图片与 legacy 实现 | #101 已恢复共享 chrome、品牌、panel 控件、行结构与初始尺寸；后续界面专项 ticket 仍保留各自缺口 | 确定性真实产品参考截图，以及语义与几何断言 |
+| 工作区首页：未选 workspace | Legacy 行为 | 共享 chrome 已恢复；依赖状态的 model 与 permission 呈现仍需对应界面评审 | 选择 workspace 前的真实产品流程 |
+| 侧栏：展开、收起、窄窗口、全屏 | Legacy 布局与原生呈现 | #101 已恢复零宽收起、窄窗口手动重开、全屏控件位置与 header 避让 | 语义、响应式几何与聚焦区域断言 |
 | 首次 onboarding | Legacy 的 Internal Testing 与 API key 对话框；当前已发布组件保留相同 welcome 内容 | 当前桌面证据流程会在渲染前确认 onboarding，真实窗口从未覆盖它 | 隔离首次运行 profile，依次通过两层对话框 |
 | Composer menu 与 input trigger | Legacy 的 workspace、model、access、command 和 trigger 界面 | 核心 selector 仍等价；当前 menu 增加了不得移除的分组 | 在主窗口尺寸与最小窗口尺寸下验证真实定位弹层 |
-| Conversation：streaming、complete 与 error | Legacy replay 流程与 header 避让规则 | 当前证据捕获这些状态，但不检查几何；legacy header hook 与避让规则已经缺失 | Keyless 真实 turn，以及 header、tab、content 和 error 区域断言 |
+| Conversation：streaming、complete 与 error | Legacy replay 流程与 header 避让规则 | #101 已覆盖共享 header 与 tab 避让；content 和 error 区域几何仍需对应界面评审 | Keyless 真实 turn，以及 header、tab、content 和 error 区域断言 |
 | Question、approval 与 plan takeover | Legacy pending 与 settled 证据；当前核心组件仍等价 | 当前没有桌面级视觉覆盖 | 真实 pending、minimized、长 command 与 settled 状态 |
 | Details：关闭、打开与缩放 | Legacy 不透明 details 界面；当前核心 panel 仍等价 | 材质与窄宽度组合没有桌面视觉断言 | 在宽窄窗口的玻璃与不透明状态下打开真实 tool details |
 | 外观与材质：浅色、深色、玻璃、不透明 | Legacy 原生呈现 | 现有帧只证明各变体不同 | Body 状态、计算样式与聚焦区域断言 |
 | Settings：General、Models 与 Plugins | Legacy dialog 与集成在 Appearance 中的 switch | 当前桌面玻璃偏好是独立原生 checkbox 行，而不是 legacy switch | 真实 dialog 导航、设置持久化与聚焦截图 |
-| 焦点、拖动、最小化、恢复与缩放 | Legacy 原生窗口证据；当前 traffic-light 坐标和窗口选项仍等价 | 周围 DOM chrome 与 inactive 材质不同 | 现有 OS 行为断言，加产品拥有区域截图 |
+| 焦点、拖动、最小化、恢复与缩放 | Legacy 原生窗口证据；当前 traffic-light 坐标和窗口选项仍等价 | 共享 DOM chrome 已恢复；inactive 材质对齐留在外观评审中 | 现有 OS 行为断言，加产品拥有区域截图 |
 | 当前独有功能与失败 panel | 没有 legacy 对应实现 | File-open failure、结构化引用、附件和新版 menu 组织没有 legacy 基准 | 保留行为，并按共享 legacy 视觉语言评审呈现 |
 
 ## 确定性参考状态
 
 通过真实 Host API 和 Client 流程创建固定 workspace 与三条非空 session。用 keyless replay 驱动每条 session，再通过真实 rename API 分配获批图片中的可见标题。固定 locale、appearance、窗口尺寸、workspace 名称、session 顺序和标题。冻结相对时间，或将其排除在图片比较之外。合成 React 标记可以继续充当聚焦 fixture，但不能宣称验证产品视觉一致性。
 
-Issue #100 在源码与已安装产品旅程中建立了这条参考接缝。隔离 tracer profile 提供三份参考 replay 脚本、一份补充 terminal 行为脚本，以及固定 locale 和 appearance 偏好，不会触及普通 profile。该旅程在 `evidence.json` 中记录参考 session 标识、非空状态、replay marker、稳定顺序、animation 与 compositor settlement、语义事实、解析后几何和图片哈希。在呈现修复落地前，契约还记录品牌身份、panel 图标、chrome 行结构与初始窗口尺寸这四项已知 mismatch。补充脚本在不改变三 session 参考截图的前提下，保留已安装产品的 streaming、tool、completion 与 replay-exhaustion gate。合成 Electron fixture 仅归类为 contribution composition 冒烟测试。
+Issue #100 在源码与已安装产品旅程中建立了这条参考接缝。隔离 tracer profile 提供三份参考 replay 脚本、一份补充 terminal 行为脚本，以及固定 locale 和 appearance 偏好，不会触及普通 profile。该旅程在 `evidence.json` 中记录参考 session 标识、非空状态、replay marker、稳定顺序、animation 与 compositor settlement、语义事实、解析后几何和图片哈希。Issue #101 消除了四项已记录的共享 chrome mismatch：桌面现在分行使用已发布 wordmark 与 panel primitive，以获批尺寸启动，并通过控件及 conversation header 几何断言覆盖展开、零宽收起、窄窗口自动收起、窄窗口手动重开、缩放与全屏状态。唯一新增的精确版本补丁只为侧栏增加一个稳定 header hook；manifest 条目记录其覆盖测试与删除条件。补充脚本在不改变三 session 参考截图的前提下，保留已安装产品的 streaming、tool、completion 与 replay-exhaustion gate。合成 Electron fixture 仅归类为 contribution composition 冒烟测试。
 
 获批图片继续作为人工视觉契约。只有 reviewer 确认真实产品渲染与该图片及适用 legacy 界面一致后，自动化才记录新的确定性基准。基准更新必须明确且可审查。浅色、已选 workspace、展开侧栏的主状态进行图片比较；启动、未选 workspace、收起、深色、不透明、全屏、conversation、details 和 settings 状态采用语义与几何断言，并在稳定位置增加聚焦截图。
 

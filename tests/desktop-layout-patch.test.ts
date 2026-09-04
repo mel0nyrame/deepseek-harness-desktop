@@ -81,14 +81,34 @@ describe('desktop layout patch', () => {
     expect(state).toMatchObject({ sidebar: 372, sidebarLast: 372 })
 
     storeDefinition.actions.setNarrow(state, true)
+    Object.defineProperty(window, 'innerWidth', { value: 900, configurable: true })
+    let frame = registration.component({
+      useStore: (select: (value: typeof state) => unknown) => select(state),
+      useSessions: (select: (value: { current?: string; byId: Record<string, unknown> }) => unknown) => select({ byId: {} }),
+      actions: { closeDetails: vi.fn(), setNarrow: vi.fn(), setSidebar: vi.fn(), setDetails: vi.fn() },
+      renderSlot: vi.fn(() => null),
+    }) as { props: { style: { gridTemplateColumns: string; '--dsh-sidebar-width': string }; 'data-sidebar-collapsed': string } }
+    expect(frame.props.style.gridTemplateColumns).toBe('0px minmax(0, 1fr) 0px')
+    expect(frame.props['data-sidebar-collapsed']).toBe('true')
+
     storeDefinition.actions.toggleSidebar(state)
     expect(state).toMatchObject({ sidebar: 372, sidebarLast: 372, narrow: true, narrowExpanded: true })
+    frame = registration.component({
+      useStore: (select: (value: typeof state) => unknown) => select(state),
+      useSessions: (select: (value: { current?: string; byId: Record<string, unknown> }) => unknown) => select({ byId: {} }),
+      actions: { closeDetails: vi.fn(), setNarrow: vi.fn(), setSidebar: vi.fn(), setDetails: vi.fn() },
+      renderSlot: vi.fn(() => null),
+    }) as typeof frame
+    expect(frame.props.style.gridTemplateColumns).toBe('372px minmax(0, 1fr) 0px')
+    expect(frame.props['data-sidebar-collapsed']).toBe('false')
+
     storeDefinition.actions.toggleSidebar(state)
     storeDefinition.actions.setNarrow(state, false)
+    Object.defineProperty(window, 'innerWidth', { value: 1200, configurable: true })
     expect(state).toMatchObject({ sidebar: 372, sidebarLast: 372, narrow: false, narrowExpanded: false })
 
     state.sidebar = 0
-    const frame = registration.component({
+    frame = registration.component({
       useStore: (select: (value: typeof state) => unknown) => select(state),
       useSessions: (select: (value: { current?: string; byId: Record<string, unknown> }) => unknown) => select({ byId: {} }),
       actions: { closeDetails: vi.fn(), setNarrow: vi.fn(), setSidebar: vi.fn(), setDetails: vi.fn() },

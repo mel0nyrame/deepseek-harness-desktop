@@ -3,6 +3,10 @@
 export type RendererThemePreference = 'light' | 'dark' | 'system'
 
 export interface NativeWindowOptions {
+  readonly width?: number
+  readonly height?: number
+  readonly minWidth?: number
+  readonly minHeight?: number
   readonly backgroundColor: string
   readonly titleBarStyle?: 'hiddenInset'
   readonly trafficLightPosition?: { readonly x: number; readonly y: number }
@@ -80,6 +84,10 @@ const NATIVE_PLATFORMS = new Set<NodeJS.Platform>([
 export function desktopWindowOptions(platform: NodeJS.Platform): NativeWindowOptions {
   if (platform !== 'darwin') return { backgroundColor: '#f9fafb' }
   return {
+    width: 1280,
+    height: 840,
+    minWidth: 900,
+    minHeight: 640,
     backgroundColor: '#00000000',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 14 },

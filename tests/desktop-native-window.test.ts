@@ -63,6 +63,10 @@ describe('desktop native window boundary', () => {
 
   it('uses the compact macOS chrome and keeps other platforms opaque', () => {
     expect(desktopWindowOptions('darwin')).toEqual({
+      width: 1280,
+      height: 840,
+      minWidth: 900,
+      minHeight: 640,
       backgroundColor: '#00000000',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 14 },

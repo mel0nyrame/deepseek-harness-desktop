@@ -90,7 +90,7 @@ describe('published DSH runtime', () => {
     expect(() => execFileSync('git', ['check-ignore', value.build.output], { cwd: ROOT, env: CLEAN_ENV })).not.toThrow()
     const lockfileDigest = execFileSync('shasum', ['-a', '256', value.build.lockfile], { cwd: ROOT, env: CLEAN_ENV, encoding: 'utf8' }).split(' ')[0]
     expect(lockfileDigest).toBe(value.build.lockfileSha256)
-    expect(value.patches).toHaveLength(4)
+    expect(value.patches).toHaveLength(5)
     const workspace = parse(fs.readFileSync(path.join(ROOT, 'pnpm-workspace.yaml'), 'utf8')) as { patchedDependencies?: Record<string, string> }
     expect(workspace.patchedDependencies).toEqual(Object.fromEntries(value.patches.map(patch => [`${patch.package}@${patch.version}`, patch.file])))
     for (const patch of value.patches) {

@@ -94,8 +94,20 @@ body[data-dsh-platform='darwin'][data-dsh-focused='false'] [data-slot='sidebar']
   background: color-mix(in srgb, var(--dsw-alias-bg-base) 82%, transparent) !important;
 }
 
-body[data-dsh-platform='darwin'] [data-slot='sidebar'] > div > :first-child {
+body[data-dsh-platform='darwin'] [data-slot='sidebar'] [data-sidebar-header] {
   visibility: hidden;
+}
+
+body[data-dsh-platform='darwin']
+[data-sidebar-collapsed='true'] [data-slot='sidebar'] {
+  min-width: 0;
+  width: 0;
+  overflow: hidden;
+}
+
+body[data-dsh-platform='darwin']
+[data-sidebar-collapsed='true'] > :has(> [data-slot='sidebar']) {
+  border-right-width: 0;
 }
 
 [data-desktop-window-chrome] {
@@ -107,20 +119,21 @@ body[data-dsh-platform='darwin'] [data-desktop-window-chrome] {
 }
 
 [data-desktop-sidebar-control-row],
+[data-desktop-sidebar-brand-row],
 [data-desktop-sidebar-reveal] {
   position: fixed;
   z-index: 40;
 }
 
 [data-desktop-sidebar-control-row] {
-  top: 0;
+  top: 6px;
   left: 0;
   width: var(--dsh-sidebar-width, 280px);
-  height: 60px;
-  padding: 0 16px 0 72px;
+  height: 28px;
+  padding-left: 84px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   box-sizing: border-box;
   pointer-events: none;
 }
@@ -130,13 +143,24 @@ body[data-dsh-platform='darwin'] [data-desktop-window-chrome] {
   pointer-events: auto;
 }
 
+[data-desktop-sidebar-brand-row] {
+  top: 42px;
+  left: 12px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  color: var(--dsw-alias-label-primary);
+  pointer-events: none;
+}
+
 [data-desktop-sidebar-reveal] {
-  top: 15px;
+  top: 6px;
   left: 84px;
 }
 
 [data-sidebar-collapsed='false'] [data-desktop-sidebar-reveal],
-[data-sidebar-collapsed='true'] [data-desktop-sidebar-control-row] {
+[data-sidebar-collapsed='true'] [data-desktop-sidebar-control-row],
+[data-sidebar-collapsed='true'] [data-desktop-sidebar-brand-row] {
   display: none;
 }
 
@@ -151,6 +175,22 @@ body[data-dsh-fullscreen='true'] [data-desktop-sidebar-reveal] {
 body[data-dsh-platform='darwin'] [data-slot='conversation.session.header'] > header {
   min-height: 48px;
   padding-top: 1.2px;
+}
+
+body[data-dsh-platform='darwin']:not([data-dsh-fullscreen='true'])
+[data-sidebar-collapsed='true'] [data-slot='conversation.session.header'] > header {
+  padding-left: 120px;
+}
+
+body[data-dsh-platform='darwin'][data-dsh-fullscreen='true']
+[data-sidebar-collapsed='true'] [data-slot='conversation.session.header'] > header {
+  padding-left: 48px;
+}
+
+body[data-dsh-platform='darwin']
+[data-slot='conversation.session.header'] > header [role='tablist'] {
+  box-sizing: border-box;
+  max-width: 100%;
 }
 
 .dsh-desktop-glass-row {
@@ -179,8 +219,11 @@ body[data-dsh-platform='darwin'] [data-slot='conversation.session.header'] > hea
 }
 
 .dsh-desktop-chrome-button {
-  width: 30px;
-  height: 30px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: 0;
   border-radius: 7px;
   background: transparent;
@@ -195,8 +238,6 @@ body[data-dsh-platform='darwin'] [data-slot='conversation.session.header'] > hea
 
 .dsh-desktop-chrome-brand {
   color: var(--dsw-alias-label-primary);
-  font-weight: 600;
-  letter-spacing: -0.01em;
 }
 `
 

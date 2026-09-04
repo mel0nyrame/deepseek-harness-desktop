@@ -104,6 +104,7 @@ describe('published sidebar with desktop layout contribution', () => {
       renderSlot,
     })
     const nodes = elementNodes(tree)
+    expect(nodes.some(node => node.props?.['data-sidebar-header'] === '')).toBe(true)
     const toggle = nodes.find(node => node.type === 'button'
       && node.props?.['aria-label'] === 'Collapse sidebar')
     const onClick = toggle?.props?.onClick

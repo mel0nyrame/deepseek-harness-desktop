@@ -8,6 +8,9 @@ import {
 import type { NativeThemeBridgeLike, SidebarGlassSettingsScopeLike } from '../packages/ui/src/runtime.js'
 import type { DesktopNativeSurfaceState } from '../packages/ui/src/surface.js'
 
+function BrandWordmark() { return null }
+function PanelIcon() { return null }
+
 class FakeScope implements SidebarGlassSettingsScopeLike {
   private readonly listeners = new Set<() => void>()
   readonly snapshot = { status: 'ready', value: { enabled: true }, writable: true }
@@ -49,6 +52,8 @@ describe('desktop UI Client contribution', () => {
   it('routes both visible sidebar controls through the official layout action', () => {
     const toggleSidebar = vi.fn()
     const chrome = DesktopWindowChrome({
+      BrandWordmark,
+      PanelIcon,
       toggleSidebar,
       t: (key: string) => key === 'sidebar.collapse' ? 'Collapse sidebar' : 'Expand sidebar',
     } as never)
@@ -58,6 +63,18 @@ describe('desktop UI Client contribution', () => {
       'Expand sidebar',
     ])
     expect(buttons[0]?.props?.['data-desktop-sidebar-toggle']).toBe('')
+    expect(buttons.map(button => button.props?.children).every(child => (
+      typeof child === 'object' && child !== null
+    ))).toBe(true)
+    const nodes = elementNodes(chrome)
+    const controlRow = nodes.find(node => node.props?.['data-desktop-sidebar-control-row'] === '')
+    const brandRow = nodes.find(node => node.props?.['data-desktop-sidebar-brand-row'] === '')
+    expect(controlRow).toBeDefined()
+    expect(brandRow).toMatchObject({
+      props: { role: 'img', 'aria-label': 'deepseek HARNESS' },
+    })
+    expect(elementNodes(controlRow).includes(brandRow as ElementNode)).toBe(false)
+    expect(brandRow?.props?.children).toEqual(expect.objectContaining({ type: expect.any(Function) }))
     for (const button of buttons) {
       const onClick = button.props?.onClick
       if (typeof onClick !== 'function') throw new Error('desktop sidebar button has no click action')
@@ -74,6 +91,7 @@ describe('desktop UI Client contribution', () => {
     const appended: unknown[] = []
     const environment: DesktopUiClientEnvironment = {
       nativeTheme,
+      primitives: { BrandWordmark, PanelIcon },
       document: {
         body,
         createElement() { return { id: '', textContent: '', remove: removedStyle } },
