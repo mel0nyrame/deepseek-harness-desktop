@@ -20,6 +20,10 @@ export interface WindowSizeLike {
   readonly height: number
 }
 
+export interface WindowDisplayLike {
+  readonly bounds: WindowSizeLike
+}
+
 export interface RendererSurfaceState {
   readonly appearance: 'light' | 'dark'
   readonly transparency: 'glass' | 'opaque'
@@ -107,11 +111,11 @@ export function isRequestedWindowSizeSettled(
   actual: WindowSizeLike,
   requested: WindowSizeLike,
   minimumHeight: number,
-  workArea: WindowSizeLike,
+  display: WindowDisplayLike,
 ): boolean {
   const maximum = {
-    width: Math.min(requested.width, workArea.width),
-    height: Math.min(requested.height, workArea.height),
+    width: Math.min(requested.width, display.bounds.width),
+    height: Math.min(requested.height, display.bounds.height),
   }
   return actual.width === maximum.width
     && actual.height >= Math.min(minimumHeight, maximum.height)

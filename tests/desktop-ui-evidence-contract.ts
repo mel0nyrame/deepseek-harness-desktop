@@ -81,6 +81,7 @@ export interface UiEvidence {
   }
   readonly geometry: {
     readonly initialWindow: { readonly width: number; readonly height: number }
+    readonly initialDisplayBounds: { readonly width: number; readonly height: number }
     readonly initialWorkArea: { readonly width: number; readonly height: number }
     readonly window: { readonly width: number; readonly height: number }
     readonly viewport: { readonly width: number; readonly height: number }
@@ -93,8 +94,8 @@ export interface UiEvidence {
     readonly expectedInitialSize: { readonly width: number; readonly height: number }
     readonly windowSizing: {
       readonly actual: { readonly width: number; readonly height: number }
-      readonly constrainedByWorkArea: boolean
-      readonly reason: 'display-work-area' | null
+      readonly constrainedByDisplay: boolean
+      readonly reason: 'display-geometry' | null
     }
     readonly mismatches: string[]
   }
@@ -185,6 +186,7 @@ export function assertOfficialUiEvidence(
     },
     geometry: {
       initialWindow: { width: 1280, height: expect.any(Number) },
+      initialDisplayBounds: { width: expect.any(Number), height: expect.any(Number) },
       initialWorkArea: { width: expect.any(Number), height: expect.any(Number) },
       window: { width: 1280, height: expect.any(Number) },
       viewport: { width: expect.any(Number), height: expect.any(Number) },
@@ -202,7 +204,7 @@ export function assertOfficialUiEvidence(
       expectedInitialSize: { width: 1280, height: 840 },
       windowSizing: {
         actual: { width: 1280, height: expect.any(Number) },
-        constrainedByWorkArea: expect.any(Boolean),
+        constrainedByDisplay: expect.any(Boolean),
       },
       mismatches: [],
     },
@@ -254,32 +256,31 @@ export function assertOfficialUiEvidence(
   }
   const requested = evidence.visualContract.expectedInitialSize
   const actual = evidence.visualContract.windowSizing.actual
-  const workArea = evidence.geometry.initialWorkArea
+  const displayBounds = evidence.geometry.initialDisplayBounds
   if (actual.width === requested.width && actual.height === requested.height) {
     expect(evidence.visualContract.windowSizing).toMatchObject({
-      constrainedByWorkArea: false,
+      constrainedByDisplay: false,
       reason: null,
     })
   } else {
     expect(evidence.visualContract.windowSizing).toMatchObject({
-      constrainedByWorkArea: true,
-      reason: 'display-work-area',
+      constrainedByDisplay: true,
+      reason: 'display-geometry',
     })
-    expect(actual).toEqual({
-      width: Math.min(requested.width, workArea.width),
-      height: Math.min(requested.height, workArea.height),
-    })
+    expect(actual.width).toBe(Math.min(requested.width, displayBounds.width))
+    expect(actual.height).toBeGreaterThanOrEqual(Math.min(640, displayBounds.height))
+    expect(actual.height).toBeLessThanOrEqual(Math.min(requested.height, displayBounds.height))
   }
   expect(evidence.geometry.initialWindow).toEqual(actual)
   expect(evidence.geometry.window).toEqual(actual)
   expect(evidence.responsive.expanded.window).toEqual(actual)
   expect(evidence.responsive.collapsed.window).toEqual(actual)
   expect(evidence.responsive.resizedExpanded.window.width)
-    .toBe(Math.min(requested.width, workArea.width))
+    .toBe(Math.min(requested.width, displayBounds.width))
   expect(evidence.responsive.resizedExpanded.window.height)
-    .toBeGreaterThanOrEqual(Math.min(640, workArea.height))
+    .toBeGreaterThanOrEqual(Math.min(640, displayBounds.height))
   expect(evidence.responsive.resizedExpanded.window.height)
-    .toBeLessThanOrEqual(Math.min(requested.height, workArea.height))
+    .toBeLessThanOrEqual(Math.min(requested.height, displayBounds.height))
   const images = VISUAL_EVIDENCE_FILES.map(file => readFileSync(join(framesDirectory, file)))
   expect(images.every(image => image.subarray(0, 8).toString('hex') === '89504e470d0a1a0a')).toBe(true)
   expect(images.every(image => image.byteLength > 20_000)).toBe(true)

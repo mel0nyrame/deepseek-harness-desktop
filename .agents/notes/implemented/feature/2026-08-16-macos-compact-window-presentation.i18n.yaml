@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-08-16-macos-compact-window-presentation.md: e4bb8ae744e4ab81d01500eebf12300c054882a6
-2026-08-16-macos-compact-window-presentation.zh.md: dc1046498d4e8fa512c50111836c1858906ad994
+2026-08-16-macos-compact-window-presentation.md: 66b6ad58013be2bfb883473bc7a684241ef7660b
+2026-08-16-macos-compact-window-presentation.zh.md: 7208ccff0ee9c59fd748974a4b4b62e3dd55f84d

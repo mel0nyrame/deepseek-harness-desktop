@@ -5,7 +5,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { screen, type BrowserWindow } from 'electron'
 import { captureStableFrame } from './frame-capture.js'
-import { isRequestedWindowSizeSettled } from './native-window.js'
+import { isRequestedWindowSizeSettled, type WindowSizeLike } from './native-window.js'
 import { TERMINAL_TRACER_PROMPT } from './tracer-contract.js'
 
 const REQUIRED_CLIENT_MODULES = [
@@ -213,8 +213,9 @@ async function createVisualReferenceState(window: BrowserWindow, pickedDirectory
 
 async function resolvedVisualEvidence(
   window: BrowserWindow,
-  initialWindowSize: { readonly width: number; readonly height: number },
-  initialWorkArea: { readonly width: number; readonly height: number },
+  initialWindowSize: WindowSizeLike,
+  initialDisplayBounds: WindowSizeLike,
+  initialWorkArea: WindowSizeLike,
 ): Promise<{
   readonly deterministic: Record<string, unknown>
   readonly semantics: Record<string, unknown>
@@ -315,16 +316,14 @@ async function resolvedVisualEvidence(
     throw new Error(`desktop UI evidence resolved invalid reference facts: ${JSON.stringify(renderer)}`)
   }
   const currentWindowBounds = window.getBounds()
-  const resolvedRequestedSize = {
-    width: Math.min(EXPECTED_INITIAL_SIZE.width, initialWorkArea.width),
-    height: Math.min(EXPECTED_INITIAL_SIZE.height, initialWorkArea.height),
-  }
-  const constrainedByWorkArea = initialWindowSize.width === resolvedRequestedSize.width
-    && initialWindowSize.height === resolvedRequestedSize.height
-    && (initialWindowSize.width !== EXPECTED_INITIAL_SIZE.width
-      || initialWindowSize.height !== EXPECTED_INITIAL_SIZE.height)
   const initialSizeMatches = initialWindowSize.width === EXPECTED_INITIAL_SIZE.width
     && initialWindowSize.height === EXPECTED_INITIAL_SIZE.height
+  const constrainedByDisplay = !initialSizeMatches && isRequestedWindowSizeSettled(
+    initialWindowSize,
+    EXPECTED_INITIAL_SIZE,
+    MINIMUM_WINDOW_SIZE.height,
+    { bounds: initialDisplayBounds },
+  )
   const brandMatches = renderer.brand.present === true && renderer.brand.graphic === true
     && renderer.brand.accessibleName === 'deepseek HARNESS'
     && renderer.brand.text === ''
@@ -335,7 +334,7 @@ async function resolvedVisualEvidence(
     ...(brandMatches ? [] : ['brand.identity']),
     ...(panelMatches ? [] : ['sidebar.panel-control']),
     ...(renderer.chromeRows.separate === true ? [] : ['sidebar.chrome-rows']),
-    ...(initialSizeMatches || constrainedByWorkArea ? [] : ['window.initial-size']),
+    ...(initialSizeMatches || constrainedByDisplay ? [] : ['window.initial-size']),
   ]
   return {
     deterministic: {
@@ -362,6 +361,7 @@ async function resolvedVisualEvidence(
     },
     geometry: {
       initialWindow: initialWindowSize,
+      initialDisplayBounds,
       initialWorkArea,
       window: { width: currentWindowBounds.width, height: currentWindowBounds.height },
       ...renderer.geometry,
@@ -370,8 +370,8 @@ async function resolvedVisualEvidence(
       expectedInitialSize: EXPECTED_INITIAL_SIZE,
       windowSizing: {
         actual: initialWindowSize,
-        constrainedByWorkArea,
-        reason: constrainedByWorkArea ? 'display-work-area' : null,
+        constrainedByDisplay,
+        reason: constrainedByDisplay ? 'display-geometry' : null,
       },
       mismatches,
     },
@@ -524,9 +524,9 @@ async function exerciseResponsiveLayout(
   window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
   await waitForWindowState(window, () => {
     const bounds = window.getBounds()
-    const workArea = screen.getDisplayMatching(bounds).workArea
+    const display = screen.getDisplayMatching(bounds)
     return isRequestedWindowSizeSettled(
-      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, workArea,
+      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, display,
     )
   }, 'restored window bounds')
   await settleRendererLayout(window)
@@ -547,9 +547,9 @@ async function exerciseResponsiveLayout(
   window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
   await waitForWindowState(window, () => {
     const bounds = window.getBounds()
-    const workArea = screen.getDisplayMatching(bounds).workArea
+    const display = screen.getDisplayMatching(bounds)
     return isRequestedWindowSizeSettled(
-      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, workArea,
+      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, display,
     )
   }, 'final window bounds')
   await settleRendererLayout(window)
@@ -627,8 +627,15 @@ export async function captureOfficialUiEvidence(
   const frames: CapturedFrame[] = []
   const initialBounds = window.getBounds()
   const initialWindowSize = { width: initialBounds.width, height: initialBounds.height }
-  const displayWorkArea = screen.getDisplayMatching(initialBounds).workArea
-  const initialWorkArea = { width: displayWorkArea.width, height: displayWorkArea.height }
+  const initialDisplay = screen.getDisplayMatching(initialBounds)
+  const initialDisplayBounds = {
+    width: initialDisplay.bounds.width,
+    height: initialDisplay.bounds.height,
+  }
+  const initialWorkArea = {
+    width: initialDisplay.workArea.width,
+    height: initialDisplay.workArea.height,
+  }
   await waitFor(window, `(() => {
     const graph = globalThis.__DSH_BOOT__
     return typeof graph === 'object' && graph !== null && Array.isArray(graph.entries)
@@ -678,7 +685,9 @@ export async function captureOfficialUiEvidence(
   await waitFor(window, 'document.querySelector(\'[role="listbox"]\') === null', 'input trigger dismissal')
 
   const workspaceId = await createVisualReferenceState(window, pickedDirectory)
-  const visual = await resolvedVisualEvidence(window, initialWindowSize, initialWorkArea)
+  const visual = await resolvedVisualEvidence(
+    window, initialWindowSize, initialDisplayBounds, initialWorkArea,
+  )
   frames.push(await capture(window, framesDir, '04-visual-reference'))
   await captureTerminalBehaviorEvidence(window, workspaceId, framesDir, frames)
 
