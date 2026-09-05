@@ -1,6 +1,6 @@
 /** Client contributions for native window chrome, material, and settings UI. */
 
-import { createElement, type ChangeEvent, type ReactElement } from 'react'
+import { createElement, type ChangeEvent, type ComponentType, type ReactElement } from 'react'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
@@ -62,6 +62,8 @@ declare global {
 }
 
 interface DesktopWindowChromeInjected {
+  BrandWordmark: ComponentType<{ size?: number }>
+  PanelIcon: ComponentType<{ size?: number }>
   toggleSidebar(): void
 }
 
@@ -81,29 +83,31 @@ type SidebarGlassRowProps =
   & InjectFace<SidebarGlassRowInjected>
 
 /** Render additive compact chrome above the official sidebar contribution. */
-export function DesktopWindowChrome({ toggleSidebar, t }: DesktopWindowChromeProps): ReactElement {
+export function DesktopWindowChrome({ BrandWordmark, PanelIcon, toggleSidebar, t }: DesktopWindowChromeProps): ReactElement {
   const collapse = createElement('button', {
     type: 'button',
     className: 'dsh-desktop-chrome-button',
     'data-desktop-sidebar-toggle': '',
     'aria-label': t('sidebar.collapse'),
     onClick: toggleSidebar,
-  }, '‹')
+  }, createElement(PanelIcon, { size: 16 }))
   const reveal = createElement('button', {
     type: 'button',
     className: 'dsh-desktop-chrome-button',
     'data-desktop-sidebar-reveal': '',
     'aria-label': t('sidebar.expand'),
     onClick: toggleSidebar,
-  }, '›')
+  }, createElement(PanelIcon, { size: 16 }))
   return createElement('div', { 'data-desktop-window-chrome': '' },
     createElement('div', { 'data-desktop-sidebar-control-row': '' },
-      createElement('span', {
-        className: 'dsh-desktop-chrome-brand',
-        'data-desktop-sidebar-brand-row': '',
-      }, 'DeepSeek'),
       collapse,
     ),
+    createElement('div', {
+      className: 'dsh-desktop-chrome-brand',
+      'data-desktop-sidebar-brand-row': '',
+      role: 'img',
+      'aria-label': 'deepseek HARNESS',
+    }, createElement(BrandWordmark, { size: 24 })),
     reveal,
   )
 }
@@ -133,9 +137,10 @@ export function SidebarGlassRow({ useDesktopSurface, setEnabled, t }: SidebarGla
 export interface DesktopUiClientEnvironment {
   readonly nativeTheme: NativeThemeBridgeLike
   readonly document: DesktopSurfaceDocumentLike
+  readonly primitives: Pick<DesktopWindowChromeInjected, 'BrandWordmark' | 'PanelIcon'>
 }
 
-type DesktopUiClientContext = ClientContext & {
+export type DesktopUiClientContext = ClientContext & {
   readonly locale: LocaleRuntime
   readonly layout: ILayout
   readonly settingsScope: SettingsScopeBinder
@@ -179,6 +184,7 @@ export function applyWithEnvironment(ctx: DesktopUiClientContext, environment: D
       order: -100,
       locale: SETTINGS_NS,
       inject: (): DesktopWindowChromeInjected => ({
+        ...environment.primitives,
         toggleSidebar: () => { ctx.layout.toggleSidebar() },
       }),
     }, DesktopWindowChrome)),
@@ -197,20 +203,4 @@ export function applyWithEnvironment(ctx: DesktopUiClientContext, environment: D
     }, SidebarGlassRow)),
     'desktop-ui: sidebar glass settings contribution',
   )
-}
-
-/** Apply the desktop Client contribution against the context-isolated preload bridge. */
-export function apply(ctx: DesktopUiClientContext): void {
-  const nativeTheme = globalThis.dshNativeTheme
-  if (nativeTheme === undefined || typeof document === 'undefined') {
-    throw new Error('desktop UI: native theme preload bridge is unavailable')
-  }
-  applyWithEnvironment(ctx, {
-    nativeTheme,
-    document: {
-      body: document.body,
-      createElement: () => document.createElement('style'),
-      head: { append: style => { document.head.append(style as HTMLStyleElement) } },
-    },
-  })
 }

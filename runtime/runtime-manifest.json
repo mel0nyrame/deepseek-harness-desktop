@@ -133,6 +133,19 @@
         "tests/desktop-layout-patch.test.ts",
         "tests/desktop-ui-client.test.ts"
       ]
+    },
+    {
+      "package": "@deepseek-ai/dsh-client-ui-sidebar",
+      "version": "0.1.0-rc.8",
+      "file": "patches/@deepseek-ai__dsh-client-ui-sidebar@0.1.0-rc.8.patch",
+      "sha256": "e7170660150128fb9bcc25e86fc0d61f1c9edc1a8b62b431d056b95918f0b8da",
+      "rationale": "Expose a stable header hook so the desktop chrome can replace only the published sidebar header without relying on positional selectors.",
+      "upstream": "https://github.com/deepseek-ai/deepseek-harness/tree/141eb6fef83422698aef7a981029e843e8161534/packages/client/ui/sidebar/src",
+      "removeWhen": "An exact published @deepseek-ai/dsh-client-ui-sidebar release exposes a stable header hook or the desktop no longer replaces that header.",
+      "tests": [
+        "tests/desktop-sidebar-integration.test.ts",
+        "tests/desktop-ui-surface.test.ts"
+      ]
     }
   ],
   "build": {
@@ -149,6 +162,6 @@
       "output": "apps/desktop/dist",
       "runtimePath": "Contents/Resources/runtime"
     },
-    "lockfileSha256": "9594e9b8b7a4e51af2d08d77d4083cfb526b65d2c301ff54250025598b2a03c3"
+    "lockfileSha256": "45996a7c66dda1ed8ecea8b45cf3c3f09f2c2acd0c66073dfb7a49d5dd68b9fa"
   }
 }

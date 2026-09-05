@@ -3,12 +3,21 @@
 export type RendererThemePreference = 'light' | 'dark' | 'system'
 
 export interface NativeWindowOptions {
+  readonly width?: number
+  readonly height?: number
+  readonly minWidth?: number
+  readonly minHeight?: number
   readonly backgroundColor: string
   readonly titleBarStyle?: 'hiddenInset'
   readonly trafficLightPosition?: { readonly x: number; readonly y: number }
   readonly transparent?: boolean
   readonly vibrancy?: 'under-window'
   readonly visualEffectState?: 'followWindow'
+}
+
+export interface WindowSizeLike {
+  readonly width: number
+  readonly height: number
 }
 
 export interface RendererSurfaceState {
@@ -80,6 +89,10 @@ const NATIVE_PLATFORMS = new Set<NodeJS.Platform>([
 export function desktopWindowOptions(platform: NodeJS.Platform): NativeWindowOptions {
   if (platform !== 'darwin') return { backgroundColor: '#f9fafb' }
   return {
+    width: 1280,
+    height: 840,
+    minWidth: 900,
+    minHeight: 640,
     backgroundColor: '#00000000',
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 16, y: 14 },
@@ -87,6 +100,17 @@ export function desktopWindowOptions(platform: NodeJS.Platform): NativeWindowOpt
     vibrancy: 'under-window',
     visualEffectState: 'followWindow',
   }
+}
+
+/** Return whether a requested wide size settled with a platform-adjusted frame height. */
+export function isRequestedWindowSizeSettled(
+  actual: WindowSizeLike,
+  requested: WindowSizeLike,
+  minimumHeight: number,
+): boolean {
+  return actual.width === requested.width
+    && actual.height >= Math.min(minimumHeight, requested.height)
+    && actual.height <= requested.height
 }
 
 /** Derive renderer data attributes from validated Electron native state. */

@@ -36,11 +36,16 @@ pnpm install
 pnpm run typecheck
 pnpm run lint
 pnpm run test
+pnpm run test:agent   # serialized agent verification; use `-- --help` for presets
 pnpm run test:layout   # repository-layout boundary test
 pnpm run check         # typecheck + lint + test
 pnpm run package       # installable macOS app + DMG (macOS only)
 pnpm run test:package  # installed-product gate; needs a packaged app
 ```
+
+Agents use `pnpm run test:agent -- --help` before CI diagnosis, pre-push
+validation, or installed-product verification; the runner serializes native UI
+gates and preserves one log per step.
 
 CI is staged by change risk (`ci.yml` ordinary PRs, `packaging.yml`
 app-artifact changes, `release.yml` release pull requests and tags); the

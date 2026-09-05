@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createNativeThemePreload,
   desktopWindowOptions,
+  isRequestedWindowSizeSettled,
   installNativeThemeHost,
   parseRendererThemePreference,
   rendererSurfaceState,
@@ -63,6 +64,10 @@ describe('desktop native window boundary', () => {
 
   it('uses the compact macOS chrome and keeps other platforms opaque', () => {
     expect(desktopWindowOptions('darwin')).toEqual({
+      width: 1280,
+      height: 840,
+      minWidth: 900,
+      minHeight: 640,
       backgroundColor: '#00000000',
       titleBarStyle: 'hiddenInset',
       trafficLightPosition: { x: 16, y: 14 },
@@ -72,6 +77,21 @@ describe('desktop native window boundary', () => {
     })
     expect(desktopWindowOptions('linux')).toEqual({ backgroundColor: '#f9fafb' })
     expect(desktopWindowOptions('win32')).toEqual({ backgroundColor: '#f9fafb' })
+  })
+
+  it('accepts a platform-adjusted wide resize without accepting the narrow minimum', () => {
+    const requested = { width: 1280, height: 840 }
+    const minimum = { width: 900, height: 640 }
+
+    expect(isRequestedWindowSizeSettled(
+      { width: 1280, height: 684 }, requested, minimum.height,
+    )).toBe(true)
+    expect(isRequestedWindowSizeSettled(
+      { width: 900, height: 640 }, requested, minimum.height,
+    )).toBe(false)
+    expect(isRequestedWindowSizeSettled(
+      { width: 1280, height: 639 }, requested, minimum.height,
+    )).toBe(false)
   })
 
   it('derives renderer appearance from native state', () => {

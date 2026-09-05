@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal
 # authority; after editing either side, bring the other along and re-record
 # with: git hash-object <side> for both files, then update this record.
-2026-09-04-legacy-desktop-visual-parity.md: 7e290285e5a46322f40941c43ebd79d8ea19c05e
-2026-09-04-legacy-desktop-visual-parity.zh.md: c7f0b84b74b5064ea93d0b1f729abc20b484272e
+2026-09-04-legacy-desktop-visual-parity.md: e68706ed9e422899e588fbd2c60cd8a6b7ae5c08
+2026-09-04-legacy-desktop-visual-parity.zh.md: cb7935c0d8fc291fcdf1183cb6f04fe35b811cfe
