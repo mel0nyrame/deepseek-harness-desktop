@@ -1,0 +1,8 @@
+version: 1
+files:
+  en:
+    path: 2026-09-05-agent-verification-runner.md
+    blob: d96491851db4ed81837e44a151d0f4c640f1fd52
+  zh:
+    path: 2026-09-05-agent-verification-runner.zh.md
+    blob: ef0dea3768b17eb3a0a4951ec81702fd1fbd064f
