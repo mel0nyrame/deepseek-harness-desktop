@@ -38,7 +38,7 @@ Host 负责 `ui-sidebar-glass-macos.enabled` 设置。该设置默认开启，�
 - 浅色、深色、跟随系统、玻璃和不透明状态投影为稳定的 body 属性，shell 无需依赖生成后的 CSS module 类名。
 - 侧栏展开时恢复最后一次拖动宽度；收起时网格轨道与原生材质解析为零，同时保留官方侧栏注册。
 - 窄窗口会自动收起侧栏并允许手动重开，缩放回宽窗口后恢复保留的宽屏偏好。窗口与全屏状态下的展开控件都保持可达，conversation header 与 view tab 会避开原生 chrome。
-- 证据流程同时记录 display bounds 与 work area，但依据显示器几何验证 `BrowserWindow` 外框。初始尺寸与后续宽窗 resize 必须达到请求宽度或显示器限制宽度，高度则位于平台最小值与请求高度或显示器限制高度之间；work area 排除了系统 UI，而窗口边界包含原生 chrome，因此不能用 work area 限制原生外框。
+- 证据流程将 display bounds 与 work area 作为诊断信息记录，但不依据任一数值推导 `BrowserWindow` 外框。初始尺寸与后续宽窗 resize 必须达到请求宽度，高度则位于平台最小值与请求高度之间；macOS 可能报告无法由任一显示器指标精确钳制得到的稳定原生外框。
 - 每个 Client registration、样式表、主题订阅、设置订阅和原生 bridge 订阅都有明确的 disposer。
 - 原生 tracer 在输出 `NATIVE_WINDOW_EVIDENCE` 前，验证真实 macOS 窗口能力、traffic-light 位置、缩放、active → inactive → active 焦点切换、主题、“减少透明度”投影和全屏切换。它还检查计算后的 drag/no-drag 区域，并分别发送输入尝试。带权限门禁的验收路径向父级 driver 发布绝对坐标；外部注入的 CoreGraphics 指针事件必须移动 drag 表面，并且不得移动 no-drag 控件。
 - 可见 tracer 表面投影与 contribution 相同且经过校验的原生事实。它在 compositor 稳定后捕获深色、浅色和跟随系统的 PNG 帧，并要求深浅图片不同。另一个离屏 Electron fixture 运行正式桌面注册、加载精确发布版 sidebar 组件与样式，并记录深色玻璃展开、浅色玻璃收起和不透明展开帧。`webContents.capturePage()` 有意不包含原生 traffic-light 图形；这些图形由原生窗口断言覆盖。

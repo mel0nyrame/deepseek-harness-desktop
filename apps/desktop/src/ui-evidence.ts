@@ -318,11 +318,10 @@ async function resolvedVisualEvidence(
   const currentWindowBounds = window.getBounds()
   const initialSizeMatches = initialWindowSize.width === EXPECTED_INITIAL_SIZE.width
     && initialWindowSize.height === EXPECTED_INITIAL_SIZE.height
-  const constrainedByDisplay = !initialSizeMatches && isRequestedWindowSizeSettled(
+  const adjustedByPlatform = !initialSizeMatches && isRequestedWindowSizeSettled(
     initialWindowSize,
     EXPECTED_INITIAL_SIZE,
     MINIMUM_WINDOW_SIZE.height,
-    { bounds: initialDisplayBounds },
   )
   const brandMatches = renderer.brand.present === true && renderer.brand.graphic === true
     && renderer.brand.accessibleName === 'deepseek HARNESS'
@@ -334,7 +333,7 @@ async function resolvedVisualEvidence(
     ...(brandMatches ? [] : ['brand.identity']),
     ...(panelMatches ? [] : ['sidebar.panel-control']),
     ...(renderer.chromeRows.separate === true ? [] : ['sidebar.chrome-rows']),
-    ...(initialSizeMatches || constrainedByDisplay ? [] : ['window.initial-size']),
+    ...(initialSizeMatches || adjustedByPlatform ? [] : ['window.initial-size']),
   ]
   return {
     deterministic: {
@@ -370,8 +369,8 @@ async function resolvedVisualEvidence(
       expectedInitialSize: EXPECTED_INITIAL_SIZE,
       windowSizing: {
         actual: initialWindowSize,
-        constrainedByDisplay,
-        reason: constrainedByDisplay ? 'display-geometry' : null,
+        adjustedByPlatform,
+        reason: adjustedByPlatform ? 'platform-window-frame' : null,
       },
       mismatches,
     },
@@ -524,9 +523,8 @@ async function exerciseResponsiveLayout(
   window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
   await waitForWindowState(window, () => {
     const bounds = window.getBounds()
-    const display = screen.getDisplayMatching(bounds)
     return isRequestedWindowSizeSettled(
-      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, display,
+      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height,
     )
   }, 'restored window bounds')
   await settleRendererLayout(window)
@@ -547,9 +545,8 @@ async function exerciseResponsiveLayout(
   window.setSize(EXPECTED_INITIAL_SIZE.width, EXPECTED_INITIAL_SIZE.height)
   await waitForWindowState(window, () => {
     const bounds = window.getBounds()
-    const display = screen.getDisplayMatching(bounds)
     return isRequestedWindowSizeSettled(
-      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height, display,
+      bounds, EXPECTED_INITIAL_SIZE, MINIMUM_WINDOW_SIZE.height,
     )
   }, 'final window bounds')
   await settleRendererLayout(window)

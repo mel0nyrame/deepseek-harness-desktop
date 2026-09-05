@@ -20,10 +20,6 @@ export interface WindowSizeLike {
   readonly height: number
 }
 
-export interface WindowDisplayLike {
-  readonly bounds: WindowSizeLike
-}
-
 export interface RendererSurfaceState {
   readonly appearance: 'light' | 'dark'
   readonly transparency: 'glass' | 'opaque'
@@ -106,20 +102,15 @@ export function desktopWindowOptions(platform: NodeJS.Platform): NativeWindowOpt
   }
 }
 
-/** Return whether width reached its display limit and height settled within the allowed range. */
+/** Return whether a requested wide size settled with a platform-adjusted frame height. */
 export function isRequestedWindowSizeSettled(
   actual: WindowSizeLike,
   requested: WindowSizeLike,
   minimumHeight: number,
-  display: WindowDisplayLike,
 ): boolean {
-  const maximum = {
-    width: Math.min(requested.width, display.bounds.width),
-    height: Math.min(requested.height, display.bounds.height),
-  }
-  return actual.width === maximum.width
-    && actual.height >= Math.min(minimumHeight, maximum.height)
-    && actual.height <= maximum.height
+  return actual.width === requested.width
+    && actual.height >= Math.min(minimumHeight, requested.height)
+    && actual.height <= requested.height
 }
 
 /** Derive renderer data attributes from validated Electron native state. */

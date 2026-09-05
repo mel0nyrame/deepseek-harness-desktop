@@ -79,22 +79,18 @@ describe('desktop native window boundary', () => {
     expect(desktopWindowOptions('win32')).toEqual({ backgroundColor: '#f9fafb' })
   })
 
-  it('accepts a display-clamped wide resize without accepting the narrow minimum', () => {
+  it('accepts a platform-adjusted wide resize without accepting the narrow minimum', () => {
     const requested = { width: 1280, height: 840 }
     const minimum = { width: 900, height: 640 }
-    const display = {
-      bounds: { width: 1280, height: 720 },
-      workArea: { width: 1280, height: 657 },
-    }
 
     expect(isRequestedWindowSizeSettled(
-      { width: 1280, height: 684 }, requested, minimum.height, display,
+      { width: 1280, height: 684 }, requested, minimum.height,
     )).toBe(true)
     expect(isRequestedWindowSizeSettled(
-      { width: 900, height: 640 }, requested, minimum.height, display,
+      { width: 900, height: 640 }, requested, minimum.height,
     )).toBe(false)
     expect(isRequestedWindowSizeSettled(
-      { width: 1280, height: 639 }, requested, minimum.height, display,
+      { width: 1280, height: 639 }, requested, minimum.height,
     )).toBe(false)
   })
 
